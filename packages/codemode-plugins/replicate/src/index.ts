@@ -27,7 +27,9 @@ import {
   type CodemodePluginAPI,
 } from "@shiftlabs/codemode";
 import {
+  mediaDir,
   readImageInput,
+  SAVE_DIR_DESCRIPTION,
   type SavedMedia,
   SEND_FILE_NOTE,
   writeMediaFile,
@@ -207,8 +209,7 @@ export default function replicate(rl: CodemodePluginAPI) {
       saveDir: {
         type: "string",
         required: false,
-        description:
-          "Directory to write the image file(s) into. Defaults to the OS temp dir.",
+        description: SAVE_DIR_DESCRIPTION,
       },
       model: {
         type: "string",
@@ -252,7 +253,7 @@ export default function replicate(rl: CodemodePluginAPI) {
           num_outputs: Math.min(p.n ?? 1, 4),
         },
         timeoutMs: p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        saveDir: p.saveDir ?? ctx.outputDir,
+        saveDir: mediaDir(p.saveDir, ctx),
       });
 
       const result: {
@@ -286,8 +287,7 @@ export default function replicate(rl: CodemodePluginAPI) {
       saveDir: {
         type: "string",
         required: false,
-        description:
-          "Directory to write the image file(s) into. Defaults to the OS temp dir.",
+        description: SAVE_DIR_DESCRIPTION,
       },
       model: {
         type: "string",
@@ -326,7 +326,7 @@ export default function replicate(rl: CodemodePluginAPI) {
           [imageKey]: imageKey.endsWith("_input") ? [img.dataUri] : img.dataUri,
         },
         timeoutMs: p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        saveDir: p.saveDir ?? ctx.outputDir,
+        saveDir: mediaDir(p.saveDir, ctx),
       });
 
       const result: {

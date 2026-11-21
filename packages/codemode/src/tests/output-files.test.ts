@@ -6,11 +6,13 @@
 
 import assert from "node:assert/strict";
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -122,6 +124,39 @@ describe("the directory a host names for output", () => {
       (await hosted.execute(run, { outputDir: join(tmp, "run") })).result,
       join(tmp, "run"),
     );
+  });
+
+  it("is refused when it is not a path", async () => {
+    for (const outputDir of ["", 5 as unknown as string]) {
+      const { error } = await codemode({ outputDir }).execute("return 1");
+      assert.match(error ?? "", /Invalid outputDir/);
+    }
+  });
+
+  it("comes from a project's config.json, from where the project is", async () => {
+    const project = join(tmp, "project");
+    mkdirSync(join(project, ".codemode"), { recursive: true });
+    writeFileSync(
+      join(project, ".codemode", "config.json"),
+      JSON.stringify({
+        connections: [],
+        outputDir: "outbox",
+        maxResultBytes: 50,
+      }),
+    );
+    const loaded = await Codemode.fromProject(project, {
+      builtinDir: join(tmp, "no-builtins"),
+      userDir: join(tmp, "home"),
+      packages: false,
+      mcp: false,
+    });
+    assert.ok(loaded);
+    instances.push(loaded);
+    const { truncated, fullResultPath } = await loaded.execute(
+      `return "x".repeat(500)`,
+    );
+    assert.equal(truncated, true);
+    assert.equal(dirname(fullResultPath as string), join(project, "outbox"));
   });
 });
 

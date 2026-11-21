@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
 import {
   extForMime,
+  mediaDir,
   writeImageFile,
   writeMediaFile,
 } from "../../../codemode-plugins/_shared/mediaFile.js";
@@ -23,6 +24,14 @@ describe("shared media writer", () => {
     assert.equal(dirname(first.path), dir);
     if (process.platform !== "win32")
       assert.equal(statSync(first.path).mode & 0o777, 0o600);
+  });
+
+  it("writes where the caller asked, else where the host keeps output", () => {
+    const ctx = { outputDir: "/host/outbox" };
+    assert.equal(mediaDir("/asked", ctx), "/asked");
+    for (const blank of [undefined, "", "   "])
+      assert.equal(mediaDir(blank, ctx), "/host/outbox");
+    assert.equal(mediaDir(undefined, {}), undefined);
   });
 
   it("uses the same writer for base64 image output", () => {

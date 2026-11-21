@@ -1,6 +1,6 @@
 import type { CodemodePluginAPI } from "@shiftlabs/codemode";
 import * as t from "typebox";
-import { readImageInput } from "../../_shared/mediaFile.js";
+import { mediaDir, readImageInput } from "../../_shared/mediaFile.js";
 import { parseSize } from "../../_shared/parseSize.js";
 import { falCredential } from "./credentials.js";
 import {
@@ -131,7 +131,7 @@ async function generate(
     { ...input, ...p.extraInput },
     p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
-  return savedResult(output, id, requestId, p.saveDir ?? ctx.outputDir, kind);
+  return savedResult(output, id, requestId, mediaDir(p.saveDir, ctx), kind);
 }
 
 /** fal model inference via its queue API. Generation is billed; downloads return local paths. */
@@ -218,7 +218,7 @@ export default function fal(rl: CodemodePluginAPI): void {
         p.input,
         p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
-      return savedResult(output, id, requestId, p.saveDir ?? ctx.outputDir);
+      return savedResult(output, id, requestId, mediaDir(p.saveDir, ctx));
     },
   });
   rl.registerAction("queue.submit", {
@@ -259,7 +259,7 @@ export default function fal(rl: CodemodePluginAPI): void {
         await result(ctx, id, p.requestId),
         id,
         p.requestId,
-        p.saveDir ?? ctx.outputDir,
+        mediaDir(p.saveDir, ctx),
       );
     },
   });

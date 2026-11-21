@@ -176,21 +176,19 @@ class ShellOutput {
 
   /** Start the file with everything so far; `latest` is its last part. */
   private spill(latest: Buffer): void {
-    this.block = [...this.head, ...this.tail, latest];
-    this.blockBytes = this.total;
     try {
       const created = createOutputFileStream(this.prefix, ".log", this.dir);
       this.path = created.path;
       this.file = created.stream;
     } catch {
       this.fileFailed = true;
-      this.block = [];
-      this.blockBytes = 0;
       return;
     }
     this.file.on("error", () => {
       this.fileFailed = true;
     });
+    this.block = [...this.head, ...this.tail, latest];
+    this.blockBytes = this.total;
     this.flush();
   }
 

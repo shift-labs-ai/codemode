@@ -8,6 +8,7 @@ import {
 import * as t from "typebox";
 import { Check } from "typebox/value";
 import {
+  SAVE_DIR_DESCRIPTION,
   type SavedMedia,
   SEND_FILE_NOTE,
   writeMediaFile,
@@ -390,10 +391,7 @@ export const timeoutSchema = t.Integer({
   description:
     "Queue deadline in milliseconds (default 300000). Includes submission and result retrieval, not downloads (60 seconds per file). Does not cancel server work; use the requestId in the error to collect it.",
 });
-export const saveDirSchema = t.String({
-  description:
-    "Existing directory for generated files; defaults to the OS temp directory.",
-});
+export const saveDirSchema = t.String({ description: SAVE_DIR_DESCRIPTION });
 export const extraInputSchema = t.Record(t.String(), t.Unknown(), {
   description:
     "Model-specific fields, overriding action defaults. See https://fal.ai/models/<model>/api. Media downloads support HTTPS fal.media URLs and data URIs, up to 512 MiB each; JSON responses are limited to 64 MiB.",

@@ -339,6 +339,8 @@ export class Codemode {
       timeoutMs: config.timeoutMs,
       memoryLimitBytes: config.memoryLimitBytes,
       maxRunsPerWorker: config.maxRunsPerWorker,
+      outputDir: config.outputDir,
+      maxResultBytes: config.maxResultBytes,
     });
 
     for (const plugin of plugins) {

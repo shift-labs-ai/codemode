@@ -18,7 +18,9 @@
 
 import { credentialJson, multipartBody, type CodemodePluginAPI } from "@shiftlabs/codemode";
 import {
+  mediaDir,
   readImageInput,
+  SAVE_DIR_DESCRIPTION,
   SEND_FILE_NOTE,
   writeImageFile,
 } from "../../_shared/mediaFile.js";
@@ -124,8 +126,7 @@ export default function openai(rl: CodemodePluginAPI) {
       saveDir: {
         type: "string",
         required: false,
-        description:
-          "Directory to write the image file(s) into. Defaults to the OS temp dir.",
+        description: SAVE_DIR_DESCRIPTION,
       },
       model: {
         type: "string",
@@ -191,7 +192,7 @@ export default function openai(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "openai-image",
           index: i,
-          saveDir: p.saveDir ?? ctx.outputDir,
+          saveDir: mediaDir(p.saveDir, ctx),
           stamp,
         }),
         ...(d.revised_prompt ? { revisedPrompt: d.revised_prompt } : {}),
@@ -225,8 +226,7 @@ export default function openai(rl: CodemodePluginAPI) {
       saveDir: {
         type: "string",
         required: false,
-        description:
-          "Directory to write the image file(s) into. Defaults to the OS temp dir.",
+        description: SAVE_DIR_DESCRIPTION,
       },
       model: {
         type: "string",
@@ -297,7 +297,7 @@ export default function openai(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "openai-image",
           index: i,
-          saveDir: p.saveDir ?? ctx.outputDir,
+          saveDir: mediaDir(p.saveDir, ctx),
           stamp,
         }),
         ...(d.revised_prompt ? { revisedPrompt: d.revised_prompt } : {}),

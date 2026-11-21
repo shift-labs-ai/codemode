@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { connectionFields } from "../plugin/schema.js";
 import type { ConnectionConfig, ConnectionSchema } from "../plugin/types.js";
 import { legacyName } from "../utils/deprecation.js";
@@ -54,8 +54,15 @@ export function configPath(): string {
   );
 }
 
+/**
+ * The config a `config.json` holds, over the defaults. A relative
+ * `outputDir` resolves from the directory that holds the codemode folder.
+ */
 export function loadConfigFrom(path: string): CodemodeConfig {
-  return { ...DEFAULT_CONFIG, ...readConnectionFile(path) };
+  const config = { ...DEFAULT_CONFIG, ...readConnectionFile(path) };
+  if (typeof config.outputDir === "string" && config.outputDir)
+    config.outputDir = resolve(dirname(dirname(path)), config.outputDir);
+  return config;
 }
 
 export function loadConfig(): CodemodeConfig {

@@ -43,9 +43,24 @@ export interface SavedMedia {
   byteLength: number;
 }
 
+/** What every media action says of its `saveDir` input. */
+export const SAVE_DIR_DESCRIPTION =
+  "Existing directory to write the file(s) into. Empty or omitted uses the host's output directory, else the system's temporary directory.";
+
+/**
+ * Where an action writes its media: the directory its caller asked for,
+ * else the one the host keeps output files in.
+ */
+export function mediaDir(
+  asked: string | undefined,
+  ctx: { outputDir?: string },
+): string | undefined {
+  return (typeof asked === "string" && asked.trim()) || ctx.outputDir;
+}
+
 /**
  * Write media bytes to an output file of their own in `saveDir`, which an
- * action sets to what the caller asked for, else to `ctx.outputDir`.
+ * action takes from `mediaDir()`.
  */
 export function writeMediaFile(opts: {
   bytes: Uint8Array;
@@ -63,7 +78,7 @@ export function writeMediaFile(opts: {
     `${opts.provider}-${stamp}-${opts.index}`,
     `.${extForMime(mimeType)}`,
     opts.bytes,
-    (typeof opts.saveDir === "string" && opts.saveDir.trim()) || undefined,
+    opts.saveDir || undefined,
   );
   return { path, mimeType, byteLength: opts.bytes.byteLength };
 }

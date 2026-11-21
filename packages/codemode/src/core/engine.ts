@@ -370,12 +370,15 @@ export class ExecutionEngine {
     }
 
     const outputDir = options?.outputDir ?? this.config.outputDir;
-    if (outputDir !== undefined) {
-      try {
-        mkdirSync(outputDir, { recursive: true });
-      } catch {
-        // What is written there says so itself.
-      }
+    if (
+      outputDir !== undefined &&
+      !(typeof outputDir === "string" && outputDir)
+    ) {
+      return {
+        result: null,
+        error: `Invalid outputDir: ${JSON.stringify(outputDir)}. Pass a directory's path.`,
+        logs,
+      };
     }
     const maxResultBytes =
       options?.maxResultBytes ?? this.config.maxResultBytes;
@@ -388,6 +391,13 @@ export class ExecutionEngine {
         error: `Invalid maxResultBytes: ${maxResultBytes}. Pass a whole number of bytes above 0.`,
         logs,
       };
+    }
+    if (outputDir !== undefined) {
+      try {
+        mkdirSync(outputDir, { recursive: true });
+      } catch {
+        // What is written there says so itself.
+      }
     }
 
     const plugins = this.registry.listPlugins();

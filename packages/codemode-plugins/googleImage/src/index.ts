@@ -26,7 +26,9 @@ import {
 } from "@shiftlabs/codemode";
 import * as t from "typebox";
 import {
+  mediaDir,
   readImageInput,
+  SAVE_DIR_DESCRIPTION,
   type SavedMedia,
   SEND_FILE_NOTE,
   writeImageFile,
@@ -114,12 +116,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
               "Gemini image model ID. Defaults to gemini-2.5-flash-image.",
           }),
         ),
-        saveDir: t.Optional(
-          t.String({
-            description:
-              "Directory to write the image file(s) into. Empty or omitted uses the OS temp directory.",
-          }),
-        ),
+        saveDir: t.Optional(t.String({ description: SAVE_DIR_DESCRIPTION })),
       },
       STRICT,
     ),
@@ -129,7 +126,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
         contents: [{ parts: [{ text: p.prompt }] }],
         generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
       });
-      const images = saveInlineImages(data, p.saveDir ?? ctx.outputDir);
+      const images = saveInlineImages(data, mediaDir(p.saveDir, ctx));
       return { provider: "googleImage", model, images, note: SEND_FILE_NOTE };
     },
   });
@@ -155,12 +152,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
               "Gemini image model ID. Defaults to gemini-2.5-flash-image.",
           }),
         ),
-        saveDir: t.Optional(
-          t.String({
-            description:
-              "Directory to write the image file(s) into. Empty or omitted uses the OS temp directory.",
-          }),
-        ),
+        saveDir: t.Optional(t.String({ description: SAVE_DIR_DESCRIPTION })),
       },
       STRICT,
     ),
@@ -179,7 +171,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
         ],
         generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
       });
-      const images = saveInlineImages(data, p.saveDir ?? ctx.outputDir);
+      const images = saveInlineImages(data, mediaDir(p.saveDir, ctx));
       if (images.length === 0) {
         throw new Error(
           "googleImage: the model returned no edited image — it may have refused; try a more specific instruction",

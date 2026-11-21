@@ -16,7 +16,9 @@
 
 import { credentialJson, multipartBody, type CodemodePluginAPI } from "@shiftlabs/codemode";
 import {
+  mediaDir,
   readImageInput,
+  SAVE_DIR_DESCRIPTION,
   SEND_FILE_NOTE,
   writeImageFile,
 } from "../../_shared/mediaFile.js";
@@ -74,8 +76,7 @@ export default function recraft(rl: CodemodePluginAPI) {
       saveDir: {
         type: "string",
         required: false,
-        description:
-          "Directory to write the image file(s) into. Defaults to the OS temp dir.",
+        description: SAVE_DIR_DESCRIPTION,
       },
       model: {
         type: "string",
@@ -136,7 +137,7 @@ export default function recraft(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "recraft",
           index: i,
-          saveDir: p.saveDir ?? ctx.outputDir,
+          saveDir: mediaDir(p.saveDir, ctx),
           stamp,
         }),
       );
@@ -169,8 +170,7 @@ export default function recraft(rl: CodemodePluginAPI) {
       saveDir: {
         type: "string",
         required: false,
-        description:
-          "Directory to write the image file(s) into. Defaults to the OS temp dir.",
+        description: SAVE_DIR_DESCRIPTION,
       },
       model: {
         type: "string",
@@ -231,7 +231,7 @@ export default function recraft(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "recraft",
           index: i,
-          saveDir: p.saveDir ?? ctx.outputDir,
+          saveDir: mediaDir(p.saveDir, ctx),
           stamp,
         }),
       );
