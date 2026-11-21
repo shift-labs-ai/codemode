@@ -17,14 +17,16 @@ export type McpServerErrorCode =
   | "sign_in_unsupported"
   /** A tool reported its own failure (`isError`). */
   | "tool_failed"
-  /** The server's session was closed while the call waited on it. */
+  /** The server did not answer a request within its timeout. */
+  | "timed_out"
+  /** The connection ended while a call waited on it: the server dropped it, or the session was shut down. */
   | "closed";
 
 /**
  * Every failure the MCP manager raises itself. Hosts branch on `code`;
- * `message` is for people and may name the server, never a secret. A
- * failure of the protocol or the transport is thrown as the client raised
- * it.
+ * `message` is for people and may name the server, never a secret. An
+ * error the server answers a request with, and an HTTP status it refuses
+ * one with, are thrown as the client raised them.
  */
 export class McpServerError extends Error {
   readonly code: McpServerErrorCode;

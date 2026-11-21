@@ -147,16 +147,17 @@ export class McpSession {
     this.options.onState(this);
   }
 
+  private shutDown(): McpServerError {
+    return new McpServerError(
+      "closed",
+      `MCP server "${this.server.name}" is shut down`,
+      { server: this.server.name },
+    );
+  }
+
   /** The connected client, connecting first when there is none. */
   connect(): Promise<McpClient> {
-    if (this.closed)
-      return Promise.reject(
-        new McpServerError(
-          "closed",
-          `MCP server "${this.server.name}" is shut down`,
-          { server: this.server.name },
-        ),
-      );
+    if (this.closed) return Promise.reject(this.shutDown());
     if (this.client?.connectionState === "connected")
       return Promise.resolve(this.client);
     this.opening ??= this.open().finally(() => {
@@ -254,7 +255,7 @@ export class McpSession {
             continue;
           }
           const refused = this.refusal(error);
-          if (!refused) throw error;
+          if (!refused) throw this.unanswered(error) ?? error;
           await this.drop(client);
           this.setState("needs_sign_in");
           throw refused;
@@ -291,6 +292,30 @@ export class McpSession {
           `MCP server "${this.server.name}" refused the credentials its entry sends (HTTP 401).`,
           { server: this.server.name },
         );
+  }
+
+  /**
+   * A request the server never answered, as an error that names the server
+   * and, for one that dropped the connection, what it last printed.
+   * Undefined for any other failure.
+   */
+  private unanswered(error: unknown): McpServerError | undefined {
+    const { McpConnectionClosedError, McpTimeoutError } = this.options.mcp;
+    const name = this.server.name;
+    if (error instanceof McpTimeoutError)
+      return new McpServerError(
+        "timed_out",
+        `MCP server "${name}" did not answer within ${error.timeoutMs / 1000} s`,
+        { server: name, cause: error },
+      );
+    if (!(error instanceof McpConnectionClosedError)) return undefined;
+    if (this.closed) return this.shutDown();
+    const tail = this.stderrTail.trim();
+    return new McpServerError(
+      "closed",
+      `MCP server "${name}" closed the connection before it answered${tail ? `:\n${tail}` : ""}`,
+      { server: name, cause: error },
+    );
   }
 
   private async drop(client: McpClient): Promise<void> {
@@ -405,9 +430,7 @@ export class McpSession {
     const name = this.server.name;
     if (this.closed) {
       this.setState("closed");
-      return new McpServerError("closed", `MCP server "${name}" is shut down`, {
-        server: name,
-      });
+      return this.shutDown();
     }
     const refused = this.refusal(error);
     if (refused) {

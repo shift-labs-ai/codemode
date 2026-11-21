@@ -12,6 +12,7 @@ import {
   runOAuth,
 } from "../core/oauth.js";
 import type { OAuthConfig } from "../plugin/types.js";
+import { commandExists } from "../utils/cli.js";
 import { stubFetch } from "./helpers/plugin.js";
 
 const SPARE_CONNECTION = fileURLToPath(
@@ -207,9 +208,10 @@ describe("local OAuth callback lifecycle", () => {
     assert.equal(await missing.status(), 400);
   });
 
-  it("lets the process end while a browser still holds a spare connection", async () => {
+  it("lets the process end while a browser still holds a spare connection", async (t) => {
     // Node's listener is what waits on such a connection, so the flow runs
     // under Node: the run ends by itself, or the timeout ends it.
+    if (!commandExists("node")) return t.skip("needs node on the PATH");
     const ran = await promisify(execFile)(
       "node",
       ["--import", "jiti/register", SPARE_CONNECTION],

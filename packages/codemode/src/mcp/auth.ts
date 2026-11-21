@@ -355,6 +355,28 @@ export function createMcpAuthProvider(options: {
   const required = (reason?: string) =>
     signInRequired(server.name, signInHint, reason);
 
+  /**
+   * The transport of the definition and fields last seen. Both change only
+   * with a sign-in or a new value in the connection, and a token is read
+   * before every request.
+   */
+  let renewer: { key: string; transport: CredentialTransport } | undefined;
+  const transportFor = (
+    stored: StoredOAuth,
+    otherFields: string[],
+  ): CredentialTransport => {
+    const key = JSON.stringify([stored.definition, otherFields]);
+    if (renewer?.key !== key)
+      renewer = {
+        key,
+        transport: new CredentialTransport(
+          registryFor(server, stored.definition, otherFields),
+          { fetch: options.fetch ?? globalThis.fetch },
+        ),
+      };
+    return renewer.transport;
+  };
+
   /** The current token, or undefined for a connection that is not signed in. */
   const token = async (rejected?: string): Promise<string | undefined> => {
     const credentials = options.credentials();
@@ -363,16 +385,12 @@ export function createMcpAuthProvider(options: {
     if (!stored || snapshot.config[MCP_GRANT_FIELD] === undefined)
       return undefined;
     try {
-      const registry = registryFor(
-        server,
-        stored.definition,
+      return await transportFor(
+        stored,
         Object.keys(snapshot.config).filter(
           (field) => field !== MCP_GRANT_FIELD,
         ),
-      );
-      return await new CredentialTransport(registry, {
-        fetch: options.fetch ?? globalThis.fetch,
-      }).accessToken(
+      ).accessToken(
         {
           type: CREDENTIAL_TYPE,
           method: CREDENTIAL_METHOD,

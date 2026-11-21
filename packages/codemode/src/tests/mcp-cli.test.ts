@@ -126,6 +126,17 @@ describe("the command line with MCP servers", () => {
     assert.equal(serverRunning(), false);
   });
 
+  it("warns of a server that prints what is not JSON-RPC, and still returns the result", async () => {
+    await addFixture("--env", "FIXTURE_FAULT=garble");
+    const ran = await codemode([
+      "exec",
+      `return (await my_tools.echo({ text: "hi" })).content[0].text`,
+    ]);
+    assert.equal(ran.code, 0, ran.stderr);
+    assert.equal(ran.stdout.trim(), "hi");
+    assert.match(ran.stderr, /MCP server "my-tools": /);
+  });
+
   it("exits with status 1 when a tool fails, after its server is closed", async () => {
     await addFixture();
     const ran = await codemode(["exec", "return await my_tools.fail()"]);

@@ -76,8 +76,9 @@ MCP delivers such a failure inside a successful response, with `isError` set. Co
 |---|---|
 | The tool reports failure | The call rejects with the tool's text |
 | The input does not match the tool's schema | The call rejects before the server is called |
-| The server answers a protocol error, or the connection drops | The call rejects with that error |
-| The request passes its timeout | The request is cancelled on the server and the call rejects |
+| The server answers a protocol error | The call rejects with that error |
+| The connection drops | The call rejects, naming the server and, for a local server, what it last printed to stderr |
+| The request passes its timeout | The request is cancelled on the server and the call rejects, naming the server and the limit |
 | The run ends first | Every tool call it still waits on is cancelled on the server |
 | The server asks for sign-in | The call rejects and names the command to run |
 
@@ -229,6 +230,7 @@ Codemode keeps each server's tool list in the `mcp` folder beside the configurat
 - A server that asks for sign-in or lacks a value is tried again on every run, so a fix takes effect at once.
 - An edited `command`, `args`, `env`, `cwd`, `url`, or `headers` discards the cached list.
 - A server that announces a changed tool list has its list read again. The next run sees the new tools.
+- A server that sends what is not JSON-RPC, such as a log line on stdout, is reported as a warning on stderr.
 - A local server gets a short list of environment variables, such as `PATH` and `HOME`, and its entry's `env`. It does not inherit the rest of the environment.
 - When a command ends, codemode closes each local server's input and then terminates its process group, so a server started through `npx` or `uvx` ends too.
 
@@ -279,7 +281,7 @@ await mcp.close();
 | `onToolsChanged(listener)` | Calls the listener with a server's name when its tools change |
 | `close()` | Ends every session. The manager stays usable |
 
-Failures are `McpServerError` values with a `code`. Check them with `isMcpServerError()`.
+Failures the manager raises are `McpServerError` values with a `code`, such as `connect_failed`, `reconnect_required`, `tool_failed`, `timed_out`, and `closed`. Check them with `isMcpServerError()`. An error a server answers a request with is thrown as pi-mcp's `McpError`.
 
 | Option | Default | Purpose |
 |---|---|---|

@@ -690,6 +690,33 @@ describe("calling a server's tools from code", () => {
     );
   });
 
+  it("names the server that did not answer within its timeout", async () => {
+    const server = fakeServer({
+      tools: [SEARCH],
+      call: () => new Promise(() => {}),
+    });
+    const mcp = manager(
+      { tracker: { command: "x", timeout: 0.05 } },
+      { tracker: server },
+    );
+    const failures: unknown[] = [];
+    const codemode = codemodeWith({
+      plugins: (await mcp.load()).plugins,
+      onAction: (info) => {
+        failures.push(info.error);
+      },
+    });
+    const { error } = await codemode.execute(
+      `return await tracker.search_issues({ query: "x" })`,
+    );
+    assert.match(
+      error ?? "",
+      /MCP server "tracker" did not answer within 0\.05 s/,
+    );
+    assert.ok(isMcpServerError(failures[0]));
+    assert.equal(failures[0].code, "timed_out");
+  });
+
   it("connects on the first call when the tool list came from the cache", async () => {
     const server = fakeServer({ tools: [SEARCH] });
     const cache = new MemoryMcpToolCache();
@@ -1423,6 +1450,40 @@ describe("a real server process", () => {
     await mcp.close();
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.throws(() => process.kill(pid, 0), "the server process ended");
+  });
+
+  it("names the server that died during a call, with what it printed", async () => {
+    const mcp = new McpManager({
+      store: new MemoryMcpStore({
+        user: {
+          fixture: {
+            command: process.execPath,
+            args: [STDIO_SERVER],
+            env: { FIXTURE_FAULT: "crash" },
+          },
+        },
+      }),
+      environment: { PATH: process.env.PATH },
+    });
+    managers.push(mcp);
+    const failures: unknown[] = [];
+    const codemode = codemodeWith({
+      plugins: (await mcp.load()).plugins,
+      onAction: (info) => {
+        failures.push(info.error);
+      },
+    });
+    const { error } = await codemode.execute(
+      `return await fixture.echo({ text: "hi" })`,
+    );
+    assert.match(
+      error ?? "",
+      /MCP server "fixture" closed the connection before it answered:\nfatal: out of disk/,
+    );
+    assert.ok(isMcpServerError(failures[0]));
+    assert.equal(failures[0].code, "closed");
+    // The next call starts the server again.
+    assert.equal((await mcp.status())[0].state, "connected");
   });
 
   it("reports a command that cannot be started, with what it printed", async () => {

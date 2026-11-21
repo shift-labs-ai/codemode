@@ -3,7 +3,9 @@
 // names), `fail` (reports its own failure), and `grow`, which adds a tool
 // named `grown` and announces the change. It writes its pid to
 // the file named by its first argument, when given one, so a test can see
-// the process end.
+// the process end. With `FIXTURE_FAULT=garble`, `echo` first prints a line
+// that is not JSON-RPC; with `FIXTURE_FAULT=crash`, it prints why to stderr
+// and exits without answering.
 import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -36,7 +38,15 @@ const tools = [
 const text = (value) => ({ content: [{ type: "text", text: value }] });
 
 function call(name, args) {
-  if (name === "echo") return { ...text(args.text), structuredContent: args };
+  if (name === "echo") {
+    if (process.env.FIXTURE_FAULT === "garble")
+      process.stdout.write("starting up...\n");
+    if (process.env.FIXTURE_FAULT === "crash") {
+      process.stderr.write("fatal: out of disk\n");
+      process.exit(3);
+    }
+    return { ...text(args.text), structuredContent: args };
+  }
   if (name === "env")
     return {
       ...text("env"),

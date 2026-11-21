@@ -27,6 +27,12 @@ function cliMcpManager(options: { trustProject?: boolean } = {}): McpManager {
     connections: new FileConnectionProvider(
       join(project ?? join(process.cwd(), ".codemode"), "config.json"),
     ),
+    // What explains a call that then only times out. On stderr, like every
+    // other problem a command reports beside its result.
+    onEvent: (event) => {
+      if (event.type === "fault")
+        printWarn(`MCP server "${event.server}": ${event.message}`);
+    },
   });
 }
 
