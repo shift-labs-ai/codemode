@@ -412,9 +412,34 @@ describe("OAuth2 definitions and protocol runtime", () => {
     );
   });
 
+  it("accepts an http endpoint only on this machine", async () => {
+    for (const url of [
+      "http://127.0.0.1:9000/token",
+      "http://localhost:9000/token",
+      "http://[::1]:9000/token",
+    ]) {
+      const requested: string[] = [];
+      const tokens = await requestOAuth2Token(
+        { url, clientAuthentication: "none" },
+        {},
+        undefined,
+        {
+          fetch: (async (input: string | URL | Request) => {
+            requested.push(String(input));
+            return Response.json({ access_token: "issued" });
+          }) as typeof globalThis.fetch,
+        },
+      );
+      assert.equal(tokens.accessToken, "issued");
+      assert.deepEqual(requested, [url]);
+    }
+  });
+
   it("rejects insecure endpoints and credentials embedded in URLs", async () => {
     for (const url of [
       "http://auth.example/token",
+      "http://127.0.0.1.example/token",
+      "ftp://127.0.0.1/token",
       "https://user:secret@auth.example/token",
       "https://auth.example/token#secret",
       "not-a-url",

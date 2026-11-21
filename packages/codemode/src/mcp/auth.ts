@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AuthProvider, McpFetch } from "@earendil-works/pi-mcp";
+import type { McpClientMetadataDocuments } from "@earendil-works/pi-mcp/oauth";
 import * as t from "typebox";
 import { AuthError } from "../auth/errors.js";
+import { isLoopbackHost } from "../auth/token.js";
 import type {
   OAuth2Definition,
   OAuth2TokenEndpoint,
@@ -34,7 +36,10 @@ export interface McpOAuthSetup {
   definition: OAuth2Definition;
   application: OAuthApplication;
   scopes: string[];
-  /** The redirect URI the client is registered with. */
+  /**
+   * The redirect URI to sign in with: the caller's or the entry's, with the
+   * server's own path when the client is a server-specific document.
+   */
   redirectUri: string;
   /** The authorization server's issuer, to compare the callback's `iss` with. */
   issuer: string;
@@ -49,6 +54,16 @@ interface StoredOAuth {
   clientSecret?: string;
   scopes: string[];
 }
+
+/**
+ * A host's Client ID Metadata Documents: `<baseUrl>/client.json`, and
+ * `<baseUrl>/<callback ID>/client.json` per server, as pi and Codex lay
+ * theirs out. `listsRedirectUrl` says whether they list a redirect URI.
+ */
+export type { McpClientMetadataDocuments };
+
+/** Which servers may be signed in to over http: ones on this machine, or none. */
+export type McpSignInOverHttp = "loopback" | "never";
 
 /** The connection a session acts through: one identity's secrets and tokens. */
 export type McpCredentials = Pick<ConnectionHandle, "read" | "update">;
@@ -142,10 +157,51 @@ function entryRedirect(
 }
 
 /**
+ * The Client ID Metadata Document to sign in as, chosen as pi and Codex
+ * choose theirs, or undefined when the authorization server takes none from
+ * a public client. A server whose responses carry no `iss` (RFC 9207) gets
+ * a document and a redirect URI of its own, so a response cannot be taken
+ * for another authorization server's (RFC 9700 section 4.4.2.2).
+ */
+function clientDocument(
+  serverUrl: string,
+  redirectUri: string,
+  metadata: {
+    client_id_metadata_document_supported?: boolean;
+    token_endpoint_auth_methods_supported?: string[];
+    authorization_response_iss_parameter_supported?: boolean;
+  },
+  baseUrl: string,
+): { url: string; redirectUri: string } | undefined {
+  if (
+    !metadata.client_id_metadata_document_supported ||
+    !metadata.token_endpoint_auth_methods_supported?.includes("none")
+  )
+    return undefined;
+  if (metadata.authorization_response_iss_parameter_supported)
+    return { url: `${baseUrl}/client.json`, redirectUri };
+  const server = new URL(serverUrl);
+  server.hash = "";
+  const callbackId = createHash("sha256")
+    .update(server.href)
+    .digest()
+    .subarray(0, 9)
+    .toString("base64url");
+  const redirect = new URL(redirectUri);
+  redirect.pathname = `${redirect.pathname.replace(/\/$/, "")}/${callbackId}`;
+  return {
+    url: `${baseUrl}/${callbackId}/client.json`,
+    redirectUri: redirect.href,
+  };
+}
+
+/**
  * Find how to sign in to an HTTP server: its protected-resource and
- * authorization-server metadata through pi-mcp's discovery, a client
- * registered through pi-mcp unless the entry names one, and the result as
- * the OAuth2 definition codemode's own runtime signs in with.
+ * authorization-server metadata through pi-mcp's discovery, the client to
+ * sign in as, and the result as the OAuth2 definition codemode's own
+ * runtime signs in with. The client is the one the entry names, else the
+ * host's Client ID Metadata Document where the authorization server takes
+ * one, else one registered through pi-mcp.
  */
 export async function discoverMcpOAuth(options: {
   server: McpServer;
@@ -156,6 +212,10 @@ export async function discoverMcpOAuth(options: {
   challenge?: { resourceMetadataUrl?: URL; scope?: string };
   /** The entry's `oauth.clientSecret`, with its placeholders filled. */
   clientSecret?: string;
+  /** The host's Client ID Metadata Documents. Default: none, so clients are registered. */
+  clientMetadataDocuments?: McpClientMetadataDocuments;
+  /** Default: `loopback`. */
+  signInOverHttp?: McpSignInOverHttp;
   fetch?: McpFetch;
   signal?: AbortSignal;
 }): Promise<McpOAuthSetup> {
@@ -171,7 +231,7 @@ export async function discoverMcpOAuth(options: {
   if (!usesOAuth(server))
     throw unsupported("its entry sends its own Authorization header");
   const settings = server.config.oauth ?? {};
-  const redirectUri = entryRedirect(settings, options.redirectUri);
+  let redirectUri = entryRedirect(settings, options.redirectUri);
   const { discoverOAuthServerInfo, registerClient, selectResource } =
     await import("@earendil-works/pi-mcp/oauth");
   const info = await discoverOAuthServerInfo(server.config.url, {
@@ -194,6 +254,32 @@ export async function discoverMcpOAuth(options: {
     !metadata.code_challenge_methods_supported.includes("S256")
   )
     throw unsupported("its authorization server does not support PKCE S256");
+  // A token, a code or a client's secret crosses each of these. Over http
+  // it stays on this machine, or the sign-in is refused before a client is
+  // registered.
+  const overHttp = [
+    server.config.url,
+    metadata.authorization_endpoint,
+    metadata.token_endpoint,
+    metadata.registration_endpoint,
+  ].filter(
+    (url): url is string =>
+      url !== undefined &&
+      URL.canParse(url) &&
+      new URL(url).protocol === "http:",
+  );
+  const refused =
+    options.signInOverHttp === "never"
+      ? overHttp[0]
+      : overHttp.find((url) => !isLoopbackHost(new URL(url).hostname));
+  if (refused)
+    throw unsupported(
+      `${refused} is reached over http. Sign-in needs https${
+        options.signInOverHttp === "never"
+          ? ""
+          : ", or a server on this machine"
+      }.`,
+    );
   // `||`, not `??`: an empty scope falls through to the next source.
   const scope =
     settings.scope ||
@@ -201,6 +287,35 @@ export async function discoverMcpOAuth(options: {
     info.resourceMetadata?.scopes_supported?.join(" ") ||
     "";
   const scopes = scope.split(/\s+/).filter(Boolean);
+
+  // Pi's rule: `auto` signs in as the document when the entry names no
+  // client of its own and the documents list the redirect URI.
+  const documents = options.clientMetadataDocuments;
+  const registration = settings.clientRegistration ?? "auto";
+  const listed = documents?.listsRedirectUrl(redirectUri) === true;
+  const required = registration === "cimd";
+  if (required && !listed)
+    throw unsupported(
+      `"oauth.clientRegistration": "cimd" needs client metadata documents that list the redirect URI ${redirectUri}`,
+    );
+  const offered =
+    required ||
+    (registration === "auto" &&
+      settings.clientId === undefined &&
+      settings.clientName === undefined);
+  const document =
+    offered && documents && listed
+      ? clientDocument(
+          server.config.url,
+          redirectUri,
+          metadata,
+          documents.baseUrl,
+        )
+      : undefined;
+  if (required && !document)
+    throw unsupported(
+      'its authorization server takes no client metadata document from a public client. Remove "oauth.clientRegistration": "cimd" from the entry.',
+    );
 
   let application: OAuthApplication;
   let registeredMethod: string | undefined;
@@ -211,6 +326,9 @@ export async function discoverMcpOAuth(options: {
         ? {}
         : { clientSecret: options.clientSecret }),
     };
+  } else if (document) {
+    application = { clientId: document.url };
+    redirectUri = document.redirectUri;
   } else {
     if (!metadata.registration_endpoint)
       throw unsupported(
@@ -276,10 +394,10 @@ export async function discoverMcpOAuth(options: {
     refresh: token,
   };
   try {
-    registryFor(server, definition, []);
+    registryFor(definition, []);
   } catch {
     throw unsupported(
-      "the server and its authorization server must be served over https",
+      "its authorization server's endpoints cannot be used to sign in",
     );
   }
   return {
@@ -295,16 +413,15 @@ export async function discoverMcpOAuth(options: {
 
 /**
  * The credential type an MCP sign-in is renewed as: an `oauth2` method over
- * the discovered definition, its grant in `MCP_GRANT_FIELD`, for the
- * server's origin. Every other field the connection holds (the client, the
- * values an entry's placeholders name) is stored as it is.
+ * the discovered definition, its grant in `MCP_GRANT_FIELD`. It has no
+ * target: the MCP client sends the requests, with the token it is handed.
+ * Every other field the connection holds (the client, the values an
+ * entry's placeholders name) is stored as it is.
  */
 function registryFor(
-  server: McpServer,
   definition: OAuth2Definition,
   otherFields: string[],
 ): CredentialRegistry {
-  const url = "url" in server.config ? server.config.url : "";
   const registry = new CredentialRegistry();
   registry.register({
     id: CREDENTIAL_TYPE,
@@ -325,12 +442,7 @@ function registryFor(
           definition,
           renewal: "refresh",
         },
-        targets: {
-          server: {
-            baseUrl: `${new URL(url).origin}/`,
-            methods: ["GET", "POST", "DELETE"],
-          },
-        },
+        targets: {},
       },
     },
   });
@@ -370,7 +482,7 @@ export function createMcpAuthProvider(options: {
       renewer = {
         key,
         transport: new CredentialTransport(
-          registryFor(server, stored.definition, otherFields),
+          registryFor(stored.definition, otherFields),
           { fetch: options.fetch ?? globalThis.fetch },
         ),
       };

@@ -176,7 +176,7 @@ A target is one place a credential may be sent:
 
 ## Token endpoints
 
-An `OAuth2Definition` has one endpoint per operation: `exchange`, `refresh`, `clientCredentials`, `jwtBearer`, `password`, and `authorization: { url, parameters }` for consent. Each endpoint is an HTTPS `url` and `clientAuthentication`, plus:
+An `OAuth2Definition` has one endpoint per operation: `exchange`, `refresh`, `clientCredentials`, `jwtBearer`, `password`, and `authorization: { url, parameters }` for consent. Each endpoint is a `url` over HTTPS, or over HTTP on a loopback host, and `clientAuthentication`, plus:
 
 | Field | Meaning |
 |---|---|

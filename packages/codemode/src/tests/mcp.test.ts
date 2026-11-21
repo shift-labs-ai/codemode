@@ -9,6 +9,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -955,6 +956,42 @@ describe("connections and sessions", () => {
     );
   });
 
+  it("keeps a tool list for each identity a host tells apart", async () => {
+    const server = fakeServer({ tools: [SEARCH] });
+    const cache = new MemoryMcpToolCache();
+    const load = (person: string) =>
+      manager(
+        { a: { command: "x" } },
+        { a: server },
+        {
+          cache,
+          connections: new MemoryConnectionProvider(),
+          identity: (_connection, context) => String(context),
+        },
+      ).load({ context: person });
+
+    await load("ann");
+    assert.equal(server.connections, 1);
+    // Ann's list is cached; Bo has none yet, and what he sees may differ.
+    server.options.tools = [SEARCH, DELETE];
+    assert.equal((await load("ann")).plugins[0].actions.length, 1);
+    assert.equal(server.connections, 1);
+    assert.equal((await load("bo")).plugins[0].actions.length, 2);
+    assert.equal(server.connections, 2);
+
+    assert.equal((await cache.read("user", "a", "ann"))?.tools.length, 1);
+    assert.equal((await cache.read("user", "a", "bo"))?.tools.length, 2);
+    assert.equal(await cache.read("user", "a"), undefined);
+    const mcp = manager(
+      { a: { command: "x" } },
+      { a: server },
+      { cache, identity: (_connection, context) => String(context) },
+    );
+    assert.equal((await mcp.list({ context: "bo" }))[0].cachedTools, 2);
+    await mcp.remove("a");
+    assert.equal(await cache.read("user", "a", "ann"), undefined);
+  });
+
   it("refuses a connection made for another owner of the same name", async () => {
     const server = fakeServer({ tools: [SEARCH] });
     const mcp = manager({ github: { command: "x" } }, { github: server });
@@ -1320,6 +1357,25 @@ describe("servers kept in codemode folders", () => {
     assert.equal(await cache.read("user", "a"), undefined);
     await cache.remove("user", "a");
     assert.equal(existsSync(join(tmp, "mcp", "a.json")), false);
+  });
+
+  it("keeps each identity's tool list in a file of its own, and removes them with the server", async () => {
+    const cache = new FileMcpToolCache({ user: tmp });
+    const snapshot = {
+      key: "k",
+      tools: [SEARCH],
+      resources: false,
+      savedAt: 1,
+    };
+    await cache.write("user", "a", snapshot);
+    await cache.write("user", "a", { ...snapshot, tools: [] }, "ann/../x");
+    assert.equal((await cache.read("user", "a"))?.tools.length, 1);
+    assert.equal((await cache.read("user", "a", "ann/../x"))?.tools.length, 0);
+    assert.equal(await cache.read("user", "a", "bo"), undefined);
+    assert.deepEqual(readdirSync(join(tmp, "mcp")).sort(), ["a", "a.json"]);
+    assert.match(readdirSync(join(tmp, "mcp", "a"))[0], /^[0-9a-f]{32}\.json$/);
+    await cache.remove("user", "a");
+    assert.deepEqual(readdirSync(join(tmp, "mcp")), []);
   });
 });
 

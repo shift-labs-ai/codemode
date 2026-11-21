@@ -196,9 +196,18 @@ For a server that does not register clients, name a client you registered:
 | `callbackPort`, `callbackUrl` | The loopback redirect the client is registered with. The default is `http://127.0.0.1:47823/callback` |
 | `scope` | Scopes to request, separated by spaces. The default is what the server asks for |
 | `clientName` | The name sent when registering. The default is `codemode` |
+| `clientRegistration` | `auto`, `dcr`, or `cimd`: how codemode identifies itself when the entry names no client. The default is `auto` |
 | `authServerMetadataUrl` | An authorization server metadata document to use instead of discovery |
 
-Sign-in needs a server and an authorization server that are served over HTTPS. `oauth.clientRegistration: "cimd"` is not supported.
+A server and its authorization server are reached over HTTPS, or over HTTP when they run on this machine: `localhost`, `127.0.0.1`, or `[::1]`.
+
+The command line registers a client with each authorization server. A host that publishes Client ID Metadata Documents signs in as its document instead:
+
+| `clientRegistration` | Client |
+|---|---|
+| `auto` | The host's document where the authorization server takes one and the documents list the redirect, else a registered client |
+| `dcr` | A registered client |
+| `cimd` | The host's document. Sign-in fails where the authorization server takes none, and the entry is refused when the host has no documents |
 
 Signing out is removing the connection: `codemode connection remove <name>`.
 
@@ -293,7 +302,9 @@ Failures the manager raises are `McpServerError` values with a `code`, such as `
 | `environment` | A short list from the process | What a local server inherits beside its entry's `env` |
 | `variable` | The process environment | What a placeholder names when the connection does not hold it |
 | `fetch` | The global `fetch` | Sends the requests to HTTP servers, discovery, and the token endpoint |
-| `identity` | The connection's name | Tells two people apart when a host resolves one connection name to both |
+| `identity` | The connection's name | Tells two people apart when a host resolves one connection name to both. With it, each identity has its own cached tool list |
+| `clientMetadataDocuments` | None | The host's Client ID Metadata Documents: `baseUrl` and `listsRedirectUrl(url)`, laid out as pi's are |
+| `signInOverHttp` | `loopback` | `never` refuses sign-in to a server on this machine over HTTP, for a host that does not run on the person's own machine |
 | `signInHint` | `codemode auth <server>` | How the host tells a person to sign in |
 | `idleMs`, `maxSessions` | 5 minutes, 64 | When an unused session is closed |
 | `connectTimeoutMs`, `retryFailedAfterMs` | 10 seconds, 1 minute | How long `load()` waits for a server, and how long it leaves an unreachable one alone |
@@ -301,6 +312,10 @@ Failures the manager raises are `McpServerError` values with a `code`, such as `
 | `onEvent` | None | Receives session states, changed tool lists, server log messages, stderr, progress, and faults that no call rejects with, such as a message from the server that is not JSON-RPC |
 
 An action call uses the connection the engine resolved for it, and the manager keeps one session per server and identity. Two calls share a session only when the server, the identity, and every value the entry was filled with are the same.
+
+A host that passes `identity` gets one cached tool list per identity. `load({ context })` resolves the server's connection for that context, reads that identity's list, and connects when it has none. A host's own `McpToolCache` receives the identity as the last argument of `read` and `write`. Without `identity`, every connection of a server shares one list and `load()` resolves no connection.
+
+With `clientMetadataDocuments`, the client's identifier is `<baseUrl>/client.json`. For an authorization server whose responses carry no `iss`, it is `<baseUrl>/<id>/client.json` with the redirect `<callback>/<id>`, where `<id>` is derived from the server's URL as pi and Codex derive theirs, so one set of documents serves all three.
 
 A host that runs its own consent flow calls `oauth()`, signs in with `buildOAuth2AuthorizationUrl()` and `exchangeOAuth2Code()` or with `runOAuth()`, and stores `mcpOAuthConnection(setup, tokens)` in the server's connection. Codemode's credential transport renews the grant from there, under the connection's update ownership.
 
@@ -314,6 +329,7 @@ The [credential broker](sdk.md#sign-requests-in-the-host) does not carry MCP: it
 - A tool's `access` label and hints are the server's own claims. Treat the tools of a server you do not know as writes.
 - A tool's description, a server's instructions, and every result are text from the server. They reach the agent through discovery and can try to steer it.
 - The MCP client needs Node.js 22.19 or later. On an older Node.js, codemode reports the servers as a problem and loads everything else.
-- A cached tool list is shared by every connection of a server. A server that offers different tools to different people shows each of them the list last read.
+- On the command line, a cached tool list is shared by every connection of a server. A server that offers different tools to different people shows each of them the list last read.
+- A server reached over HTTP on another machine cannot be signed in to: its token would cross the network in the clear.
 
 See [Security](security.md).

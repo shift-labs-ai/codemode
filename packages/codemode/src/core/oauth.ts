@@ -36,6 +36,7 @@ import {
   buildOAuth2AuthorizationUrl,
   exchangeOAuth2Code,
 } from "../auth/oauth2.js";
+import { isLoopbackHost } from "../auth/token.js";
 import type { OAuth2Definition, OAuthTokens } from "../auth/types.js";
 import type { OAuthConfig } from "../plugin/types.js";
 import { environment } from "../utils/deprecation.js";
@@ -94,7 +95,7 @@ export function oauthCallback(config: OAuthConfig): Callback {
   const port = Number(url.port);
   if (
     url.protocol !== "http:" ||
-    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+    !isLoopbackHost(url.hostname) ||
     !Number.isInteger(port) ||
     port <= 0 ||
     url.username ||

@@ -130,6 +130,22 @@ describe("credential registry", () => {
     assert.throws(() => registry.register(def));
   });
 
+  it("registers a grant with no target, and no other method without one", () => {
+    const tokenOnly = definition();
+    tokenOnly.methods.delegated.targets = {};
+    delete tokenOnly.methods.apiKey;
+    const registry = new CredentialRegistry();
+    registry.register(tokenOnly);
+    assert.deepEqual(registry.select("example", "delegated").targets, {});
+
+    const noTarget = definition();
+    noTarget.methods.apiKey.targets = {};
+    delete noTarget.methods.apiKey.probe;
+    assert.throws(() => new CredentialRegistry().register(noTarget), {
+      code: "invalid_definition",
+    });
+  });
+
   it("rejects unsafe or undeclared probes rather than guessing an action", () => {
     for (const probe of [
       { target: "api", path: "me", method: "POST", acceptedStatuses: [200] },

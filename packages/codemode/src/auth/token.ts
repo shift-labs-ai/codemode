@@ -48,10 +48,25 @@ export function providerHeaders(
   return { ...headers };
 }
 
+/** Whether a URL's hostname names this machine: `localhost` or a loopback address. */
+export function isLoopbackHost(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+}
+
+/**
+ * An OAuth endpoint: https, or http on a loopback host, where the request
+ * never leaves the machine (RFC 8252 section 8.3).
+ */
 export function oauthEndpoint(value: string): URL {
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password || url.hash)
+    if (
+      (url.protocol !== "https:" &&
+        !(url.protocol === "http:" && isLoopbackHost(url.hostname))) ||
+      url.username ||
+      url.password ||
+      url.hash
+    )
       throw new Error();
     for (const key of url.searchParams.keys()) {
       if (protectedParameters.has(key)) throw new Error();

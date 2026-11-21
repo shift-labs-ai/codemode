@@ -13,8 +13,10 @@ import type {
 import { notifyObserver } from "../utils/observer.js";
 import {
   discoverMcpOAuth,
+  type McpClientMetadataDocuments,
   type McpCredentials,
   type McpOAuthSetup,
+  type McpSignInOverHttp,
   signedIn,
   usesOAuth,
 } from "./auth.js";
@@ -113,11 +115,26 @@ export interface McpManagerOptions {
   signInHint?: (server: string) => string;
   /**
    * What tells two identities of one connection name apart, when a host
-   * resolves the same name to different people. Default: the connection's
-   * name. Two calls share a session only when this, the server and every
-   * value the entry was filled with are the same.
+   * resolves the same name to different people. Two calls share a session
+   * only when this, the server and every value the entry was filled with
+   * are the same, and each identity has a tool list of its own in the
+   * cache, read for the `context` given to `load()`. Default: sessions are
+   * told apart by the connection's name, and every connection of a server
+   * shares one tool list.
    */
   identity?: (connection: ConnectionConfig, context: unknown) => string;
+  /**
+   * The host's Client ID Metadata Documents, to sign in as instead of
+   * registering a client with each authorization server. Default: none, so
+   * an entry's `oauth.clientRegistration: "cimd"` is refused.
+   */
+  clientMetadataDocuments?: McpClientMetadataDocuments;
+  /**
+   * Which servers may be signed in to over http. `loopback`: a server and
+   * an authorization server on this machine. `never`: for a host whose
+   * machine is not the person's own. Default: `loopback`.
+   */
+  signInOverHttp?: McpSignInOverHttp;
   /** How long `load()` and `status()` wait for a server. Default: 10 seconds. */
   connectTimeoutMs?: number;
   /**
@@ -221,6 +238,12 @@ function targetOf(server: McpServer): string {
     : [config.command, ...(config.args ?? [])].join(" ");
 }
 
+/** A server's connection as the manager resolved it. */
+interface Resolved {
+  credentials: McpCredentials;
+  snapshot: ConnectionConfig;
+}
+
 /** A session's connection as an action call holds it. */
 function credentialsOf(ctx: ActionContext): McpCredentials {
   return {
@@ -302,15 +325,28 @@ export class McpManager {
             });
             return undefined;
           }
-          let snapshot = await this.snapshot(server);
+          let whose: Awaited<ReturnType<McpManager["whose"]>>;
+          try {
+            whose = await this.whose(server, options.context);
+          } catch (error) {
+            problems.push(this.problem(server, error));
+            return serverPlugin(server, undefined, this.calls(server));
+          }
+          const { identity } = whose;
+          let snapshot = await this.snapshot(server, identity);
           if (!snapshot && options.connect !== false) {
-            const failed = await this.recentFailure(server);
+            const failed = await this.recentFailure(server, identity);
             if (failed) problems.push(failed);
             else
               try {
                 snapshot = this.snapshotOf(
                   server,
-                  await this.report(server, options.context),
+                  await this.report(
+                    server,
+                    options.context,
+                    false,
+                    whose.resolved,
+                  ),
                 );
               } catch (error) {
                 const problem = this.problem(server, error);
@@ -319,7 +355,7 @@ export class McpManager {
                 // a sign-in or another owner's connection is fixed by the
                 // person and works on the next run.
                 if (isMcpServerError(error) && error.code === "connect_failed")
-                  await this.rememberFailure(server, problem);
+                  await this.rememberFailure(server, identity, problem);
               }
           }
           return serverPlugin(server, snapshot, this.calls(server));
@@ -329,9 +365,13 @@ export class McpManager {
   }
 
   /** Every configured server, without connecting to any. */
-  async list(): Promise<McpServerInfo[]> {
+  async list(options: { context?: unknown } = {}): Promise<McpServerInfo[]> {
     const servers = await this.selected();
-    return Promise.all(servers.map((server) => this.info(server)));
+    return Promise.all(
+      servers.map(async (server) =>
+        this.info(server, (await this.whoseIfKnown(server, options)).identity),
+      ),
+    );
   }
 
   /** Connect to each enabled server, or the one named, and say how it went. */
@@ -342,10 +382,16 @@ export class McpManager {
     const servers = await this.selected(name);
     return Promise.all(
       servers.map(async (server): Promise<McpServerStatus> => {
-        const info = await this.info(server);
+        const whose = await this.whoseIfKnown(server, options);
+        const info = await this.info(server, whose.identity);
         if (!server.enabled) return { ...info, state: "disabled" };
         try {
-          const report = await this.report(server, options.context);
+          const report = await this.report(
+            server,
+            options.context,
+            false,
+            whose.resolved,
+          );
           return { ...info, state: "connected", tools: report.tools.length };
         } catch (error) {
           const needsSignIn =
@@ -411,7 +457,7 @@ export class McpManager {
     };
     const problem = resolveServers(
       { [scope]: [...sources, added] },
-      { validate: mcp.validateMcpServerConfig, isOverride: () => false },
+      { ...this.check(mcp), isOverride: () => false },
     ).problems.find((found) => found.server === name);
     if (problem)
       throw new McpServerError(problem.code, problem.message, { server: name });
@@ -421,7 +467,7 @@ export class McpManager {
     );
     if (!recorded)
       throw new McpServerError("not_found", `MCP server "${name}" not found`);
-    return this.info(recorded);
+    return this.info(recorded, undefined);
   }
 
   /** Forget a server: its entry, its snapshot and its open sessions. Answers whether it was defined. */
@@ -438,8 +484,10 @@ export class McpManager {
 
   /**
    * How to sign in to an HTTP server: its endpoints as an OAuth2 definition
-   * and the client to sign in as, registered with `redirectUri` unless the
-   * entry names one. Run the consent with codemode's OAuth runtime
+   * and the client to sign in as. That is the one the entry names, else the
+   * host's metadata document, else one registered with `redirectUri`. Run
+   * the consent with the setup's own `redirectUri` and codemode's OAuth
+   * runtime
    * (`runOAuth`, or `buildOAuth2AuthorizationUrl` and `exchangeOAuth2Code`)
    * and store `mcpOAuthConnection(setup, tokens)` in the server's connection.
    */
@@ -489,6 +537,8 @@ export class McpManager {
         connection: snapshot.config,
         variable: this.variable,
       }),
+      clientMetadataDocuments: this.options.clientMetadataDocuments,
+      signInOverHttp: this.options.signInOverHttp,
       fetch: this.options.fetch,
       signal: options.signal,
     });
@@ -521,6 +571,31 @@ export class McpManager {
       );
     this.module ??= import("@earendil-works/pi-mcp");
     return this.module;
+  }
+
+  /**
+   * How entries are checked: pi-mcp's rules, with `cimd` allowed where the
+   * host's documents list the entry's callback.
+   */
+  private check(mcp: McpModule): Parameters<typeof resolveServers>[1] {
+    const documents = this.options.clientMetadataDocuments;
+    return {
+      validate: (name, raw) =>
+        mcp.validateMcpServerConfig(
+          name,
+          raw,
+          documents
+            ? {
+                checkMetadataDocumentCallback: (callbackUrl) =>
+                  callbackUrl === undefined ||
+                  documents.listsRedirectUrl(callbackUrl)
+                    ? undefined
+                    : 'oauth.clientRegistration "cimd" needs an oauth.callbackUrl that the client metadata documents list',
+              }
+            : {},
+        ),
+      isOverride: mcp.isMcpServerOverride,
+    };
   }
 
   private async trusted(): Promise<boolean> {
@@ -575,10 +650,7 @@ export class McpManager {
         ],
       };
     }
-    const resolved = resolveServers(scopes, {
-      validate: mcp.validateMcpServerConfig,
-      isOverride: mcp.isMcpServerOverride,
-    });
+    const resolved = resolveServers(scopes, this.check(mcp));
     return {
       servers: resolved.servers,
       problems: [...problems, ...resolved.problems],
@@ -606,8 +678,11 @@ export class McpManager {
     );
   }
 
-  private async info(server: McpServer): Promise<McpServerInfo> {
-    const snapshot = await this.snapshot(server);
+  private async info(
+    server: McpServer,
+    identity: string | undefined,
+  ): Promise<McpServerInfo> {
+    const snapshot = await this.snapshot(server, identity);
     return {
       name: server.name,
       plugin: server.plugin,
@@ -633,27 +708,56 @@ export class McpManager {
 
   // ── snapshots ─────────────────────────────────────────
 
+  /**
+   * Whose tool list a server's is, before any session exists: the host's
+   * `identity` of the server's connection, which is resolved here and
+   * handed on. Without `identity` every connection shares one list, and
+   * nothing is resolved.
+   */
+  private async whose(
+    server: McpServer,
+    context: unknown,
+  ): Promise<{ identity?: string; resolved?: Resolved }> {
+    if (!this.options.identity) return {};
+    const resolved = await this.credentials(server, context);
+    return {
+      identity: this.options.identity(resolved.snapshot, context),
+      resolved,
+    };
+  }
+
+  /** `whose`, for a caller that reports on a server whose connection cannot be resolved. */
+  private whoseIfKnown(
+    server: McpServer,
+    options: { context?: unknown },
+  ): ReturnType<McpManager["whose"]> {
+    return this.whose(server, options.context).catch(() => ({}));
+  }
+
   /** What the cache holds for this entry: a snapshot, or the record of a failed connect. */
   private async cached(
     server: McpServer,
+    identity: string | undefined,
   ): Promise<McpServerSnapshot | undefined> {
-    const snapshot = await this.cache.read(server.scope, server.name);
+    const snapshot = await this.cache.read(server.scope, server.name, identity);
     return snapshot?.key === entryKey(server) ? snapshot : undefined;
   }
 
   /** The cached snapshot taken through this entry, if any. */
   private async snapshot(
     server: McpServer,
+    identity: string | undefined,
   ): Promise<McpServerSnapshot | undefined> {
-    const snapshot = await this.cached(server);
+    const snapshot = await this.cached(server, identity);
     return snapshot?.failure ? undefined : snapshot;
   }
 
   /** The problem of a connect that failed too recently to try again. */
   private async recentFailure(
     server: McpServer,
+    identity: string | undefined,
   ): Promise<McpProblem | undefined> {
-    const snapshot = await this.cached(server);
+    const snapshot = await this.cached(server, identity);
     const retryAfter = this.options.retryFailedAfterMs ?? 60_000;
     if (!snapshot?.failure || Date.now() - snapshot.savedAt >= retryAfter)
       return undefined;
@@ -669,16 +773,22 @@ export class McpManager {
 
   private async rememberFailure(
     server: McpServer,
+    identity: string | undefined,
     problem: McpProblem,
   ): Promise<void> {
     await this.cache
-      .write(server.scope, server.name, {
-        key: entryKey(server),
-        tools: [],
-        resources: false,
-        savedAt: Date.now(),
-        failure: { code: problem.code, message: problem.message },
-      })
+      .write(
+        server.scope,
+        server.name,
+        {
+          key: entryKey(server),
+          tools: [],
+          resources: false,
+          savedAt: Date.now(),
+          failure: { code: problem.code, message: problem.message },
+        },
+        identity,
+      )
       .catch(() => undefined);
   }
 
@@ -692,15 +802,17 @@ export class McpManager {
   /** Replace a server's snapshot with what it reports now, and say so when it differs. */
   private async record(
     server: McpServer,
+    identity: string | undefined,
     report: McpServerReport,
   ): Promise<void> {
     let previous: McpServerSnapshot | undefined;
     try {
-      previous = await this.snapshot(server);
+      previous = await this.snapshot(server, identity);
       await this.cache.write(
         server.scope,
         server.name,
         this.snapshotOf(server, report),
+        identity,
       );
     } catch {
       // A cache that cannot be written costs a connect next time, not this call.
@@ -716,16 +828,19 @@ export class McpManager {
   }
 
   /**
-   * What a server offers, from a connection the manager makes itself.
-   * Connecting reads the tool list; `again` reads it once more on a session
-   * that was already connected.
+   * What a server offers, from a connection the manager makes itself:
+   * `resolved`, else the one it resolves now. Connecting reads the tool
+   * list; `again` reads it once more on a session that was already
+   * connected.
    */
   private async report(
     server: McpServer,
     context: unknown,
     again = false,
+    resolved?: Resolved,
   ): Promise<McpServerReport> {
-    const { credentials, snapshot } = await this.credentials(server, context);
+    const { credentials, snapshot } =
+      resolved ?? (await this.credentials(server, context));
     const session = await this.session(server, credentials, snapshot, context);
     const connected = session.state === "connected";
     await session.connect();
@@ -796,7 +911,7 @@ export class McpManager {
   private async credentials(
     server: McpServer,
     context: unknown,
-  ): Promise<{ credentials: McpCredentials; snapshot: ConnectionConfig }> {
+  ): Promise<Resolved> {
     const owner = mcpOwner(server.name);
     const none: ConnectionConfig = {
       name: server.plugin,
@@ -842,11 +957,12 @@ export class McpManager {
     // Awaited before the lookup: from here to `sessions.set` nothing yields,
     // so two calls made together for one identity open one session.
     const mcp = await this.mcp();
+    const identity = this.options.identity?.(connection, context);
     const key = digest([
       server.scope,
       server.name,
       entryKey(server),
-      this.options.identity?.(connection, context) ?? connection.name,
+      identity ?? connection.name,
       resolved,
       signedIn(connection.config),
     ]);
@@ -865,7 +981,7 @@ export class McpManager {
           `Run \`codemode auth ${server.name}\`.`,
         connectTimeoutMs: this.connectTimeoutMs,
         fetch: this.options.fetch,
-        onReport: (report) => this.record(server, report),
+        onReport: (report) => this.record(server, identity, report),
         onState: (changed) =>
           this.emit({
             type: "state",

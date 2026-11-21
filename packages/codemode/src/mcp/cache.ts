@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Tool } from "@earendil-works/pi-mcp";
@@ -25,15 +26,23 @@ export interface McpServerSnapshot {
 
 /**
  * Where server snapshots are kept between runs, so loading a server's
- * actions does not need a connection to it.
+ * actions does not need a connection to it. `identity` names whose
+ * snapshot it is, for a host whose manager tells identities apart; absent,
+ * it is the one every connection of the server shares.
  */
 export interface McpToolCache {
-  read(scope: McpScope, server: string): Promise<McpServerSnapshot | undefined>;
+  read(
+    scope: McpScope,
+    server: string,
+    identity?: string,
+  ): Promise<McpServerSnapshot | undefined>;
   write(
     scope: McpScope,
     server: string,
     snapshot: McpServerSnapshot,
+    identity?: string,
   ): Promise<void>;
+  /** Forget every snapshot of the server, whoever's it is. */
   remove(scope: McpScope, server: string): Promise<void>;
 }
 
@@ -58,7 +67,10 @@ function isSnapshot(value: unknown): value is McpServerSnapshot {
   );
 }
 
-/** One JSON file per server under `<folder>/mcp/`. An unreadable file is a miss. */
+/**
+ * One JSON file per server under `<folder>/mcp/`, and one per identity in
+ * a folder of the server's name beside it. An unreadable file is a miss.
+ */
 export class FileMcpToolCache implements McpToolCache {
   private readonly folders: Partial<Record<McpScope, string>>;
 
@@ -69,19 +81,29 @@ export class FileMcpToolCache implements McpToolCache {
     };
   }
 
-  /** Server names are letters, digits, `_` and `-`, so a name is a file name. */
-  private path(scope: McpScope, server: string): string | undefined {
+  /**
+   * Server names are letters, digits, `_` and `-`, so a name is a file
+   * name. An identity is whatever the host says, so its file is named by a
+   * hash of it.
+   */
+  private path(
+    scope: McpScope,
+    server: string,
+    identity?: string,
+  ): string | undefined {
     const folder = this.folders[scope];
-    return folder && /^[A-Za-z0-9_-]+$/.test(server)
-      ? join(folder, "mcp", `${server}.json`)
-      : undefined;
+    if (!folder || !/^[A-Za-z0-9_-]+$/.test(server)) return undefined;
+    if (identity === undefined) return join(folder, "mcp", `${server}.json`);
+    const name = createHash("sha256").update(identity).digest("hex");
+    return join(folder, "mcp", server, `${name.slice(0, 32)}.json`);
   }
 
   async read(
     scope: McpScope,
     server: string,
+    identity?: string,
   ): Promise<McpServerSnapshot | undefined> {
-    const path = this.path(scope, server);
+    const path = this.path(scope, server, identity);
     if (!path) return undefined;
     try {
       const snapshot: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -95,8 +117,9 @@ export class FileMcpToolCache implements McpToolCache {
     scope: McpScope,
     server: string,
     snapshot: McpServerSnapshot,
+    identity?: string,
   ): Promise<void> {
-    const path = this.path(scope, server);
+    const path = this.path(scope, server, identity);
     if (!path) return;
     mkdirSync(dirname(path), { recursive: true });
     replaceFile(path, `${JSON.stringify(snapshot)}\n`);
@@ -104,27 +127,39 @@ export class FileMcpToolCache implements McpToolCache {
 
   async remove(scope: McpScope, server: string): Promise<void> {
     const path = this.path(scope, server);
-    if (path) rmSync(path, { force: true });
+    if (!path) return;
+    rmSync(path, { force: true });
+    rmSync(path.slice(0, -".json".length), { recursive: true, force: true });
   }
 }
 
 /** Snapshots held in memory: for tests and hosts that persist elsewhere. */
 export class MemoryMcpToolCache implements McpToolCache {
-  private readonly snapshots = new Map<string, McpServerSnapshot>();
+  /** By scope and server, then by identity; the shared one under `undefined`. */
+  private readonly snapshots = new Map<
+    string,
+    Map<string | undefined, McpServerSnapshot>
+  >();
 
   async read(
     scope: McpScope,
     server: string,
+    identity?: string,
   ): Promise<McpServerSnapshot | undefined> {
-    return structuredClone(this.snapshots.get(`${scope}:${server}`));
+    return structuredClone(
+      this.snapshots.get(`${scope}:${server}`)?.get(identity),
+    );
   }
 
   async write(
     scope: McpScope,
     server: string,
     snapshot: McpServerSnapshot,
+    identity?: string,
   ): Promise<void> {
-    this.snapshots.set(`${scope}:${server}`, structuredClone(snapshot));
+    const key = `${scope}:${server}`;
+    const kept = this.snapshots.get(key) ?? new Map();
+    this.snapshots.set(key, kept.set(identity, structuredClone(snapshot)));
   }
 
   async remove(scope: McpScope, server: string): Promise<void> {

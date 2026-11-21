@@ -2,8 +2,10 @@ export {
   discoverMcpOAuth,
   MCP_GRANT_FIELD,
   MCP_OAUTH_FIELD,
+  type McpClientMetadataDocuments,
   type McpCredentials,
   type McpOAuthSetup,
+  type McpSignInOverHttp,
   mcpOAuthConnection,
   usesOAuth,
 } from "./auth.js";

@@ -471,7 +471,9 @@ function validateMethod(method: CredentialMethod): void {
         throw new AuthError("invalid_definition");
     }
   } else if (auth.kind !== "none") throw new AuthError("invalid_definition");
-  if (!Object.keys(method.targets).length)
+  // Only a grant may have no target: host code reads its token through
+  // `accessToken` for a client that sends its own requests.
+  if (!Object.keys(method.targets).length && auth.kind !== "oauth2")
     throw new AuthError("invalid_definition");
   for (const [name, target] of Object.entries(method.targets)) {
     identifier(name);

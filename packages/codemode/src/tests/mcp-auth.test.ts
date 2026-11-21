@@ -17,7 +17,7 @@ import {
 } from "../mcp/auth.js";
 import { MemoryMcpToolCache } from "../mcp/cache.js";
 import { isMcpServerError } from "../mcp/errors.js";
-import { McpManager } from "../mcp/manager.js";
+import { McpManager, type McpManagerOptions } from "../mcp/manager.js";
 import { MemoryMcpStore } from "../mcp/store.js";
 import type { ConnectionConfig } from "../plugin/types.js";
 import { Codemode } from "../sdk.js";
@@ -40,8 +40,23 @@ afterEach(async () => {
  * `revoke()`.
  */
 function world(
-  options: { registration?: boolean; refuseRefresh?: boolean } = {},
+  options: {
+    registration?: boolean;
+    refuseRefresh?: boolean;
+    /** Where the MCP server is. Default: `SERVER`. */
+    server?: string;
+    /** The authorization server's issuer. Default: `https://auth.test`. */
+    issuer?: string;
+    /** Whether the authorization server takes Client ID Metadata Documents. */
+    documents?: boolean;
+    /** Whether its responses carry `iss`. Default: true. */
+    iss?: boolean;
+    manager?: Partial<McpManagerOptions>;
+  } = {},
 ) {
+  const address = options.server ?? SERVER;
+  const issuer = options.issuer ?? "https://auth.test";
+  const resourceMetadata = `${new URL(address).origin}/.well-known/oauth-protected-resource/mcp`;
   const server = fakeServer({
     tools: [WHOAMI],
     call: () => ({ content: [{ type: "text", text: "you" }] }),
@@ -54,7 +69,7 @@ function world(
     valid.add(token);
     return token;
   };
-  const mcp = fakeHttp(server, SERVER, (request) => {
+  const mcp = fakeHttp(server, address, (request) => {
     const bearer = request.headers
       .get("authorization")
       ?.replace(/^Bearer /, "");
@@ -62,34 +77,36 @@ function world(
     return new Response("unauthorized", {
       status: 401,
       headers: {
-        "www-authenticate":
-          'Bearer resource_metadata="https://mcp.test/.well-known/oauth-protected-resource/mcp", scope="read"',
+        "www-authenticate": `Bearer resource_metadata="${resourceMetadata}", scope="read"`,
       },
     });
   });
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (url === SERVER) return mcp(input, init);
-    if (url === "https://mcp.test/.well-known/oauth-protected-resource/mcp")
+    if (url === address) return mcp(input, init);
+    if (url === resourceMetadata)
       return Response.json({
-        resource: SERVER,
-        authorization_servers: ["https://auth.test"],
+        resource: address,
+        authorization_servers: [issuer],
         scopes_supported: ["read", "write"],
       });
-    if (url === "https://auth.test/.well-known/oauth-authorization-server")
+    if (url === `${issuer}/.well-known/oauth-authorization-server`)
       return Response.json({
-        issuer: "https://auth.test",
-        authorization_endpoint: "https://auth.test/authorize",
-        token_endpoint: "https://auth.test/token",
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
         ...(options.registration === false
           ? {}
-          : { registration_endpoint: "https://auth.test/register" }),
+          : { registration_endpoint: `${issuer}/register` }),
         response_types_supported: ["code"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
-        authorization_response_iss_parameter_supported: true,
+        authorization_response_iss_parameter_supported: options.iss !== false,
+        ...(options.documents
+          ? { client_id_metadata_document_supported: true }
+          : {}),
       });
-    if (url === "https://auth.test/register") {
+    if (url === `${issuer}/register`) {
       const body = JSON.parse(String(init?.body));
       requests.push({ url, body });
       return Response.json({
@@ -98,7 +115,7 @@ function world(
         token_endpoint_auth_method: "none",
       });
     }
-    if (url === "https://auth.test/token") {
+    if (url === `${issuer}/token`) {
       const body = new URLSearchParams(String(init?.body));
       requests.push({ url, body });
       if (
@@ -118,13 +135,14 @@ function world(
 
   const connections = new MemoryConnectionProvider();
   const cache = new MemoryMcpToolCache();
-  const manager = (entry: Record<string, unknown> = { url: SERVER }) => {
+  const manager = (entry: Record<string, unknown> = { url: address }) => {
     const created = new McpManager({
       store: new MemoryMcpStore({ user: { srv: entry } }),
       cache,
       connections,
       fetch,
       variable: (name) => (name === "CLIENT_SECRET" ? "s3cret" : undefined),
+      ...options.manager,
     });
     managers.push(created);
     return created;
@@ -137,7 +155,7 @@ function world(
     manager,
     tokenRequests: () =>
       requests
-        .filter((request) => request.url === "https://auth.test/token")
+        .filter((request) => request.url === `${issuer}/token`)
         .map((request) => request.body as URLSearchParams),
     revoke: () => valid.clear(),
     /** Sign in: exchange a code and store the result as the server's connection. */
@@ -269,6 +287,152 @@ describe("finding how to sign in to an MCP server", () => {
       world().manager().oauth("other", { redirectUri: REDIRECT }),
       /No MCP server named "other"/,
     );
+  });
+});
+
+describe("the client a sign-in uses", () => {
+  /** A host's documents, which list `/callback` on 127.0.0.1 at any port. */
+  const documents = {
+    baseUrl: "https://client.test/oauth",
+    listsRedirectUrl: (redirectUrl: string) => {
+      const url = new URL(redirectUrl);
+      return url.hostname === "127.0.0.1" && url.pathname === "/callback";
+    },
+  };
+  const hosted = { manager: { clientMetadataDocuments: documents } };
+  const registrations = (w: ReturnType<typeof world>) =>
+    w.requests.filter((request) => request.url.endsWith("/register")).length;
+
+  it("is the host's document where the authorization server takes one, and nothing is registered", async () => {
+    const w = world({ ...hosted, documents: true });
+    const setup = await w.manager().oauth("srv", { redirectUri: REDIRECT });
+    assert.deepEqual(setup.application, {
+      clientId: "https://client.test/oauth/client.json",
+    });
+    assert.equal(setup.redirectUri, REDIRECT);
+    assert.equal(setup.definition.exchange?.clientAuthentication, "client_id");
+    assert.equal(registrations(w), 0);
+  });
+
+  it("is a document and a redirect of the server's own when responses carry no issuer", async () => {
+    const w = world({ ...hosted, documents: true, iss: false });
+    const setup = await w.manager().oauth("srv", { redirectUri: REDIRECT });
+    const id =
+      /^https:\/\/client\.test\/oauth\/([\w-]{12})\/client\.json$/.exec(
+        setup.application.clientId,
+      )?.[1];
+    assert.ok(id, setup.application.clientId);
+    assert.equal(setup.redirectUri, `${REDIRECT}/${id}`);
+    assert.equal(setup.issuerRequired, false);
+    // Another server gets another document.
+    const other = world({
+      ...hosted,
+      documents: true,
+      iss: false,
+      server: "https://other.test/mcp",
+    });
+    const second = await other
+      .manager()
+      .oauth("srv", { redirectUri: REDIRECT });
+    assert.notEqual(second.application.clientId, setup.application.clientId);
+  });
+
+  it("is registered where the server takes no document, the documents do not list the redirect, or the entry says so", async () => {
+    const unsupported = world(hosted);
+    await unsupported.manager().oauth("srv", { redirectUri: REDIRECT });
+    assert.equal(registrations(unsupported), 1);
+
+    const unlisted = world({ ...hosted, documents: true });
+    await unlisted
+      .manager()
+      .oauth("srv", { redirectUri: "http://127.0.0.1:47823/elsewhere" });
+    assert.equal(registrations(unlisted), 1);
+
+    const asked = world({ ...hosted, documents: true });
+    const setup = await asked
+      .manager({ url: SERVER, oauth: { clientRegistration: "dcr" } })
+      .oauth("srv", { redirectUri: REDIRECT });
+    assert.equal(setup.application.clientId, "registered-client");
+  });
+
+  it("refuses an entry that asks for a document the host or the server cannot give", async () => {
+    const entry = { url: SERVER, oauth: { clientRegistration: "cimd" } };
+    const { problems } = await world().manager(entry).load();
+    assert.equal(problems[0].code, "invalid_config");
+    assert.match(problems[0].message, /no Client ID Metadata Documents/);
+
+    await assert.rejects(
+      world(hosted).manager(entry).oauth("srv", { redirectUri: REDIRECT }),
+      (error) =>
+        isMcpServerError(error) &&
+        error.code === "sign_in_unsupported" &&
+        /takes no client metadata document/.test(error.message),
+    );
+    const bad = await world(hosted)
+      .manager({
+        url: SERVER,
+        oauth: {
+          clientRegistration: "cimd",
+          callbackUrl: "http://127.0.0.1/other",
+        },
+      })
+      .load();
+    assert.match(
+      bad.problems[0].message,
+      /callbackUrl that the client metadata documents list/,
+    );
+  });
+});
+
+describe("signing in over http", () => {
+  const LOCAL = "http://127.0.0.1:8931/mcp";
+  const local = { server: LOCAL, issuer: "http://localhost:9000" };
+
+  it("works for a server and an authorization server on this machine", async () => {
+    const w = world(local);
+    const mcp = w.manager();
+    const setup = await mcp.oauth("srv", { redirectUri: REDIRECT });
+    assert.equal(setup.definition.exchange?.url, "http://localhost:9000/token");
+    await w.signIn(setup);
+    const { problems, run } = await call(mcp, w);
+    assert.deepEqual(problems, []);
+    assert.deepEqual(await run(), { result: "you", logs: [] });
+    // And the token is renewed there.
+    w.revoke();
+    assert.equal((await run()).result, "you");
+  });
+
+  it("is refused by a host that signs in over https only", async () => {
+    const w = world({ ...local, manager: { signInOverHttp: "never" } });
+    await assert.rejects(
+      w.manager().oauth("srv", { redirectUri: REDIRECT }),
+      (error) =>
+        isMcpServerError(error) &&
+        error.code === "sign_in_unsupported" &&
+        /http:\/\/127\.0\.0\.1:8931\/mcp is reached over http\. Sign-in needs https\./.test(
+          error.message,
+        ),
+    );
+    assert.equal(w.requests.length, 0);
+  });
+
+  it("is refused for a server or an authorization server elsewhere, before a client is registered", async () => {
+    for (const elsewhere of [
+      { server: "http://mcp.test/mcp" },
+      { issuer: "http://auth.test" },
+    ]) {
+      const w = world(elsewhere);
+      await assert.rejects(
+        w.manager().oauth("srv", { redirectUri: REDIRECT }),
+        (error) =>
+          isMcpServerError(error) &&
+          error.code === "sign_in_unsupported" &&
+          /Sign-in needs https, or a server on this machine\./.test(
+            error.message,
+          ),
+      );
+      assert.equal(w.requests.length, 0);
+    }
   });
 });
 
