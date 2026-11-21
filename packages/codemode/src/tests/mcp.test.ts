@@ -679,11 +679,17 @@ describe("calling a server's tools from code", () => {
     });
     const mcp = manager({ tracker: { command: "x" } }, { tracker: server });
     const codemode = codemodeWith({ plugins: (await mcp.load()).plugins });
+    // Long enough for the call to reach the server on a slow machine: a
+    // run that times out before it has made the call has none to cancel.
     const { error } = await codemode.execute(
       `return await tracker.search_issues({ query: "x" })`,
-      { timeoutMs: 100 },
+      { timeoutMs: 1_000 },
     );
     assert.match(error ?? "", /timed out/);
+    assert.ok(
+      server.received.some((r) => r.method === "tools/call"),
+      "the call reached the server",
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.ok(
       server.received.some((r) => r.method === "notifications/cancelled"),

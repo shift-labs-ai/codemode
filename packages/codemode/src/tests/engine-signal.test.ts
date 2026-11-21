@@ -62,10 +62,14 @@ describe("an action's abort signal", () => {
     const aborts: string[] = [];
     const engine = engineWith(signals, aborts);
     try {
-      const { error } = await engine.execute("return await probe.hang()", {
-        timeoutMs: 80,
-      });
+      // The run ends once the call is waiting, however slowly its worker
+      // starts: a run that times out first has made no call to abort.
+      const { error } = await engine.execute(
+        "await probe.quick(); return await probe.hang()",
+        { timeoutMs: 1_000 },
+      );
       assert.match(error ?? "", /timed out/);
+      assert.equal(signals.length, 2);
       assert.deepEqual(aborts, ["hang"]);
     } finally {
       engine.dispose();
