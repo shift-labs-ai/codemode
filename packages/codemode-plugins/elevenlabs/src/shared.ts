@@ -347,7 +347,7 @@ export async function binaryRequest(
         mimeType: mime,
         provider: "elevenlabs",
         index: 0,
-        saveDir: options.saveDir,
+        saveDir: options.saveDir ?? ctx.outputDir,
       });
       return {
         provider: "elevenlabs",

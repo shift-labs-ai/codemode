@@ -6,9 +6,15 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isShellError, runShell, type ShellProgram } from "../utils/shell.js";
@@ -240,11 +246,15 @@ describe("output past the limit", () => {
       const result = await runShell(
         SH,
         "echo START; i=0; while [ $i -lt 400 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done; echo END",
-        { maxOutputBytes: 1_000, outputFilePrefix: "codemode-shell-test" },
+        {
+          maxOutputBytes: 1_000,
+          outputFilePrefix: "codemode-shell-test",
+          outputDir: tmp,
+        },
       );
       assert.equal(result.truncated, true);
       assert.ok(result.fullOutputPath);
-      spilled.push(result.fullOutputPath);
+      assert.equal(dirname(result.fullOutputPath), tmp);
       assert.match(
         result.fullOutputPath,
         /codemode-shell-test-[0-9a-f]{16}\.log$/,
@@ -260,6 +270,22 @@ describe("output past the limit", () => {
       assert.equal(full.length, total);
       assert.ok(full.startsWith("START\n") && full.endsWith("END\n"));
       assert.equal(statSync(result.fullOutputPath).mode & 0o777, 0o600);
+    },
+  );
+
+  posix(
+    "still answers its start and end where the file cannot be written",
+    async () => {
+      const blocked = join(tmp, "a-file");
+      writeFileSync(blocked, "");
+      const result = await runShell(
+        SH,
+        "i=0; while [ $i -lt 400 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done; echo END",
+        { maxOutputBytes: 1_000, outputDir: blocked },
+      );
+      assert.equal(result.truncated, true);
+      assert.equal(result.fullOutputPath, undefined);
+      assert.ok(result.output.endsWith("END\n"));
     },
   );
 

@@ -136,7 +136,7 @@ export default function recraft(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "recraft",
           index: i,
-          saveDir: p.saveDir,
+          saveDir: p.saveDir ?? ctx.outputDir,
           stamp,
         }),
       );
@@ -231,7 +231,7 @@ export default function recraft(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "recraft",
           index: i,
-          saveDir: p.saveDir,
+          saveDir: p.saveDir ?? ctx.outputDir,
           stamp,
         }),
       );

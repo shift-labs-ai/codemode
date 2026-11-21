@@ -1,8 +1,8 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { constants as osConstants, tmpdir } from "node:os";
+import { existsSync, type WriteStream } from "node:fs";
+import { constants as osConstants } from "node:os";
 import { join } from "node:path";
+import { createOutputFileStream, joinClipped } from "./output-files.js";
 
 /** How a shell program takes a script. */
 export interface ShellProgram {
@@ -29,6 +29,8 @@ export interface RunShellOptions {
   maxOutputBytes?: number;
   /** The start of the name of the file that keeps output past the limit. Default: `codemode-shell`. */
   outputFilePrefix?: string;
+  /** Where that file is written: an action passes `ctx.outputDir`. Default: the system's temporary directory. */
+  outputDir?: string;
 }
 
 export interface ShellResult {
@@ -106,6 +108,7 @@ class ShellOutput {
   constructor(
     private readonly maxBytes: number,
     private readonly prefix: string,
+    private readonly dir: string | undefined,
   ) {
     this.half = Math.floor(maxBytes / 2);
   }
@@ -120,7 +123,7 @@ class ShellOutput {
     this.total += chunk.length;
     let keepReading = true;
     if (this.file) keepReading = this.write(chunk);
-    else if (this.total > this.maxBytes) this.spill(chunk);
+    else if (this.total > this.maxBytes && !this.fileFailed) this.spill(chunk);
     if (this.headBytes < this.half) {
       const part = chunk.subarray(0, this.half - this.headBytes);
       this.head.push(part);
@@ -173,18 +176,21 @@ class ShellOutput {
 
   /** Start the file with everything so far; `latest` is its last part. */
   private spill(latest: Buffer): void {
-    this.path = join(
-      tmpdir(),
-      `${this.prefix}-${randomBytes(8).toString("hex")}.log`,
-    );
-    // Output can carry private data: only the user reads it, and `wx` never
-    // follows a link someone else placed at the path.
-    this.file = createWriteStream(this.path, { mode: 0o600, flags: "wx" });
+    this.block = [...this.head, ...this.tail, latest];
+    this.blockBytes = this.total;
+    try {
+      const created = createOutputFileStream(this.prefix, ".log", this.dir);
+      this.path = created.path;
+      this.file = created.stream;
+    } catch {
+      this.fileFailed = true;
+      this.block = [];
+      this.blockBytes = 0;
+      return;
+    }
     this.file.on("error", () => {
       this.fileFailed = true;
     });
-    this.block = [...this.head, ...this.tail, latest];
-    this.blockBytes = this.total;
     this.flush();
   }
 
@@ -209,13 +215,8 @@ class ShellOutput {
     const kept = this.maxBytes - this.half;
     let tail = Buffer.concat(this.tail);
     tail = tail.subarray(Math.max(0, tail.length - kept));
-    // Cut at character boundaries: a streaming decode holds back an
-    // unfinished sequence, and the tail skips the rest of one.
-    let start = 0;
-    while (start < tail.length && (tail[start] & 0xc0) === 0x80) start++;
-    const omitted = this.total - head.length - tail.length;
     return {
-      text: `${new TextDecoder().decode(head, { stream: true })}\n\n[... ${omitted} bytes omitted ...]\n\n${tail.subarray(start).toString("utf8")}`,
+      text: joinClipped(head, tail, this.total - head.length - tail.length),
       truncated: true,
       ...(this.path === undefined || this.fileFailed
         ? {}
@@ -423,6 +424,7 @@ export async function runShell(
   const output = new ShellOutput(
     options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     options.outputFilePrefix ?? "codemode-shell",
+    options.outputDir,
   );
   const started = performance.now();
   const child = spawn(

@@ -8,10 +8,8 @@
  * send_file/attachment tool. Plugins load in-process via jiti, so node:fs is
  * available (same pattern as googleDrive/googleSlides).
  */
-import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, extname } from "node:path";
+import { writeOutputFile } from "@shiftlabs/codemode";
 import { readLocalFile } from "./localFile.js";
 
 const MIME_EXT: Record<string, string> = {
@@ -46,8 +44,8 @@ export interface SavedMedia {
 }
 
 /**
- * Write media bytes with a unique name in `saveDir` (or the OS temp dir).
- * Exclusive creation prevents overwrites and following a pre-existing file symlink.
+ * Write media bytes to an output file of their own in `saveDir`, which an
+ * action sets to what the caller asked for, else to `ctx.outputDir`.
  */
 export function writeMediaFile(opts: {
   bytes: Uint8Array;
@@ -58,16 +56,15 @@ export function writeMediaFile(opts: {
   stamp?: number;
 }): SavedMedia {
   const mimeType = opts.mimeType ?? "image/png";
-  const dir =
-    (typeof opts.saveDir === "string" && opts.saveDir.trim()) || tmpdir();
   const stamp = opts.stamp ?? Date.now();
   if (!/^[\w-]+$/.test(opts.provider))
     throw new Error("invalid media provider name");
-  const path = join(
-    dir,
-    `${opts.provider}-${stamp}-${opts.index}-${randomUUID()}.${extForMime(mimeType)}`,
+  const path = writeOutputFile(
+    `${opts.provider}-${stamp}-${opts.index}`,
+    `.${extForMime(mimeType)}`,
+    opts.bytes,
+    (typeof opts.saveDir === "string" && opts.saveDir.trim()) || undefined,
   );
-  writeFileSync(path, opts.bytes, { flag: "wx", mode: 0o600 });
   return { path, mimeType, byteLength: opts.bytes.byteLength };
 }
 

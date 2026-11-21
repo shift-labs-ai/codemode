@@ -46,6 +46,8 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 | `onAction` | Observes every action call |
 | `timeoutMs`, `memoryLimitBytes` | Default limits for each run: 30 seconds and 64 MB |
 | `maxRunsPerWorker` | Runs one worker serves before it is replaced. The default is 500 |
+| `outputDir` | Where output files are written: a command's whole output, a run's whole result, generated media. The default is the system's temporary directory |
+| `maxResultBytes` | The most a run's result may take. The default is no limit. See [Limit a run's result](#limit-a-runs-result) |
 
 `addPlugin(plugin, connections?)` registers another plugin. Later runs see it, and a run in progress is not disturbed. `actions()`, `plugins()`, and `connections()` report what the instance holds. `connections()` lists only in-memory connections.
 
@@ -76,6 +78,29 @@ const outcome = await codemode.execute(code, {
 Actions read it as `ctx.context`. The code being run cannot see or change it, so a host can use it to carry the identity a run acts for.
 
 Concurrent calls to `execute()` run in separate workers. See [Run Code](usage.md) for what the code can use.
+
+## Limit a run's result
+
+A run can return more than its caller should read at once, such as every row of a table or the whole result of an MCP tool. Set `maxResultBytes` to bound it, and `outputDir` to choose where the rest is kept:
+
+```typescript
+const codemode = Codemode.create({
+  plugins,
+  outputDir: "/data/workspace/outbox",
+  maxResultBytes: 64 * 1024,
+});
+
+const { result, truncated, fullResultPath } = await codemode.execute(code);
+```
+
+A result within the limit is returned as it is. A larger one is written whole to a new file in `outputDir`, and `result` is then text: the start and the end of the result's JSON, or of the string it is, around a note of how many bytes were left out.
+
+| Field | Contents |
+|---|---|
+| `truncated` | `true` when `result` is the start and end of a larger one |
+| `fullResultPath` | The file that holds the whole result: `.json`, or `.txt` for a string |
+
+Pass either option to `execute()` to set it for one run. Actions read the directory as `ctx.outputDir`, and the shell runner and the media plugins write their files there. Output files are readable only by the account that runs codemode, and codemode never deletes them: the host that names the directory clears it.
 
 ## Load plugins
 

@@ -54,6 +54,8 @@ Settings are top-level keys of `config.json`:
 | `timeoutMs` | number | `30000` | Time limit for one run in milliseconds. `0` disables it |
 | `memoryLimitBytes` | number | `67108864` | Memory limit for one run. Values below 8 MB are raised to 8 MB |
 | `maxRunsPerWorker` | number | `500` | Runs one worker thread serves before codemode replaces it |
+| `outputDir` | string | The system's temporary directory | Where output files are written: a command's whole output, a run's whole result, generated media. Codemode makes the directory, and a relative path resolves from the working directory |
+| `maxResultBytes` | number | No limit | The most a run's result may take. A larger result is written whole to a file in `outputDir` and returned as its start and end |
 | `replaceableBuiltins` | `string[]` | `[]` | Bundled plugins that a local plugin of the same name may replace |
 | `packageManager` | `"npm" \| "pnpm" \| "bun"` | `"npm"` | The program that installs npm packages. Read from `~/.codemode/config.json` only |
 

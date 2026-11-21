@@ -14,6 +14,17 @@ export interface CodemodeConfig {
    * meaningfully affect it. Default 500.
    */
   maxRunsPerWorker?: number;
+  /**
+   * Where output files are written: a command's whole output, a run's whole
+   * result, generated media. Default: the system's temporary directory.
+   */
+  outputDir?: string;
+  /**
+   * The most a run's result may take, as UTF-8 text. A larger result is
+   * written whole to an output file and returned as its start and end.
+   * Default: no limit.
+   */
+  maxResultBytes?: number;
   /** Installed plugin packages; `PackageManager` reads and writes them. */
   packages?: PackageEntry[];
   /** What the CLI installs packages with. Read from the user's config. Default: npm. */

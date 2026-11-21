@@ -129,7 +129,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
         contents: [{ parts: [{ text: p.prompt }] }],
         generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
       });
-      const images = saveInlineImages(data, p.saveDir);
+      const images = saveInlineImages(data, p.saveDir ?? ctx.outputDir);
       return { provider: "googleImage", model, images, note: SEND_FILE_NOTE };
     },
   });
@@ -179,7 +179,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
         ],
         generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
       });
-      const images = saveInlineImages(data, p.saveDir);
+      const images = saveInlineImages(data, p.saveDir ?? ctx.outputDir);
       if (images.length === 0) {
         throw new Error(
           "googleImage: the model returned no edited image — it may have refused; try a more specific instruction",

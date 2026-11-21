@@ -131,7 +131,7 @@ async function generate(
     { ...input, ...p.extraInput },
     p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
-  return savedResult(output, id, requestId, p.saveDir, kind);
+  return savedResult(output, id, requestId, p.saveDir ?? ctx.outputDir, kind);
 }
 
 /** fal model inference via its queue API. Generation is billed; downloads return local paths. */
@@ -218,7 +218,7 @@ export default function fal(rl: CodemodePluginAPI): void {
         p.input,
         p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
-      return savedResult(output, id, requestId, p.saveDir);
+      return savedResult(output, id, requestId, p.saveDir ?? ctx.outputDir);
     },
   });
   rl.registerAction("queue.submit", {
@@ -259,7 +259,7 @@ export default function fal(rl: CodemodePluginAPI): void {
         await result(ctx, id, p.requestId),
         id,
         p.requestId,
-        p.saveDir,
+        p.saveDir ?? ctx.outputDir,
       );
     },
   });

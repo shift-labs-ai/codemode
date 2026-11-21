@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Worker } from "node:worker_threads";
 import type { CodemodeConfig } from "../config/types.js";
@@ -29,11 +30,20 @@ import type {
   TypedInputSchema,
 } from "../plugin/types.js";
 import { notifyObserver } from "../utils/observer.js";
+import { clipText, writeOutputFile } from "../utils/output-files.js";
 
 export interface ExecuteResult {
+  /**
+   * What the code returned. A result past `maxResultBytes` is text here:
+   * the start and the end of its JSON, or of the string it is.
+   */
   result: unknown;
   error?: string;
   logs: string[];
+  /** Present when `result` is the start and end of a larger one. */
+  truncated?: true;
+  /** The file holding the whole result, when `result` does not. */
+  fullResultPath?: string;
 }
 
 export interface EngineOptions {
@@ -41,6 +51,10 @@ export interface EngineOptions {
   memoryLimitBytes?: number;
   /** Delivered to every action's `ctx.context` for this run. */
   context?: unknown;
+  /** Where this run's output files are written. Default: the config's `outputDir`. */
+  outputDir?: string;
+  /** The most this run's result may take. Default: the config's `maxResultBytes`. */
+  maxResultBytes?: number;
 }
 
 /**
@@ -190,6 +204,40 @@ export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 const RSS_WATCHDOG_SLACK_BYTES = 128 * 1024 * 1024;
 
 /**
+ * A run's result within `maxBytes`: itself, or the start and end of its
+ * text with the whole of it in an output file. A result that cannot be
+ * written whole is still returned clipped, without a path.
+ */
+function boundedResult(
+  result: unknown,
+  maxBytes: number | undefined,
+  outputDir: string | undefined,
+): Pick<ExecuteResult, "result" | "truncated" | "fullResultPath"> {
+  if (maxBytes === undefined || result === undefined || result === null)
+    return { result };
+  const isText = typeof result === "string";
+  const whole = isText ? result : JSON.stringify(result);
+  const clipped = clipText(whole, maxBytes);
+  if (!clipped.truncated) return { result };
+  let fullResultPath: string | undefined;
+  try {
+    fullResultPath = writeOutputFile(
+      "codemode-result",
+      isText ? ".txt" : ".json",
+      whole,
+      outputDir,
+    );
+  } catch {
+    // The clipped result still says that it is one.
+  }
+  return {
+    result: clipped.text,
+    truncated: true,
+    ...(fullResultPath === undefined ? {} : { fullResultPath }),
+  };
+}
+
+/**
  * Executes agent code in a node:worker_threads worker.
  *
  * The worker is an ergonomic coding surface, not a security sandbox: agent
@@ -317,6 +365,27 @@ export class ExecutionEngine {
         error:
           `Invalid timeoutMs: ${timeoutMs}. ` +
           `Pass 0 (no timeout) or 1..${MAX_TIMEOUT_MS} ms.`,
+        logs,
+      };
+    }
+
+    const outputDir = options?.outputDir ?? this.config.outputDir;
+    if (outputDir !== undefined) {
+      try {
+        mkdirSync(outputDir, { recursive: true });
+      } catch {
+        // What is written there says so itself.
+      }
+    }
+    const maxResultBytes =
+      options?.maxResultBytes ?? this.config.maxResultBytes;
+    if (
+      maxResultBytes !== undefined &&
+      !(Number.isSafeInteger(maxResultBytes) && maxResultBytes > 0)
+    ) {
+      return {
+        result: null,
+        error: `Invalid maxResultBytes: ${maxResultBytes}. Pass a whole number of bytes above 0.`,
         logs,
       };
     }
@@ -453,6 +522,7 @@ export class ExecutionEngine {
             msg.args,
             ended.signal,
             options?.context,
+            outputDir,
           ).then(
             (value) => {
               let serialized: unknown;
@@ -493,7 +563,10 @@ export class ExecutionEngine {
           // event loop and can post into later runs: never reuse it.
           finish(
             msg.ok
-              ? { result: msg.result, logs }
+              ? {
+                  ...boundedResult(msg.result, maxResultBytes, outputDir),
+                  logs,
+                }
               : { result: null, error: msg.error ?? "Unknown error", logs },
             msg.dirty === true,
           );
@@ -538,6 +611,7 @@ export class ExecutionEngine {
     rawArgs: unknown,
     signal: AbortSignal,
     context?: unknown,
+    outputDir?: string,
   ): Promise<unknown> {
     // A call written with no arguments reaches the action as `{}`, not
     // `undefined`, so plugins can read `input.foo` without guarding.
@@ -574,6 +648,7 @@ export class ExecutionEngine {
       connection,
       context,
       signal,
+      ...(outputDir === undefined ? {} : { outputDir }),
       ...(this.hooks.credentialBroker && plugin.credential
         ? {
             credentials: this.hooks.credentialBroker({

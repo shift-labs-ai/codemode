@@ -325,3 +325,8 @@ export {
   ShellError,
   syncExec,
 } from "./utils/cli.js";
+export {
+  clipText,
+  createOutputFileStream,
+  writeOutputFile,
+} from "./utils/output-files.js";

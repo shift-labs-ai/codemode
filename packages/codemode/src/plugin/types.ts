@@ -140,6 +140,12 @@ export interface ActionContext {
    * dispatches.
    */
   signal?: AbortSignal;
+  /**
+   * Where the host keeps output files. An action that writes one, or runs
+   * something that does, passes it on. Absent when the host named none:
+   * the system's temporary directory is then used.
+   */
+  outputDir?: string;
   log: {
     info(msg: string): void;
     warn(msg: string): void;

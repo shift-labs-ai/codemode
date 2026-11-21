@@ -49,6 +49,18 @@ export interface CodemodeOptions {
    */
   maxRunsPerWorker?: number;
   /**
+   * Where output files are written: a command's whole output, a run's whole
+   * result, generated media. Actions read it as `ctx.outputDir`. Default:
+   * the system's temporary directory.
+   */
+  outputDir?: string;
+  /**
+   * The most a run's result may take, as UTF-8 text. A larger result is
+   * written whole to an output file and returned as its start and end,
+   * with `truncated` and `fullResultPath`. Default: no limit.
+   */
+  maxResultBytes?: number;
+  /**
    * Observer fired in the host process for every action invocation
    * that enters a plugin's `execute()` — unknown paths and failed
    * input validation never reach plugin code and are not reported.
@@ -64,6 +76,10 @@ export interface CodemodeExecuteOptions {
   memoryLimitBytes?: number;
   /** Delivered to every action's `ctx.context` for this run. */
   context?: unknown;
+  /** Where this run's output files are written, in place of the instance's. */
+  outputDir?: string;
+  /** The most this run's result may take, in place of the instance's. */
+  maxResultBytes?: number;
 }
 
 export class Codemode {
@@ -110,6 +126,12 @@ export class Codemode {
         options.memoryLimitBytes ?? DEFAULT_CONFIG.memoryLimitBytes,
       ...(options.maxRunsPerWorker !== undefined
         ? { maxRunsPerWorker: options.maxRunsPerWorker }
+        : {}),
+      ...(options.outputDir !== undefined
+        ? { outputDir: options.outputDir }
+        : {}),
+      ...(options.maxResultBytes !== undefined
+        ? { maxResultBytes: options.maxResultBytes }
         : {}),
     };
   }

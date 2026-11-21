@@ -252,7 +252,7 @@ export default function replicate(rl: CodemodePluginAPI) {
           num_outputs: Math.min(p.n ?? 1, 4),
         },
         timeoutMs: p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        saveDir: p.saveDir,
+        saveDir: p.saveDir ?? ctx.outputDir,
       });
 
       const result: {
@@ -326,7 +326,7 @@ export default function replicate(rl: CodemodePluginAPI) {
           [imageKey]: imageKey.endsWith("_input") ? [img.dataUri] : img.dataUri,
         },
         timeoutMs: p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        saveDir: p.saveDir,
+        saveDir: p.saveDir ?? ctx.outputDir,
       });
 
       const result: {

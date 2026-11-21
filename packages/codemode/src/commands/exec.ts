@@ -5,7 +5,7 @@ import { ExecutionEngine } from "../core/engine.js";
 import type { McpManager } from "../mcp/manager.js";
 import { enabledBuiltins, loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
-import { printError, printJson } from "../utils/output.js";
+import { printError, printJson, printWarn } from "../utils/output.js";
 import { withCliMcp } from "./mcp.js";
 import { cliPackageManager, temporarySources } from "./packages.js";
 
@@ -65,7 +65,14 @@ async function run(
   }
 
   if (options.json) {
-    printJson({ result: result.result, logs: result.logs });
+    printJson({
+      result: result.result,
+      logs: result.logs,
+      ...(result.truncated ? { truncated: true } : {}),
+      ...(result.fullResultPath
+        ? { fullResultPath: result.fullResultPath }
+        : {}),
+    });
   } else {
     if (result.logs.length > 0 && !options.quiet) {
       for (const log of result.logs) console.error(log);
@@ -77,6 +84,12 @@ async function run(
           : JSON.stringify(result.result, null, 2),
       );
     }
+    if (result.truncated)
+      printWarn(
+        result.fullResultPath
+          ? `The result is cut to its start and end. All of it: ${result.fullResultPath}`
+          : "The result is cut to its start and end.",
+      );
   }
   return true;
 }

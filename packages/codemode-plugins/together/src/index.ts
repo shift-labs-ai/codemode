@@ -138,7 +138,7 @@ export default function together(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "together",
           index: i,
-          saveDir: p.saveDir,
+          saveDir: p.saveDir ?? ctx.outputDir,
           stamp,
         }),
       );
@@ -208,7 +208,7 @@ export default function together(rl: CodemodePluginAPI) {
           mimeType: "image/png",
           provider: "together",
           index: i,
-          saveDir: p.saveDir,
+          saveDir: p.saveDir ?? ctx.outputDir,
           stamp,
         }),
       );
