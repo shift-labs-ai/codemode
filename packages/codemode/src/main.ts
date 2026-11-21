@@ -97,7 +97,7 @@ program
   .description("List all available actions and their schemas")
   .option(
     "-c, --connected",
-    "Only show actions for plugins with configured connections",
+    "Only show actions for plugins with connections and for MCP servers",
   )
   .option(
     "-e, --package <source>",
@@ -227,7 +227,9 @@ program
 
 program
   .command("trust [dir]")
-  .description("Allow a project's .codemode plugins and packages to load")
+  .description(
+    "Allow a project's .codemode plugins, packages and MCP servers to load",
+  )
   .option("--revoke", "Stop trusting it")
   .action(async (dir, opts, cmd) => {
     const globals = cmd.optsWithGlobals();

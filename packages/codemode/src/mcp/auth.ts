@@ -8,17 +8,13 @@ import type {
   OAuthApplication,
   OAuthTokens,
 } from "../auth/types.js";
-import type {
-  ConnectionHandle,
-  ConnectionUpdate,
-} from "../connections/types.js";
+import type { ConnectionHandle } from "../connections/types.js";
 import {
   CredentialRegistry,
   OAuthGrantSchema,
 } from "../credentials/registry.js";
 import { CredentialTransport } from "../credentials/transport.js";
-import type { ConnectionConfig } from "../plugin/types.js";
-import type { McpServer } from "./config.js";
+import { isRecord, type McpServer } from "./config.js";
 import { McpServerError } from "./errors.js";
 
 /** The connection field holding a server's OAuth client and endpoints. */
@@ -55,14 +51,7 @@ interface StoredOAuth {
 }
 
 /** The connection a session acts through: one identity's secrets and tokens. */
-export interface McpCredentials {
-  read(): Promise<ConnectionConfig>;
-  update(change: ConnectionUpdate): Promise<ConnectionConfig>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export type McpCredentials = Pick<ConnectionHandle, "read" | "update">;
 
 function storedOAuth(
   config: Readonly<Record<string, unknown>>,
@@ -373,10 +362,6 @@ export function createMcpAuthProvider(options: {
     const stored = storedOAuth(snapshot.config);
     if (!stored || snapshot.config[MCP_GRANT_FIELD] === undefined)
       return undefined;
-    const connection: ConnectionHandle = {
-      read: () => credentials.read(),
-      update: (change) => credentials.update(change),
-    };
     try {
       const registry = registryFor(
         server,
@@ -391,7 +376,7 @@ export function createMcpAuthProvider(options: {
         {
           type: CREDENTIAL_TYPE,
           method: CREDENTIAL_METHOD,
-          connection,
+          connection: credentials,
           identity: { name: snapshot.name, plugin: snapshot.plugin },
           application: {
             clientId: stored.clientId,

@@ -12,6 +12,9 @@ import type {
 } from "@earendil-works/pi-mcp";
 import { createInMemoryTransportPair } from "@earendil-works/pi-mcp/testing";
 
+/** `${name}` as an entry writes it, built so no linter reads it as a template slip. */
+export const placeholder = (name: string) => ["$", "{", name, "}"].join("");
+
 export interface FakeServerOptions {
   tools?: Tool[];
   instructions?: string;

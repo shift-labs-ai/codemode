@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { readConnectionFile, updateLockedFile } from "../config/store.js";
-import type { McpScope, McpSource } from "./config.js";
+import { isRecord, type McpScope, type McpSource } from "./config.js";
 import { McpServerError } from "./errors.js";
 
 /**
@@ -24,10 +24,6 @@ export interface McpStore {
 }
 
 const SERVERS_KEY = "mcpServers";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** A file's `mcpServers`, as an object of entries. */
 function serversIn(data: Record<string, unknown>): Record<string, unknown> {
@@ -109,9 +105,17 @@ export class FileMcpStore implements McpStore {
         "not_found",
         `No ${scope} folder to record MCP servers in`,
       );
-    const defines = (file: (typeof files)[number]) =>
-      existsSync(file.path) &&
-      Object.hasOwn(serversIn(file.read(file.path)), name);
+    const defines = (file: (typeof files)[number]) => {
+      if (!existsSync(file.path)) return false;
+      try {
+        return Object.hasOwn(serversIn(file.read(file.path)), name);
+      } catch (error) {
+        throw new McpServerError(
+          "invalid_config",
+          `MCP servers in ${file.path} were not read: ${(error as Error).message}`,
+        );
+      }
+    };
     const defining = files.filter(defines);
     const targets = entry === undefined ? defining : [defining[0] ?? files[0]];
     for (const { path, read } of targets)

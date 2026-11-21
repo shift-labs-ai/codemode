@@ -5,7 +5,6 @@ import type {
   ListResourcesResult,
   ListResourceTemplatesResult,
   McpClient,
-  McpFetch,
   McpRequestOptions,
   McpTransport,
   ReadResourceResult,
@@ -83,6 +82,8 @@ export class McpSession {
   /** Calls in flight; a session with any is not idle. */
   active = 0;
   private client: McpClient | undefined;
+  /** Clients a call set aside after the server forgot their session, still to be closed. */
+  private readonly detached = new Set<McpClient>();
   private opening: Promise<McpClient> | undefined;
   /** Aborted by `close()`; cancels a connect in progress, including its waits. */
   private readonly shutdown = new AbortController();
@@ -100,7 +101,7 @@ export class McpSession {
       client: { name: string; version: string };
       signInHint: string;
       connectTimeoutMs: number;
-      fetch?: McpFetch;
+      fetch?: typeof globalThis.fetch;
       /** Awaited after every connect and tool-list change, with what the server reports. */
       onReport: (report: McpServerReport) => Promise<void>;
       onState: (session: McpSession) => void;
@@ -116,7 +117,7 @@ export class McpSession {
           server: options.server,
           credentials: () => this.credentials,
           signInHint: options.signInHint,
-          fetch: options.fetch as typeof globalThis.fetch | undefined,
+          fetch: options.fetch,
         })
       : undefined;
   }
@@ -125,7 +126,7 @@ export class McpSession {
     return this.shutdown.signal.aborted;
   }
 
-  get timeoutMs(): number {
+  private get timeoutMs(): number {
     return (this.server.config.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
   }
 
@@ -239,9 +240,12 @@ export class McpSession {
           if (error instanceof McpSessionExpiredError && attempt === 1) {
             // The server no longer knows the session (a restart, a deploy), so
             // it did not run the request. Try once on a new session. The old
-            // client is detached, not closed: closing would fail its other
+            // client is set aside, not closed: closing would fail its other
             // calls in flight, which get the same answer and retry this way.
-            if (this.client === client) this.client = undefined;
+            if (this.client === client) {
+              this.client = undefined;
+              this.detached.add(client);
+            }
             continue;
           }
           const refused = this.refusal(error);
@@ -420,9 +424,12 @@ export class McpSession {
     if (this.closed) return;
     this.shutdown.abort();
     await this.opening?.catch(() => undefined);
-    const client = this.client;
+    const clients = [...this.detached, ...(this.client ? [this.client] : [])];
     this.client = undefined;
-    await client?.close().catch(() => undefined);
+    this.detached.clear();
+    await Promise.all(
+      clients.map((client) => client.close().catch(() => undefined)),
+    );
     this.setState("closed");
   }
 }

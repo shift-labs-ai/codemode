@@ -121,11 +121,14 @@ export function ownedBy(request: ConnectionRequest): { owner?: string } {
   return request.owner === undefined ? {} : { owner: request.owner };
 }
 
+/** What the owner of an MCP server's connection starts with; the server's name follows. */
+export const MCP_OWNER_PREFIX = "mcp:";
+
 function describeOwner(owner: string): string {
   if (owner === "builtin") return "the bundled plugin";
   if (owner === "local") return "a local plugin";
-  if (owner.startsWith("mcp:"))
-    return `MCP server ${owner.slice("mcp:".length)}`;
+  if (owner.startsWith(MCP_OWNER_PREFIX))
+    return `MCP server ${owner.slice(MCP_OWNER_PREFIX.length)}`;
   return `package ${owner}`;
 }
 

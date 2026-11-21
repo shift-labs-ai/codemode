@@ -62,7 +62,7 @@ function expandHome(value: string): string {
  * `lookup` does not hold is an error, never an empty string: an empty
  * bearer reaches the server as a different, confusing failure.
  */
-export function fillPlaceholders(
+function fillPlaceholders(
   value: string,
   lookup: (name: string) => string | undefined,
   where: string,
@@ -83,6 +83,20 @@ export function fillPlaceholders(
   );
 }
 
+/** What a placeholder names: the connection's value of that name, else the variable. */
+function lookupIn(options: {
+  connection: Readonly<Record<string, unknown>>;
+  variable: (name: string) => string | undefined;
+}): (name: string) => string | undefined {
+  return (name) => {
+    const held = options.connection[name];
+    if (typeof held === "string") return held;
+    if (typeof held === "number" || typeof held === "boolean")
+      return String(held);
+    return options.variable(name);
+  };
+}
+
 /**
  * Fill a server's entry for one identity. A placeholder in `env`,
  * `headers` or `oauth.clientSecret` reads the connection's config first,
@@ -97,13 +111,7 @@ export function resolveServer(
     inherited: Readonly<Record<string, string | undefined>>;
   },
 ): McpResolvedServer {
-  const lookup = (name: string): string | undefined => {
-    const held = options.connection[name];
-    if (typeof held === "string") return held;
-    if (typeof held === "number" || typeof held === "boolean")
-      return String(held);
-    return options.variable(name);
-  };
+  const lookup = lookupIn(options);
   const fill = (values: Record<string, string> | undefined, field: string) =>
     Object.fromEntries(
       Object.entries(values ?? {}).map(([key, value]) => [
@@ -151,10 +159,7 @@ export function resolveClientSecret(
   if (secret === undefined) return undefined;
   return fillPlaceholders(
     secret,
-    (name) => {
-      const held = options.connection[name];
-      return typeof held === "string" ? held : options.variable(name);
-    },
+    lookupIn(options),
     `MCP server "${server.name}": oauth.clientSecret`,
   );
 }

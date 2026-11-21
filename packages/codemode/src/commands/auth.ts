@@ -4,6 +4,7 @@ import chalk from "chalk";
 import { addConnection, loadConfig } from "../config/loader.js";
 import { OAUTH_CALLBACK_URI, oauthCallback, runOAuth } from "../core/oauth.js";
 import { mcpOAuthConnection } from "../mcp/auth.js";
+import type { McpManager } from "../mcp/manager.js";
 import { mcpOwner } from "../mcp/plugin.js";
 import { loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
@@ -14,20 +15,26 @@ import {
   printSuccess,
   printWarn,
 } from "../utils/output.js";
-import { cliMcpManager } from "./mcp.js";
+import { withCliMcp } from "./mcp.js";
 import { cliPackageManager } from "./packages.js";
 
-export async function auth(
+interface AuthOptions {
+  name?: string;
+  clientId?: string;
+  clientSecret?: string;
+  json?: boolean;
+  quiet?: boolean;
+}
+
+export function auth(plugin: string, options: AuthOptions): Promise<void> {
+  return withCliMcp((mcp) => authWith(mcp, plugin, options));
+}
+
+async function authWith(
+  mcp: McpManager,
   plugin: string,
-  options: {
-    name?: string;
-    clientId?: string;
-    clientSecret?: string;
-    json?: boolean;
-    quiet?: boolean;
-  },
+  options: AuthOptions,
 ): Promise<void> {
-  const mcp = cliMcpManager();
   await loadAllPlugins({
     builtinAllowlist: new Set([plugin]),
     packages: cliPackageManager({ quiet: true, onMissing: "skip" }),
@@ -168,9 +175,9 @@ export async function auth(
  * whatever that connection already holds.
  */
 async function authMcp(
-  mcp: ReturnType<typeof cliMcpManager>,
+  mcp: McpManager,
   server: { name: string; plugin: string },
-  options: { name?: string; json?: boolean; quiet?: boolean },
+  options: AuthOptions,
 ): Promise<void> {
   const say = !options.quiet && !options.json;
   const owner = mcpOwner(server.name);
@@ -228,8 +235,6 @@ async function authMcp(
   } catch (err: unknown) {
     printError(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
-  } finally {
-    await mcp.close();
   }
 }
 

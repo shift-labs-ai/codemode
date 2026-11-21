@@ -20,14 +20,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { placeholder } from "./helpers/mcp-server.js";
 
 const MAIN = fileURLToPath(new URL("../main.ts", import.meta.url));
 const STDIO_SERVER = fileURLToPath(
   new URL("./helpers/mcp-stdio-server.mjs", import.meta.url),
 );
-
-/** `${name}` as an entry writes it, built so no linter reads it as a template slip. */
-const placeholder = (name: string) => ["$", "{", name, "}"].join("");
 
 describe("the command line with MCP servers", () => {
   let tmp: string;
@@ -100,7 +98,7 @@ describe("the command line with MCP servers", () => {
     assert.equal(added.code, 0, added.stderr);
     assert.match(
       added.stdout,
-      /Added MCP server my-tools \(user\), in code as my_tools: connected, 5 tool\(s\)/,
+      /Added MCP server my-tools \(user\), in code as my_tools: connected, 4 tool\(s\)/,
     );
     assert.ok(existsSync(join(home, ".codemode", "mcp", "my-tools.json")));
     assert.deepEqual(userConfig().mcpServers, {
@@ -141,7 +139,7 @@ describe("the command line with MCP servers", () => {
     await addFixture();
     const up = await codemode(["mcp", "list"]);
     assert.equal(up.code, 0, up.stderr);
-    assert.match(up.stdout, /my-tools connected, 5 tool\(s\) \(user, stdio: /);
+    assert.match(up.stdout, /my-tools connected, 4 tool\(s\) \(user, stdio: /);
 
     const down = await codemode([
       "mcp",
@@ -188,7 +186,7 @@ describe("the command line with MCP servers", () => {
       (plugin: { name: string }) => plugin.name === "my_tools",
     );
     assert.equal(found.origin, "mcp");
-    assert.equal(found.actions.length, 5);
+    assert.equal(found.actions.length, 4);
   });
 
   it("reads tool lists again on refresh", async () => {
@@ -316,7 +314,7 @@ describe("the command line with MCP servers", () => {
     const twice = [await addFixture(), await addFixture()][1];
     assert.equal(twice.code, 1);
     assert.match(twice.stderr, /already defined/);
-    const sse = await codemode([
+    const badUrl = await codemode([
       "mcp",
       "add",
       "old",
@@ -324,7 +322,7 @@ describe("the command line with MCP servers", () => {
       "ftp://e.com/mcp",
       "--json",
     ]);
-    assert.equal(JSON.parse(sse.stdout).code, "invalid_config");
+    assert.equal(JSON.parse(badUrl.stdout).code, "invalid_config");
   });
 
   it("says a stdio server has nothing to sign in to", async () => {

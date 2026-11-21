@@ -226,6 +226,7 @@ Codemode keeps each server's tool list in the `mcp` folder beside the configurat
 
 - A server with no cached list is connected to once when plugins load, with a limit of 10 seconds.
 - A server that cannot be reached is reported, loads with no actions, and is left alone for one minute before codemode tries again. `codemode mcp list` always tries.
+- A server that asks for sign-in or lacks a value is tried again on every run, so a fix takes effect at once.
 - An edited `command`, `args`, `env`, `cwd`, `url`, or `headers` discards the cached list.
 - A server that announces a changed tool list has its list read again. The next run sees the new tools.
 - A local server gets a short list of environment variables, such as `PATH` and `HOME`, and its entry's `env`. It does not inherit the rest of the environment.

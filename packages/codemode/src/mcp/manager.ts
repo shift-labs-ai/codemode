@@ -10,6 +10,7 @@ import type {
   ConnectionConfig,
   PluginDef,
 } from "../plugin/types.js";
+import { notifyObserver } from "../utils/observer.js";
 import {
   discoverMcpOAuth,
   type McpCredentials,
@@ -238,7 +239,7 @@ export class McpManager {
   private readonly options: McpManagerOptions;
   private readonly cache: McpToolCache;
   private readonly sessions = new Map<string, McpSession>();
-  private readonly changeListeners = new Set<(server: string) => void>();
+  private readonly changeListeners = new Set<(server: string) => unknown>();
   private idleTimer: ReturnType<typeof setInterval> | undefined;
   private module: Promise<McpModule> | undefined;
 
@@ -308,9 +309,10 @@ export class McpManager {
               } catch (error) {
                 const problem = this.problem(server, error);
                 problems.push(problem);
-                // Only a server that could not be reached: a missing secret
-                // or sign-in is fixed by the person and works on the next run.
-                if (problem.code === "connect_failed")
+                // Only a server that could not be reached: a missing secret,
+                // a sign-in or another owner's connection is fixed by the
+                // person and works on the next run.
+                if (isMcpServerError(error) && error.code === "connect_failed")
                   await this.rememberFailure(server, problem);
               }
           }
@@ -479,7 +481,7 @@ export class McpManager {
   }
 
   /** Called with a server's name when what it offers differs from its snapshot. Answers how to stop. */
-  onToolsChanged(listener: (server: string) => void): () => void {
+  onToolsChanged(listener: (server: string) => unknown): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);
   }
@@ -692,13 +694,11 @@ export class McpManager {
     }
     if (!previous || describes(previous) === describes(report)) return;
     this.emit({ type: "changed", server: server.name });
-    for (const listener of this.changeListeners) {
-      try {
-        listener(server.name);
-      } catch {
-        // A listener's failure is its own; the snapshot is already written.
-      }
-    }
+    // Each is called at once; what it throws or rejects with is its own.
+    for (const listener of this.changeListeners)
+      notifyObserver(async (name: string) => {
+        await listener(name);
+      }, server.name);
   }
 
   /**
@@ -806,13 +806,7 @@ export class McpManager {
       name: server.plugin,
       sourceInfo: { path: "", source: "", origin: "mcp", owner },
     });
-    return {
-      snapshot,
-      credentials: {
-        read: () => handle.read(),
-        update: (change) => handle.update(change),
-      },
-    };
+    return { snapshot, credentials: handle };
   }
 
   /**
@@ -950,11 +944,7 @@ export class McpManager {
   }
 
   private emit(event: McpEvent): void {
-    try {
-      this.options.onEvent?.(event);
-    } catch {
-      // An observer's failure never breaks a call.
-    }
+    notifyObserver(this.options.onEvent, event);
   }
 
   private async closeSessions(

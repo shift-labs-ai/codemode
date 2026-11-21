@@ -4,6 +4,7 @@ import type {
   McpStdioServerConfig,
 } from "@earendil-works/pi-mcp";
 import { assertPluginName } from "../plugin/api.js";
+import type { McpServerErrorCode } from "./errors.js";
 
 export type McpScope = "user" | "project";
 
@@ -55,7 +56,7 @@ export interface McpServer {
 
 export interface McpProblem {
   level: "error" | "warning";
-  code: import("./errors.js").McpServerErrorCode;
+  code: McpServerErrorCode;
   message: string;
   server?: string;
 }
@@ -65,7 +66,7 @@ const OVERRIDABLE = ["enabled", "tools", "exposure", "toolExposure"] as const;
 
 const EXPOSURES = ["codemode", "deferred", "direct", "hidden"];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -266,7 +267,6 @@ export function resolveServers(
       continue;
     }
     add(name, { ...base.raw, ...raw }, "user", base.from);
-    user.delete(name);
   }
   for (const [name, { raw, from }] of user) {
     if (project.has(name)) continue;

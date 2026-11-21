@@ -1,7 +1,7 @@
 // A real MCP server on stdio, for tests that start one as a process. It
 // offers `echo` (returns its arguments), `env` (returns its environment's
-// names), `fail` (reports its own failure), `pid`, and `grow`, which adds a
-// tool named `grown` and announces the change. It writes its pid to
+// names), `fail` (reports its own failure), and `grow`, which adds a tool
+// named `grown` and announces the change. It writes its pid to
 // the file named by its first argument, when given one, so a test can see
 // the process end.
 import { writeFileSync } from "node:fs";
@@ -30,11 +30,6 @@ const tools = [
     description: "Always fails",
     inputSchema: { type: "object" },
   },
-  {
-    name: "pid",
-    description: "The server's process id",
-    inputSchema: { type: "object" },
-  },
   { name: "grow", description: "Add a tool", inputSchema: { type: "object" } },
 ];
 
@@ -46,11 +41,6 @@ function call(name, args) {
     return {
       ...text("env"),
       structuredContent: { names: Object.keys(process.env).sort() },
-    };
-  if (name === "pid")
-    return {
-      ...text(String(process.pid)),
-      structuredContent: { pid: process.pid },
     };
   if (name === "fail") return { ...text("the tool said no"), isError: true };
   if (name === "grow") {

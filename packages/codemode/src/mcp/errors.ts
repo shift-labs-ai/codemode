@@ -17,9 +17,7 @@ export type McpServerErrorCode =
   | "sign_in_unsupported"
   /** A tool reported its own failure (`isError`). */
   | "tool_failed"
-  /** The operation was aborted through its signal. */
-  | "aborted"
-  /** The manager was closed. */
+  /** The server's session was closed while the call waited on it. */
   | "closed";
 
 /**

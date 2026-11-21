@@ -7,6 +7,7 @@ import type { McpScope } from "../mcp/config.js";
 import { isMcpServerError } from "../mcp/errors.js";
 import { McpManager, type McpServerStatus } from "../mcp/manager.js";
 import {
+  keyValuePairs,
   printError,
   printJson,
   printSuccess,
@@ -31,6 +32,23 @@ export function cliMcpManager(
   });
 }
 
+/**
+ * Run `work` with the CLI's manager, and end its sessions before the
+ * command reports or exits, whichever way `work` ends: a stdio server is a
+ * child process, and none is left running.
+ */
+export async function withCliMcp<T>(
+  work: (mcp: McpManager) => Promise<T>,
+  options: { trustProject?: boolean } = {},
+): Promise<T> {
+  const mcp = cliMcpManager(options);
+  try {
+    return await work(mcp);
+  } finally {
+    await mcp.close();
+  }
+}
+
 function scopeOf(options: { local?: boolean }): McpScope {
   return options.local ? "project" : "user";
 }
@@ -45,18 +63,6 @@ function fail(err: unknown, json?: boolean): never {
     });
   else printError(message);
   process.exit(1);
-}
-
-/** `KEY=VALUE` pairs as an object; the value may itself contain `=`. */
-function pairs(values: string[], flag: string): Record<string, string> {
-  return Object.fromEntries(
-    values.map((pair) => {
-      const eq = pair.indexOf("=");
-      if (eq <= 0)
-        throw new Error(`Invalid ${flag} value: ${pair} (expected KEY=VALUE)`);
-      return [pair.slice(0, eq), pair.slice(eq + 1)];
-    }),
-  );
 }
 
 export async function mcpAdd(
@@ -85,8 +91,8 @@ export async function mcpAdd(
       throw new Error("--env applies to a command, not to --url");
     if (!options.url && options.header.length)
       throw new Error("--header applies to --url, not to a command");
-    const env = pairs(options.env, "--env");
-    const headers = pairs(options.header, "--header");
+    const env = keyValuePairs(options.env, "--env");
+    const headers = keyValuePairs(options.header, "--header");
     const entry: Record<string, unknown> = options.url
       ? {
           url: options.url,
@@ -97,14 +103,17 @@ export async function mcpAdd(
           ...(command.length > 1 ? { args: command.slice(1) } : {}),
           ...(Object.keys(env).length ? { env } : {}),
         };
-    // Adding a server to a project is the person's decision to trust it.
-    const mcp = cliMcpManager({ trustProject: scope === "project" });
-    await mcp.add(name, entry, { scope });
-    if (scope === "project" && project) setProjectTrusted(project, true);
-    // Connect once: the tool list is cached for the runs that follow, and
-    // a server that cannot be reached is known now, not at the first call.
-    const [added] = await mcp.status(name);
-    await mcp.close();
+    const added = await withCliMcp(
+      async (mcp) => {
+        await mcp.add(name, entry, { scope });
+        if (scope === "project" && project) setProjectTrusted(project, true);
+        // Connect once: the tool list is cached for the runs that follow, and
+        // a server that cannot be reached is known now, not at the first call.
+        return (await mcp.status(name))[0];
+      },
+      // Adding a server to a project is the person's decision to trust it.
+      { trustProject: scope === "project" },
+    );
     if (options.json) printJson({ ok: true, ...added });
     else {
       printSuccess(
@@ -144,15 +153,12 @@ function stateLabel(server: McpServerStatus): string {
 
 /** Connects to every enabled server; exit status 1 when one is not connected. */
 export async function mcpList(options: { json?: boolean }): Promise<void> {
-  const mcp = cliMcpManager();
   let servers: McpServerStatus[];
   try {
-    servers = await mcp.status();
+    servers = await withCliMcp((mcp) => mcp.status());
   } catch (err) {
-    await mcp.close();
     fail(err, options.json);
   }
-  await mcp.close();
   if (options.json) printJson(servers);
   else if (!servers.length) console.log("No MCP servers configured.");
   else
@@ -174,9 +180,8 @@ export async function mcpRefresh(
   name: string | undefined,
   options: { json?: boolean },
 ): Promise<void> {
-  const mcp = cliMcpManager();
   try {
-    const changed = await mcp.refresh(name);
+    const changed = await withCliMcp((mcp) => mcp.refresh(name));
     if (options.json) printJson({ ok: true, changed });
     else
       printSuccess(
@@ -185,8 +190,6 @@ export async function mcpRefresh(
           : "Tool lists read again; nothing changed",
       );
   } catch (err) {
-    await mcp.close();
     fail(err, options.json);
   }
-  await mcp.close();
 }

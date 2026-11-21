@@ -23,11 +23,15 @@ function engineWith(signals: AbortSignal[], aborts: string[]) {
     execute(_input, ctx) {
       assert.ok(ctx.signal);
       signals.push(ctx.signal);
+      const signal = ctx.signal;
       return new Promise((_resolve, reject) => {
-        ctx.signal?.addEventListener("abort", () => {
+        const stop = () => {
           aborts.push("hang");
           reject(new Error("stopped"));
-        });
+        };
+        // The run may be over before the call is dispatched.
+        if (signal.aborted) stop();
+        else signal.addEventListener("abort", stop);
       });
     },
   });

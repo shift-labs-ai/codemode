@@ -7,6 +7,7 @@ import {
 import { loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
 import {
+  keyValuePairs,
   printError,
   printJson,
   printSuccess,
@@ -19,14 +20,12 @@ export async function connectionAdd(
   name: string,
   options: { plugin: string; set: string[]; json?: boolean },
 ): Promise<void> {
-  const configValues: Record<string, unknown> = {};
-  for (const kv of options.set) {
-    const eq = kv.indexOf("=");
-    if (eq < 0) {
-      printError(`Invalid --set value: ${kv} (expected key=value)`);
-      process.exit(1);
-    }
-    configValues[kv.slice(0, eq)] = kv.slice(eq + 1);
+  let configValues: Record<string, unknown>;
+  try {
+    configValues = keyValuePairs(options.set, "--set");
+  } catch (err) {
+    printError((err as Error).message);
+    process.exit(1);
   }
 
   // The connection is bound to where the plugin comes from today, so a

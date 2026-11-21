@@ -6,7 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { Tool } from "@earendil-works/pi-mcp";
 import type { McpScope } from "./config.js";
 import type { McpServerErrorCode } from "./errors.js";
@@ -105,10 +105,15 @@ export class FileMcpToolCache implements McpToolCache {
   ): Promise<void> {
     const path = this.path(scope, server);
     if (!path) return;
-    mkdirSync(join(path, ".."), { recursive: true });
+    mkdirSync(dirname(path), { recursive: true });
     const temporary = `${path}.${randomUUID()}.tmp`;
     try {
-      writeFileSync(temporary, `${JSON.stringify(snapshot)}\n`, { flag: "wx" });
+      // Readable by its owner only: a failed server's record quotes what the
+      // server printed.
+      writeFileSync(temporary, `${JSON.stringify(snapshot)}\n`, {
+        mode: 0o600,
+        flag: "wx",
+      });
       renameSync(temporary, path);
     } finally {
       rmSync(temporary, { force: true });

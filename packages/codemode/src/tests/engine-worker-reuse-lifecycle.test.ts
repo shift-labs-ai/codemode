@@ -99,7 +99,7 @@ describe("worker shape: a run never inherits the wrong worker", () => {
     two.dispose();
   }, 30_000);
 
-  test("addPlugin retires the pooled worker so new actions are visible", async () => {
+  test("a plugin added between runs is visible to the next one", async () => {
     const rl = engine({ plugins: [plugin("first")] });
     const before = await rl.execute("return actions.list();");
     expect(before.result).toEqual(["first.go"]);
@@ -115,6 +115,32 @@ describe("worker shape: a run never inherits the wrong worker", () => {
 });
 
 describe("pool lifecycle", () => {
+  test("dispose during a run lets the run finish, then the worker is replaced", async () => {
+    const rl = engine();
+    const first = (await rl.execute(WORKER_ID)).result;
+    const running = rl.execute(
+      "await new Promise((r) => setTimeout(r, 80)); return 'finished';",
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    rl.dispose();
+    expect((await running).result).toBe("finished");
+    expect((await rl.execute(WORKER_ID)).result).not.toBe(first);
+    rl.dispose();
+  }, 30_000);
+
+  test("addPlugin during a run leaves that run its worker", async () => {
+    const rl = engine({ plugins: [plugin("first")] });
+    const running = rl.execute(
+      "await new Promise((r) => setTimeout(r, 80)); return actions.list();",
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    rl.addPlugin(plugin("second"));
+    expect((await running).result).toEqual(["first.go"]);
+    const after = await rl.execute("return actions.list().sort();");
+    expect(after.result).toEqual(["first.go", "second.go"]);
+    rl.dispose();
+  }, 30_000);
+
   test("retires after exactly maxRunsPerWorker bodies", async () => {
     const rl = engine({ maxRunsPerWorker: 3 });
     const ids: unknown[] = [];

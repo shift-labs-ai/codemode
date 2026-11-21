@@ -137,6 +137,8 @@ interface PooledWorker {
   shape: string;
   runs: number;
   busy: boolean;
+  /** Disposed in the middle of a run: destroyed when that run ends. */
+  discard?: boolean;
 }
 
 /**
@@ -237,12 +239,17 @@ export class ExecutionEngine {
       config.maxRunsPerWorker ?? DEFAULT_MAX_RUNS_PER_WORKER;
   }
 
-  /** Retire the pooled worker, if any. Safe to call repeatedly. */
+  /**
+   * Retire the pooled worker, if any. Safe to call repeatedly. A worker in
+   * the middle of a run finishes it first: destroying it there would drop
+   * the listeners that settle the run, and its caller would wait forever.
+   */
   dispose(): void {
     const entry = this.pooled;
     if (!entry) return;
     this.pooled = null;
-    destroyWorker(entry.worker);
+    if (entry.busy) entry.discard = true;
+    else destroyWorker(entry.worker);
   }
 
   /**
@@ -289,7 +296,7 @@ export class ExecutionEngine {
    */
   private release(entry: PooledWorker, pooled: boolean, retire: boolean): void {
     entry.busy = false;
-    if (!pooled || retire) {
+    if (!pooled || retire || entry.discard) {
       if (this.pooled === entry) this.pooled = null;
       destroyWorker(entry.worker);
     }
@@ -1112,7 +1119,7 @@ const __actionsApi = {
 
 // Unknown keys (plugin names) fall through to the call proxy, so
 // actions.github.issue.create(...) keeps working alongside the explicit
-// list/find/describe/check/help helpers.
+// list/plugin/find/describe/check helpers.
 const actions = new Proxy(__actionsApi, {
   get(target, prop) {
     if (prop in target || typeof prop === 'symbol') return target[prop];

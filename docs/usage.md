@@ -42,7 +42,7 @@ return issue.number;
 
 When an action declares a TypeBox schema, codemode validates the input before the action runs and rejects an invalid call with the validation errors. An action declared with the older field-map schema receives its input unvalidated, so check it with `actions.check()` first. An action that fails rejects with the plugin's error message, which code can catch.
 
-In `codemode exec`, a bundled plugin is loaded only when a connection names it. Code that uses a plugin without a connection fails with `<plugin> is not defined`. Plugins from your `plugins` folders and from packages are always loaded.
+In `codemode exec`, a bundled plugin is loaded only when a connection names it. Code that uses a plugin without a connection fails with `<plugin> is not defined`. Plugins from your `plugins` folders and from packages, and configured MCP servers, are always loaded.
 
 ## Discover actions
 
@@ -52,7 +52,7 @@ The `actions` object describes what is loaded. Use it instead of guessing names 
 |---|---|
 | `actions.list()` | Every action path, such as `github.issue.create` |
 | `actions.list("github")` | The paths of one plugin |
-| `actions.plugin("github")` | `name`, `description`, and `actions`: what a plugin is for, when it says, and its paths |
+| `actions.plugin("github")` | `name`, `actions`, and the plugin's `description` when it has one |
 | `actions.find("create issue", limit)` | Ranked matches with `path`, `access`, `description`, and `score`; five by default |
 | `actions.describe("github.issue.create")` | `path`, `plugin`, `action`, `access`, `description`, `signature`, and `inputs`, and `hints`, `outputSchema`, and `sourceName` when the action has them |
 | `actions.check("github.issue.create", input)` | `ok`, `missing`, `unknown`, `typeErrors`, `errors`, and `signature` |
@@ -98,7 +98,7 @@ codemode actions --connected
 codemode actions --json
 ```
 
-`--connected` limits the list to plugins with a connection. `--json` includes each action's input schema.
+`--connected` limits the list to plugins with a connection and configured MCP servers. `--json` includes each action's input schema.
 
 ## Understand the runtime
 

@@ -21,14 +21,11 @@ import { McpManager } from "../mcp/manager.js";
 import { MemoryMcpStore } from "../mcp/store.js";
 import type { ConnectionConfig } from "../plugin/types.js";
 import { Codemode } from "../sdk.js";
-import { fakeHttp, fakeServer } from "./helpers/mcp-server.js";
+import { fakeHttp, fakeServer, placeholder } from "./helpers/mcp-server.js";
 
 const SERVER = "https://mcp.test/mcp";
 const REDIRECT = "http://127.0.0.1:47823/callback";
 const WHOAMI: Tool = { name: "whoami", inputSchema: { type: "object" } };
-
-/** `${name}` as an entry writes it, built so no linter reads it as a template slip. */
-const placeholder = (name: string) => ["$", "{", name, "}"].join("");
 
 const managers: McpManager[] = [];
 const instances: Codemode[] = [];
@@ -120,6 +117,7 @@ function world(
   }) as typeof globalThis.fetch;
 
   const connections = new MemoryConnectionProvider();
+  const cache = new MemoryMcpToolCache();
   const manager = (entry: Record<string, unknown> = { url: SERVER }) => {
     const created = new McpManager({
       store: new MemoryMcpStore({ user: { srv: entry } }),
@@ -131,7 +129,6 @@ function world(
     managers.push(created);
     return created;
   };
-  const cache = new MemoryMcpToolCache();
   return {
     server,
     fetch,

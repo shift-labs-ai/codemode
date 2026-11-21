@@ -35,12 +35,12 @@ Codemode requires trust before it loads these resources from a project:
 - packages recorded in the project's `.codemode/config.json`, including installing them
 - MCP servers in the project's `.codemode/config.json` and `.codemode/mcp.json`, including starting them
 
-Without trust, codemode imports none of them. It reports that the project's plugins were skipped and continues with everything else.
+Without trust, codemode imports and starts none of them. It reports what was skipped and continues with everything else.
 
 These load regardless of project trust:
 
 - the project's connections and settings in `.codemode/config.json`, which are data
-- plugins and packages in your own `~/.codemode` folder
+- plugins, packages, and MCP servers in your own `~/.codemode` folder
 - the bundled plugins
 
 ### Trust a project
@@ -53,10 +53,11 @@ codemode trust ~/work/billing
 codemode trust --revoke
 ```
 
-Two commands record trust for you, because each is an explicit decision about that project:
+Three commands record trust for you, because each is an explicit decision about that project:
 
 - `codemode init` trusts the `.codemode` folder it creates.
 - `codemode install --local` trusts the project it installs into.
+- `codemode mcp add --local` trusts the project it adds a server to.
 
 Decisions are stored by the real path of the `.codemode` folder, with symbolic links resolved, in:
 
@@ -76,7 +77,7 @@ const codemode = await Codemode.fromProject(projectDir, {
 });
 ```
 
-`PackageManager` reads no folder it was not given. Without a `trust` option it refuses the project scope. Pass the same function to the manager and to discovery so that a project's plugin files and packages follow one decision.
+`PackageManager` and `McpManager` read no folder they were not given. Without a `trust` option each refuses the project scope. Pass the same function to the managers and to discovery so that a project's plugin files, packages, and MCP servers follow one decision.
 
 Use `isProjectTrusted()` and `setProjectTrusted()` to read and record decisions in a user folder.
 

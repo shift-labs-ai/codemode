@@ -38,7 +38,7 @@ See [Run Code](usage.md) for the calling conventions and the runtime.
 - `actions`<br>
   Lists every loadable action with its access label, inputs, and description. With `--json`, includes each input schema.
 - `actions -c`, `--connected`<br>
-  Lists only the actions of plugins that have a connection.
+  Lists only the actions of plugins that have a connection, and of configured MCP servers.
 - `actions -e`, `--package <source>`<br>
   Includes a package's actions for this listing only.
 

@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { findConfigDir, loadConfig } from "../config/loader.js";
 import { FileConnectionProvider } from "../connections/file.js";
 import { ExecutionEngine } from "../core/engine.js";
+import type { McpManager } from "../mcp/manager.js";
 import { enabledBuiltins, loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
 import { printError, printJson } from "../utils/output.js";
-import { cliMcpManager } from "./mcp.js";
+import { withCliMcp } from "./mcp.js";
 import { cliPackageManager, temporarySources } from "./packages.js";
 
 export async function exec(
@@ -27,23 +28,16 @@ export async function exec(
   }
 
   const config = loadConfig();
-  const mcp = cliMcpManager();
-  let failed = false;
-  // A stdio MCP server is a child process: its session is closed before the
-  // command ends, whichever way it ends, so none is left running.
-  try {
-    failed = !(await run(code, config, mcp, options));
-  } finally {
-    await mcp.close();
-  }
-  if (failed) process.exitCode = 1;
+  const succeeded = await withCliMcp((mcp) => run(code, config, mcp, options));
+  // The status is set, not the process ended: output still drains.
+  if (!succeeded) process.exitCode = 1;
 }
 
 /** Runs the code and prints its outcome. Answers whether it succeeded. */
 async function run(
   code: string,
   config: ReturnType<typeof loadConfig>,
-  mcp: ReturnType<typeof cliMcpManager>,
+  mcp: McpManager,
   options: { json?: boolean; quiet?: boolean; packages?: string[] },
 ): Promise<boolean> {
   await loadAllPlugins({

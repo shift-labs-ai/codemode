@@ -507,10 +507,7 @@ export async function discoverPlugins(
         ...[...builtinNames].filter((name) => inUse.has(name)),
       ],
     });
-    for (const problem of problems)
-      console.error(
-        `[codemode] ${problem.level === "warning" ? "Warning: " : ""}${problem.message}`,
-      );
+    reportProblems(problems);
     for (const server of servers) {
       if (builtinNames.has(server.name)) replaced.add(server.name);
       addIfNew(server, server.sourceInfo?.source ?? "an MCP server");
@@ -521,10 +518,7 @@ export async function discoverPlugins(
     const { plugins: fromPackages, problems } = await options.packages.load({
       temporary: options.temporaryPackages,
     });
-    for (const problem of problems)
-      console.error(
-        `[codemode] ${problem.level === "warning" ? "Warning: " : ""}${problem.message}`,
-      );
+    reportProblems(problems);
     for (const p of fromPackages)
       addIfNew(p, p.sourceInfo?.source ?? "a package");
   }
@@ -541,6 +535,16 @@ export async function discoverPlugins(
   }
 
   return result;
+}
+
+/** What a manager could not load, on stderr like every other discovery failure. */
+function reportProblems(
+  problems: ReadonlyArray<{ level: "error" | "warning"; message: string }>,
+): void {
+  for (const problem of problems)
+    console.error(
+      `[codemode] ${problem.level === "warning" ? "Warning: " : ""}${problem.message}`,
+    );
 }
 
 function sourceInfo(

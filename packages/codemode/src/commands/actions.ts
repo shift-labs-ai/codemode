@@ -4,7 +4,7 @@ import { loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
 import { helpInputs } from "../plugin/schema.js";
 import { printJson } from "../utils/output.js";
-import { cliMcpManager } from "./mcp.js";
+import { withCliMcp } from "./mcp.js";
 import { cliPackageManager, temporarySources } from "./packages.js";
 
 export async function actions(options: {
@@ -14,16 +14,13 @@ export async function actions(options: {
 }): Promise<void> {
   // Listing a server's tools needs its tool list: a server with none
   // cached is connected to once, and its session closed again.
-  const mcp = cliMcpManager();
-  try {
-    await loadAllPlugins({
+  await withCliMcp((mcp) =>
+    loadAllPlugins({
       packages: cliPackageManager({ quiet: options.json }),
       temporaryPackages: temporarySources(options.packages),
       mcp,
-    });
-  } finally {
-    await mcp.close();
-  }
+    }),
+  );
   const all = registry.getAllActions();
   // A configured MCP server is in use whether or not it needs a connection.
   const connectedPlugins = options.connected

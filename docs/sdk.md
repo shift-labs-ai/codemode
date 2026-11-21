@@ -49,7 +49,7 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 
 `addPlugin(plugin, connections?)` registers another plugin. Later runs see it, and a run in progress is not disturbed. `actions()`, `plugins()`, and `connections()` report what the instance holds. `connections()` lists only in-memory connections.
 
-`dispose()` stops the pooled worker and closes the MCP sessions of an instance that `fromProject()` created. Call it when a long-lived instance is no longer needed. An idle worker does not keep the process alive, but an open session to a local MCP server does, until it is closed or has been idle for five minutes.
+`dispose()` stops the pooled worker, after the run it is in the middle of, and closes the MCP sessions of an instance that `fromProject()` created. Call it when a long-lived instance is no longer needed. An idle worker does not keep the process alive, but an open session to a local MCP server does, until it is closed or has been idle for five minutes.
 
 ## Execute code
 
@@ -94,7 +94,7 @@ const codemode = Codemode.create({
 });
 ```
 
-`discoverPlugins(configDir, options)` returns plugins from a project's `.codemode` folder when one is given and trusted, from the user's `~/.codemode/plugins/` folder, from configured packages when `packages` is supplied, and from the bundled set. Bundled plugins outside `builtinAllowlist` are not imported. Pass `userDir` to read a folder other than `~/.codemode`.
+`discoverPlugins(configDir, options)` returns plugins from a project's `.codemode` folder when one is given and trusted, from the user's `~/.codemode/plugins/` folder, from configured MCP servers when `mcp` is supplied, from configured packages when `packages` is supplied, and from the bundled set. Bundled plugins outside `builtinAllowlist` are not imported. Pass `userDir` to read a folder other than `~/.codemode`.
 
 Each discovered plugin carries `sourceInfo` with its module path, origin, scope, and owner. Plugins the host constructs itself have none.
 
@@ -148,7 +148,7 @@ The returned handle stays bound to one connection. `read()` returns a snapshot. 
 
 An optional `failed(error)` method on the handle is called once when an action that used the connection throws. Use it to mark a connection whose credential was refused.
 
-Return `owner` on a connection made for a plugin from a package. Codemode refuses a connection whose owner differs from the plugin's. See [Understand names and connections](packages.md#understand-names-and-connections).
+Return `owner` on a connection made for a plugin from a package or for an MCP server, whose owner is `mcp:<server>`. Codemode refuses a connection whose owner differs from the plugin's. See [Understand names and connections](packages.md#understand-names-and-connections).
 
 `MemoryConnectionProvider` and `FileConnectionProvider` are the two built-in implementations. Only `FileConnectionProvider` fills missing fields from environment variables.
 

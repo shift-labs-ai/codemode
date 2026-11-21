@@ -41,7 +41,11 @@ import { FileMcpStore, MemoryMcpStore } from "../mcp/store.js";
 import { discoverPlugins, enabledBuiltins } from "../plugin/loader.js";
 import type { ActionContext } from "../plugin/types.js";
 import { Codemode } from "../sdk.js";
-import { type FakeServer, fakeServer } from "./helpers/mcp-server.js";
+import {
+  type FakeServer,
+  fakeServer,
+  placeholder,
+} from "./helpers/mcp-server.js";
 
 const STDIO_SERVER = fileURLToPath(
   new URL("./helpers/mcp-stdio-server.mjs", import.meta.url),
@@ -64,9 +68,6 @@ const DELETE: Tool = {
   inputSchema: { properties: { id: { type: "string" } } },
   annotations: { destructiveHint: true, idempotentHint: true },
 };
-
-/** `${name}` as an entry writes it, built so no linter reads it as a template slip. */
-const placeholder = (name: string) => ["$", "{", name, "}"].join("");
 
 const check = {
   validate: validateMcpServerConfig,
@@ -521,7 +522,7 @@ describe("loading servers as plugins", () => {
     assert.equal(server.connections, 1);
   });
 
-  it("neither reads nor starts a project's servers until the project is trusted", async () => {
+  it("starts none of a project's servers until the project is trusted", async () => {
     const server = fakeServer({ tools: [SEARCH] });
     const project = { p: { command: "x" } };
     const untrusted = manager({}, { p: server }, { project });
@@ -537,7 +538,7 @@ describe("loading servers as plugins", () => {
     assert.equal(second.plugins[0].sourceInfo?.scope, "project");
   });
 
-  it("loads nothing, and no client, when no server is configured", async () => {
+  it("loads nothing when no server is configured", async () => {
     const mcp = manager({}, {});
     assert.deepEqual(await mcp.load(), { plugins: [], problems: [] });
     assert.deepEqual(await mcp.list(), []);
@@ -963,6 +964,25 @@ describe("tool lists that change", () => {
     assert.deepEqual(changed, ["a"]);
     assert.equal((await cache.read("user", "a"))?.tools.length, 2);
     assert.equal((await mcp.load()).plugins[0].actions.length, 2);
+  });
+
+  it("is not disturbed by a listener that throws or rejects", async () => {
+    const server = fakeServer({ tools: [SEARCH] });
+    const mcp = manager({ a: { command: "x" } }, { a: server });
+    const heard: string[] = [];
+    mcp.onToolsChanged(() => {
+      throw new Error("listener failed");
+    });
+    mcp.onToolsChanged(async () => {
+      throw new Error("listener rejected");
+    });
+    mcp.onToolsChanged((name) => {
+      heard.push(name);
+    });
+    await mcp.load();
+    server.options.tools = [DELETE];
+    assert.deepEqual(await mcp.refresh(), ["a"]);
+    assert.deepEqual(heard, ["a"]);
   });
 
   it("reads tool lists again on refresh, and names what changed", async () => {

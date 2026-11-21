@@ -1056,13 +1056,32 @@ export class CredentialTransport {
     const method = this.registry.select(binding.type, binding.method);
     if (method.authentication.kind !== "oauth2")
       throw new AuthError("unsupported_operation");
-    let grant = grantFrom(method, await this.read(binding, method));
-    const refused =
-      options.rejected !== undefined &&
-      grant?.tokens.accessToken === options.rejected;
-    if (refused || !fresh(grant))
-      grant = await this.renew(binding, method, grant?.revision, refused);
+    const grant = await this.currentGrant(
+      binding,
+      method,
+      await this.read(binding, method),
+      options.rejected,
+    );
     return secret(grant?.tokens.accessToken);
+  }
+
+  /**
+   * An `oauth2` method's grant as `config` holds it, renewed first when it
+   * is stale, or when it still holds `rejected`, a token the provider
+   * refused.
+   */
+  private async currentGrant(
+    binding: CredentialBinding,
+    method: CredentialMethod,
+    config: Readonly<Record<string, unknown>>,
+    rejected?: string,
+  ): Promise<OAuthGrant | undefined> {
+    const grant = grantFrom(method, config);
+    const refused =
+      rejected !== undefined && grant?.tokens.accessToken === rejected;
+    return refused || !fresh(grant)
+      ? this.renew(binding, method, grant?.revision, refused)
+      : grant;
   }
 
   /** Only a declared read-only probe runs. Results never contain provider text or secrets. */
@@ -1124,9 +1143,7 @@ export class CredentialTransport {
           target,
         ),
       };
-    let grant = grantFrom(method, config);
-    if (!fresh(grant))
-      grant = await this.renew(binding, method, grant?.revision);
+    const grant = await this.currentGrant(binding, method, config);
     return { sign: bearer(secret(grant?.tokens.accessToken)), grant };
   }
 }

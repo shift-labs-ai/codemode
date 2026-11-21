@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { CallToolResult, Tool } from "@earendil-works/pi-mcp";
 import * as t from "typebox";
 import { Check } from "typebox/value";
+import { MCP_OWNER_PREFIX } from "../connections/types.js";
 import type {
   ActionContext,
   ActionDef,
@@ -15,7 +16,7 @@ import { McpServerError } from "./errors.js";
 
 /** The owner of a server's connection: no other plugin of its name may use it. */
 export function mcpOwner(server: string): string {
-  return `mcp:${server}`;
+  return `${MCP_OWNER_PREFIX}${server}`;
 }
 
 /** How long a failed tool's own text may be in the error it becomes. */
