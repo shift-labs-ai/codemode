@@ -13,7 +13,7 @@ import {
   printSuccess,
   printWarn,
 } from "../utils/output.js";
-import { withCliMcp } from "./mcp.js";
+import { configuredServer, withCliMcp } from "./mcp.js";
 import { cliPackageManager } from "./packages.js";
 
 export async function connectionAdd(
@@ -39,13 +39,10 @@ export async function connectionAdd(
       mcp,
       mcpLoad: { connect: false },
     });
-    // An MCP server may be named as configured (`my-tools`); its connection
-    // names it as code does (`my_tools`).
+    // A connection names an MCP server as code does (`my_tools`).
     return (
       registry.getPlugin(options.plugin)?.name ??
-      (await mcp.list().catch(() => [])).find(
-        (server) => server.name === options.plugin,
-      )?.plugin ??
+      (await configuredServer(mcp, options.plugin))?.plugin ??
       options.plugin
     );
   });

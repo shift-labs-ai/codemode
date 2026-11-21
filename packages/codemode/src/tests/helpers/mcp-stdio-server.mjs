@@ -1,9 +1,9 @@
 // A real MCP server on stdio, for tests that start one as a process. It
 // offers `echo` (returns its arguments), `env` (returns its environment's
 // names), `fail` (reports its own failure), and `grow`, which adds a tool
-// named `grown` and announces the change. It writes its pid to
-// the file named by its first argument, when given one, so a test can see
-// the process end. With `FIXTURE_FAULT=garble`, `echo` first prints a line
+// named `grown` and announces the change. It writes its pid to the file
+// named by its first argument, when given one, so a test can see the
+// process end. With `FIXTURE_FAULT=garble`, `echo` first prints a line
 // that is not JSON-RPC; with `FIXTURE_FAULT=crash`, it prints why to stderr
 // and exits without answering.
 import { writeFileSync } from "node:fs";

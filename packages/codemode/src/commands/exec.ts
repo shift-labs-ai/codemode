@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { findConfigDir, loadConfig } from "../config/loader.js";
+import { configPath, loadConfig } from "../config/loader.js";
 import { FileConnectionProvider } from "../connections/file.js";
 import { ExecutionEngine } from "../core/engine.js";
 import type { McpManager } from "../mcp/manager.js";
@@ -46,11 +45,8 @@ async function run(
     temporaryPackages: temporarySources(options.packages),
     mcp,
   });
-  const configDir = findConfigDir() ?? join(process.cwd(), ".codemode");
   const engine = new ExecutionEngine(registry, config, {
-    connectionProvider: new FileConnectionProvider(
-      join(configDir, "config.json"),
-    ),
+    connectionProvider: new FileConnectionProvider(configPath()),
   });
 
   const result = await engine.execute(code);

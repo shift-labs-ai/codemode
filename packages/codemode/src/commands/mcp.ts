@@ -1,11 +1,14 @@
-import { join } from "node:path";
 import chalk from "chalk";
-import { findConfigDir, userConfigDir } from "../config/loader.js";
+import { configPath, findConfigDir, userConfigDir } from "../config/loader.js";
 import { isProjectTrusted, setProjectTrusted } from "../config/trust.js";
 import { FileConnectionProvider } from "../connections/file.js";
 import type { McpScope } from "../mcp/config.js";
 import { isMcpServerError } from "../mcp/errors.js";
-import { McpManager, type McpServerStatus } from "../mcp/manager.js";
+import {
+  McpManager,
+  type McpServerInfo,
+  type McpServerStatus,
+} from "../mcp/manager.js";
 import {
   failCommand,
   keyValuePairs,
@@ -20,13 +23,10 @@ import {
  * and the project's connections for the servers' secrets and sign-ins.
  */
 function cliMcpManager(options: { trustProject?: boolean } = {}): McpManager {
-  const project = findConfigDir() ?? undefined;
   return McpManager.forCodemodeFolders({
-    roots: { user: userConfigDir(), project },
+    roots: { user: userConfigDir(), project: findConfigDir() ?? undefined },
     trust: (root) => options.trustProject === true || isProjectTrusted(root),
-    connections: new FileConnectionProvider(
-      join(project ?? join(process.cwd(), ".codemode"), "config.json"),
-    ),
+    connections: new FileConnectionProvider(configPath()),
     // What explains a call that then only times out. On stderr, like every
     // other problem a command reports beside its result.
     onEvent: (event) => {
@@ -52,6 +52,19 @@ export async function withCliMcp<T>(
   } finally {
     await mcp.close();
   }
+}
+
+/**
+ * The configured server called `name`, which is its configuration key
+ * (`my-tools`) or its name in code (`my_tools`).
+ */
+export async function configuredServer(
+  mcp: McpManager,
+  name: string,
+): Promise<McpServerInfo | undefined> {
+  return (await mcp.list().catch(() => [])).find(
+    (server) => server.name === name || server.plugin === name,
+  );
 }
 
 function scopeOf(options: { local?: boolean }): McpScope {

@@ -281,7 +281,7 @@ await mcp.close();
 | Method | Result |
 |---|---|
 | `load({ connect?, reservedNames?, context? })` | `{ plugins, problems }`: one plugin per enabled server. `connect: false` never connects, and a server with no cached list then loads with no actions |
-| `list()` | Every configured server, without connecting |
+| `list({ context? })` | Every configured server, without connecting |
 | `status(name?)` | Connects and reports each server's state, tool count, and error |
 | `refresh(name?)` | Reads tool lists again and returns the servers that changed |
 | `add(name, entry, { scope? })` | Records a server. A name the scope already defines is refused |

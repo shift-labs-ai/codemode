@@ -43,7 +43,11 @@ export function findConfigDir(from: string = process.cwd()): string | null {
   return null;
 }
 
-function configPath(): string {
+/**
+ * The `config.json` the command line reads and writes: the nearest
+ * project's, else one in the working directory.
+ */
+export function configPath(): string {
   return join(
     findConfigDir() ?? join(process.cwd(), CONFIG_DIR_NAME),
     CONFIG_FILE,

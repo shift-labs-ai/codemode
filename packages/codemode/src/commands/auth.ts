@@ -17,7 +17,7 @@ import {
   printSuccess,
   printWarn,
 } from "../utils/output.js";
-import { withCliMcp } from "./mcp.js";
+import { configuredServer, withCliMcp } from "./mcp.js";
 import { cliPackageManager } from "./packages.js";
 
 interface AuthOptions {
@@ -43,10 +43,7 @@ async function authWith(
     mcp,
     mcpLoad: { connect: false },
   });
-  // An MCP server is named by its configuration key or by its name in code.
-  const server = (await mcp.list().catch(() => [])).find(
-    (found) => found.name === plugin || found.plugin === plugin,
-  );
+  const server = await configuredServer(mcp, plugin);
   if (
     server &&
     registry.getPlugin(server.plugin)?.sourceInfo?.owner ===
