@@ -21,11 +21,16 @@ import {
   type PackageManagerOptions,
 } from "../packages/manager.js";
 import { readPackageManifest } from "../packages/manifest.js";
-import { type CommandRunner, quoteForCmd } from "../packages/runner.js";
+import {
+  type CommandRunner,
+  nodeCommandRunner,
+  quoteForCmd,
+} from "../packages/runner.js";
 import { packageIdentity, parseSource } from "../packages/source.js";
 import { FilePackageStore, MemoryPackageStore } from "../packages/store.js";
 import { discoverPlugins } from "../plugin/loader.js";
 import { Codemode } from "../sdk.js";
+import { ends, pidIn } from "./helpers/processes.js";
 
 let tmp: string;
 
@@ -894,6 +899,39 @@ ${pluginSource(
     writeFileSync(join(dir, "notes.md"), "");
     assert.deepEqual([...bundledPluginNames(dir)].sort(), ["alpha", "gmail"]);
   });
+
+  (process.platform === "win32" ? it.skip : it)(
+    "ends a command and what it started on timeout and abort",
+    async () => {
+      const script = (file: string) => [
+        "-c",
+        `sleep 30 & echo $! > ${file}; wait`,
+      ];
+
+      const timedOut = join(tmp, "timed-out");
+      const result = await nodeCommandRunner.run("/bin/sh", script(timedOut), {
+        timeoutMs: 1_000,
+      });
+      assert.equal(result.code, 128);
+      assert.equal(await ends(await pidIn(timedOut)), true);
+
+      const aborted = join(tmp, "aborted");
+      const giveUp = new AbortController();
+      const run = nodeCommandRunner.run("/bin/sh", script(aborted), {
+        signal: giveUp.signal,
+      });
+      const pid = await pidIn(aborted);
+      giveUp.abort();
+      await assert.rejects(run, { name: "AbortError" });
+      assert.equal(await ends(pid), true);
+      await assert.rejects(
+        nodeCommandRunner.run("/bin/sh", ["-c", "true"], {
+          signal: AbortSignal.abort(),
+        }),
+        { name: "AbortError" },
+      );
+    },
+  );
 
   it("quotes arguments for cmd.exe and refuses the ones quoting cannot make safe", () => {
     assert.equal(quoteForCmd("--prefix"), "--prefix");

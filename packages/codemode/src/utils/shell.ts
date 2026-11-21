@@ -16,7 +16,10 @@ export interface ShellProgram {
 export interface RunShellOptions {
   /** Working directory. Default: the host process's. */
   cwd?: string;
-  /** Added to the host process's environment, which the command inherits. */
+  /**
+   * Added to the host process's environment, which the command inherits. A
+   * name set to `undefined` is left out of it.
+   */
   env?: Readonly<Record<string, string | undefined>>;
   /** After this long the command's process group is killed and the call rejects. Default: no limit. */
   timeoutMs?: number;
@@ -97,6 +100,8 @@ class ShellOutput {
   /** What the file has not been handed yet: it is written in blocks. */
   private block: Buffer[] = [];
   private blockBytes = 0;
+  /** The file could not be created or written: the output goes on without it. */
+  private fileFailed = false;
 
   constructor(
     private readonly maxBytes: number,
@@ -134,10 +139,10 @@ class ShellOutput {
     return keepReading;
   }
 
-  /** Resolves when the file has caught up. */
+  /** Resolves when the file has caught up, or has failed. */
   drained(): Promise<void> {
     const file = this.file;
-    return file?.writableNeedDrain
+    return file?.writableNeedDrain && !this.fileFailed
       ? new Promise((resolve) => {
           const done = () => {
             file.off("drain", done);
@@ -151,17 +156,19 @@ class ShellOutput {
   }
 
   private write(chunk: Buffer): boolean {
+    if (this.fileFailed) return true;
     this.block.push(chunk);
     this.blockBytes += chunk.length;
     return this.blockBytes < SPILL_BLOCK_BYTES || this.flush();
   }
 
   private flush(): boolean {
-    if (!this.file || !this.blockBytes) return true;
     const block = Buffer.concat(this.block);
     this.block = [];
     this.blockBytes = 0;
-    return this.file.write(block);
+    return !this.file || this.fileFailed || !block.length
+      ? true
+      : this.file.write(block);
   }
 
   /** Start the file with everything so far; `latest` is its last part. */
@@ -173,7 +180,9 @@ class ShellOutput {
     // Output can carry private data: only the user reads it, and `wx` never
     // follows a link someone else placed at the path.
     this.file = createWriteStream(this.path, { mode: 0o600, flags: "wx" });
-    this.file.on("error", () => {});
+    this.file.on("error", () => {
+      this.fileFailed = true;
+    });
     this.block = [...this.head, ...this.tail, latest];
     this.blockBytes = this.total;
     this.flush();
@@ -184,7 +193,12 @@ class ShellOutput {
     if (this.file) {
       const file = this.file;
       this.flush();
-      await new Promise<void>((resolve) => file.end(resolve));
+      // `close` follows a finished file and a failed one alike.
+      if (!file.closed)
+        await new Promise<void>((resolve) => {
+          file.once("close", () => resolve());
+          file.end();
+        });
     }
     const head = Buffer.concat(this.head);
     if (this.total <= this.maxBytes)
@@ -203,7 +217,9 @@ class ShellOutput {
     return {
       text: `${new TextDecoder().decode(head, { stream: true })}\n\n[... ${omitted} bytes omitted ...]\n\n${tail.subarray(start).toString("utf8")}`,
       truncated: true,
-      ...(this.path === undefined ? {} : { path: this.path }),
+      ...(this.path === undefined || this.fileFailed
+        ? {}
+        : { path: this.path }),
     };
   }
 }
@@ -252,28 +268,56 @@ export function killProcessTree(pid: number): void {
   }
 }
 
-/** Commands in flight, ended with the host process: each leads its own process group. */
+/** Process groups in flight, each led by a command this process started. */
 const running = new Set<number>();
-let endsWithHost = false;
+/** The signals that end a process by default. */
+const ENDING_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
-function endWithHost(pid: number): void {
-  running.add(pid);
-  if (endsWithHost) return;
-  endsWithHost = true;
-  process.once("exit", () => {
-    if (!running.size) return;
-    if (process.platform !== "win32") {
-      for (const each of running) killProcessTree(each);
-      return;
-    }
+function endRunning(): void {
+  if (!running.size) return;
+  if (process.platform !== "win32") {
+    for (const pid of running) killProcessTree(pid);
+  } else {
     // Waited for: once this process is gone, taskkill no longer finds what
-    // the shells started.
+    // the commands started.
     spawnSync(
       taskkill(),
-      ["/F", "/T", ...[...running].flatMap((each) => ["/PID", String(each)])],
+      ["/F", "/T", ...[...running].flatMap((pid) => ["/PID", String(pid)])],
       { stdio: "ignore", timeout: 2000, windowsHide: true },
     );
-  });
+  }
+  running.clear();
+}
+
+function onEndingSignal(signal: NodeJS.Signals): void {
+  endRunning();
+  stopWatchingHost();
+  // Listening took the signal's default away. With no listener of the
+  // host's own left, the signal ends the process as it would have.
+  if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+}
+
+function stopWatchingHost(): void {
+  process.off("exit", endRunning);
+  for (const signal of ENDING_SIGNALS) process.off(signal, onEndingSignal);
+}
+
+/**
+ * End `pid`'s process group with this process: on exit and on the signals
+ * that end it. A group of its own does not get the terminal's Ctrl-C, so
+ * nothing else would. Answers how to stop, once the command has ended. The
+ * process is watched only while a command is in flight.
+ */
+export function endWithHost(pid: number): () => void {
+  if (!running.size) {
+    process.on("exit", endRunning);
+    for (const signal of ENDING_SIGNALS) process.on(signal, onEndingSignal);
+  }
+  running.add(pid);
+  return () => {
+    running.delete(pid);
+    if (!running.size) stopWatchingHost();
+  };
 }
 
 /**
@@ -397,7 +441,7 @@ export async function runShell(
     child.stdin?.end(script);
   }
   const { pid } = child;
-  if (pid !== undefined) endWithHost(pid);
+  const stopWatching = pid === undefined ? undefined : endWithHost(pid);
   const kill = () => {
     if (pid !== undefined) killProcessTree(pid);
   };
@@ -442,7 +486,7 @@ export async function runShell(
       `Could not start ${shell.program}: ${(error as Error).message}`,
     );
   } finally {
-    if (pid !== undefined) running.delete(pid);
+    stopWatching?.();
     clearTimeout(timer);
     signal?.removeEventListener("abort", kill);
   }

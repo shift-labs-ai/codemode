@@ -5,17 +5,16 @@
  */
 
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { isShellError, runShell, type ShellProgram } from "../utils/shell.js";
+import { ends, pidIn } from "./helpers/processes.js";
+
+const HOST = fileURLToPath(new URL("./helpers/shell-host.ts", import.meta.url));
 
 const SH: ShellProgram = { program: "/bin/sh", args: ["-c"] };
 const posix = process.platform === "win32" ? it.skip : it;
@@ -31,35 +30,6 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
   for (const path of spilled.splice(0)) rmSync(path, { force: true });
 });
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Whether `pid` ends within `ms`. */
-async function ends(pid: number, ms = 2_000): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (!alive(pid)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  return false;
-}
-
-/** The pid a script wrote to `file`, once it is there. */
-async function pidIn(file: string): Promise<number> {
-  for (let tries = 0; tries < 200; tries++) {
-    if (existsSync(file) && readFileSync(file, "utf8").trim())
-      return Number(readFileSync(file, "utf8"));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`no pid in ${file}`);
-}
 
 describe("running a script through a shell", () => {
   posix("answers stdout and stderr together, and the exit code", async () => {
@@ -105,6 +75,13 @@ describe("running a script through a shell", () => {
         const [directory, variables] = result.output.trim().split("\n");
         assert.ok(directory.endsWith(tmp.split("/").at(-1) as string));
         assert.equal(variables, "from-host added");
+        const without = await runShell(
+          SH,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion
+          'echo "${CODEMODE_SHELL_TEST_HOST:-unset}"',
+          { env: { CODEMODE_SHELL_TEST_HOST: undefined } },
+        );
+        assert.equal(without.output, "unset\n");
       } finally {
         delete process.env.CODEMODE_SHELL_TEST_HOST;
       }
@@ -224,6 +201,36 @@ describe("a script that does not run to its end", () => {
     for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
       await assert.rejects(runShell(SH, "echo hi", { timeoutMs }), RangeError);
   });
+});
+
+describe("a command whose host ends first", () => {
+  /** Start a host that runs `sleep` through `runShell`, and answer both pids. */
+  async function host(ending: "exit" | "wait") {
+    const pidFile = join(tmp, "pid");
+    const child = spawn(process.execPath, [HOST, pidFile, ending], {
+      stdio: "ignore",
+    });
+    const closed = new Promise<NodeJS.Signals | null>((resolve) =>
+      child.once("close", (_code, signal) => resolve(signal)),
+    );
+    return { child, command: await pidIn(pidFile), closed };
+  }
+
+  posix("ends when the host exits", async () => {
+    const { command, closed } = await host("exit");
+    await closed;
+    assert.equal(await ends(command), true);
+  });
+
+  posix(
+    "ends when the host is interrupted, and the host still ends by that signal",
+    async () => {
+      const { child, command, closed } = await host("wait");
+      child.kill("SIGTERM");
+      assert.equal(await closed, "SIGTERM");
+      assert.equal(await ends(command), true);
+    },
+  );
 });
 
 describe("output past the limit", () => {

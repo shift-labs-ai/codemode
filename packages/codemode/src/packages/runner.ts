@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { endWithHost, killProcessTree } from "../utils/shell.js";
 
 export interface CommandResult {
   code: number;
@@ -44,24 +45,51 @@ export function quoteForCmd(arg: string): string {
  * no shell. On Windows npm, pnpm and bun are `.cmd` shims that only a shell
  * can start, so those (never git) go through cmd.exe with every argument
  * quoted by `quoteForCmd`.
+ *
+ * The command leads a process group of its own, which is killed on timeout
+ * and abort: npm and git start processes that would otherwise outlive them.
  */
 export const nodeCommandRunner: CommandRunner = {
   run(command, args, options = {}) {
     return new Promise((resolve, reject) => {
+      const { signal } = options;
+      if (signal?.aborted) return reject(signal.reason);
       const viaCmd = process.platform === "win32" && command !== "git";
       const child = viaCmd
         ? spawn([command, ...args].map(quoteForCmd).join(" "), {
             cwd: options.cwd,
             shell: true,
-            signal: options.signal,
             windowsHide: true,
           })
         : spawn(command, args, {
             cwd: options.cwd,
             shell: false,
-            signal: options.signal,
+            detached: process.platform !== "win32",
             windowsHide: true,
           });
+      const { pid } = child;
+      const stopWatching = pid === undefined ? undefined : endWithHost(pid);
+      const kill = () => {
+        if (pid !== undefined) killProcessTree(pid);
+      };
+      const timer =
+        options.timeoutMs === undefined
+          ? undefined
+          : setTimeout(kill, options.timeoutMs);
+      const onAbort = () => {
+        kill();
+        settle(() => reject(signal?.reason));
+      };
+      let settled = false;
+      const settle = (finish: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        stopWatching?.();
+        finish();
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
       let stdout = "";
       let stderr = "";
       child.stdout?.on("data", (chunk: Buffer) => {
@@ -70,18 +98,12 @@ export const nodeCommandRunner: CommandRunner = {
       child.stderr?.on("data", (chunk: Buffer) => {
         if (stderr.length < OUTPUT_LIMIT) stderr += chunk.toString();
       });
-      const timer =
-        options.timeoutMs === undefined
-          ? undefined
-          : setTimeout(() => child.kill("SIGTERM"), options.timeoutMs);
-      child.on("error", (error) => {
-        if (timer) clearTimeout(timer);
-        reject(error);
-      });
-      child.on("close", (code, signal) => {
-        if (timer) clearTimeout(timer);
-        resolve({ code: code ?? (signal ? 128 : 1), stdout, stderr });
-      });
+      child.on("error", (error) => settle(() => reject(error)));
+      child.on("close", (code, ended) =>
+        settle(() =>
+          resolve({ code: code ?? (ended ? 128 : 1), stdout, stderr }),
+        ),
+      );
     });
   },
 };

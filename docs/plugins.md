@@ -173,7 +173,7 @@ Pass `ctx.signal` so that a command ends with the run that started it.
 
 `output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output past `maxOutputBytes`, 1 MiB by default, keeps its start and end around a marker, and the whole of it is written to a file named by `fullOutputPath` that only your account can read.
 
-The command inherits the environment of the codemode process, with `env` added to it. Check a failure with `isShellError()`.
+The command inherits the environment of the codemode process, with `env` added to it. It runs in a process group of its own, and codemode ends that group when its own process exits or is interrupted. Check a failure with `isShellError()`.
 
 ## Understand how plugins load
 
