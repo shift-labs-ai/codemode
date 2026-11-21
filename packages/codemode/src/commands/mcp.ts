@@ -206,6 +206,7 @@ export async function mcpRefresh(
             ? `Tool lists read again; changed: ${changed.join(", ")}`
             : "Tool lists read again; nothing changed",
         );
+      else if (!problems.length) console.log("No enabled MCP servers to read.");
     }
     if (problems.length) process.exitCode = 1;
   } catch (err) {

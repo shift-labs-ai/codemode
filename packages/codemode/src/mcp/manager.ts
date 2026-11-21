@@ -136,7 +136,7 @@ export interface McpManagerOptions {
    * machine is not the person's own. Default: `loopback`.
    */
   signInOverHttp?: McpSignInOverHttp;
-  /** How long `load()` and `status()` wait for a server. Default: 10 seconds. */
+  /** How long `load()`, `status()` and `refresh()` wait for a server to connect. Default: 10 seconds. */
   connectTimeoutMs?: number;
   /**
    * How long `load()` leaves a server alone after it could not be reached,
@@ -519,9 +519,9 @@ export class McpManager {
    * and the client to sign in as. That is the one the entry names, else the
    * host's metadata document, else one registered with `redirectUri`. Run
    * the consent with the setup's own `redirectUri` and codemode's OAuth
-   * runtime
-   * (`runOAuth`, or `buildOAuth2AuthorizationUrl` and `exchangeOAuth2Code`)
-   * and store `mcpOAuthConnection(setup, tokens)` in the server's connection.
+   * runtime (`runOAuth`, or `buildOAuth2AuthorizationUrl` and
+   * `exchangeOAuth2Code`), and store `mcpOAuthConnection(setup, tokens)` in
+   * the server's connection.
    */
   async oauth(
     name: string,

@@ -307,7 +307,7 @@ Failures the manager raises are `McpServerError` values with a `code`, such as `
 | `signInOverHttp` | `loopback` | `never` refuses sign-in to a server on this machine over HTTP, for a host that does not run on the person's own machine |
 | `signInHint` | `codemode auth <server>` | How the host tells a person to sign in |
 | `idleMs`, `maxSessions` | 5 minutes, 64 | When an unused session is closed |
-| `connectTimeoutMs`, `retryFailedAfterMs` | 10 seconds, 1 minute | How long `load()` waits for a server, and how long it leaves an unreachable one alone |
+| `connectTimeoutMs`, `retryFailedAfterMs` | 10 seconds, 1 minute | How long the manager waits for a server to connect, and how long `load()` leaves an unreachable one alone |
 | `client` | `codemode` and its version | How codemode names itself to servers |
 | `onEvent` | None | Receives session states, changed tool lists, server log messages, stderr, progress, and faults that no call rejects with, such as a message from the server that is not JSON-RPC |
 

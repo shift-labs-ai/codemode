@@ -1194,11 +1194,7 @@ describe("tool lists that change", () => {
 
   it("reads the other servers again when one cannot be reached", async () => {
     const b = fakeServer({ tools: [SEARCH] });
-    const mcp = manager(
-      { down: { command: "x" }, b: { command: "x" } },
-      { b },
-      { retryFailedAfterMs: 0 },
-    );
+    const mcp = manager({ down: { command: "x" }, b: { command: "x" } }, { b });
     await mcp.load();
     b.options.tools = [DELETE];
     const { refreshed, changed, problems } = await mcp.refresh();

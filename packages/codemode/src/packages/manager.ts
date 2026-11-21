@@ -178,6 +178,8 @@ export interface PackageUpdate {
   from?: string;
   to?: string;
   changed: boolean;
+  /** Why the package could not be updated. It stays at `from`. */
+  error?: string;
 }
 
 export interface AvailableUpdate {
@@ -531,19 +533,33 @@ export class PackageManager {
         results.push({ source: s, scope, from, to: from, changed: false });
         continue;
       }
-      await this.withEvents("update", s, `Updating ${s}`, () =>
-        this.withLock(root, options.signal, () =>
-          parsed.type === "npm"
-            ? this.installNpm(
-                parsed.version
-                  ? parsed
-                  : { ...parsed, spec: `${parsed.name}@latest` },
-                root,
-                options.signal,
-              )
-            : this.installGit(parsed, root, scope, options.signal),
-        ),
-      );
+      try {
+        await this.withEvents("update", s, `Updating ${s}`, () =>
+          this.withLock(root, options.signal, () =>
+            parsed.type === "npm"
+              ? this.installNpm(
+                  parsed.version
+                    ? parsed
+                    : { ...parsed, spec: `${parsed.name}@latest` },
+                  root,
+                  options.signal,
+                )
+              : this.installGit(parsed, root, scope, options.signal),
+          ),
+        );
+      } catch (error) {
+        if (isPackageError(error) && error.code === "aborted") throw error;
+        // The others are updated all the same.
+        results.push({
+          source: s,
+          scope,
+          from,
+          to: from,
+          changed: false,
+          error: (error as Error).message,
+        });
+        continue;
+      }
       const to =
         parsed.type === "git" ? await this.gitHead(path) : readVersion(path);
       results.push({ source: s, scope, from, to, changed: from !== to });

@@ -188,7 +188,7 @@ The manager reads no folder it was not given, and it never prompts, prints, or e
 | `commit(staged)`, `discard(staged)` | Record the staged package, or undo the fetch |
 | `install(source, { scope })` | `fetch()` followed by `commit()` |
 | `remove(source, { scope })` | Whether an entry and its files were removed |
-| `update(source?)`, `checkUpdates()` | Versions before and after, or the updates available |
+| `update(source?)`, `checkUpdates()` | Versions before and after, with an `error` for a package that could not be updated, or the updates available |
 | `list()` | Configured packages and what is installed |
 | `load({ temporary })` | Loaded plugins and the problems found |
 | `search(terms)` | npm packages with the `codemode-plugin` keyword |

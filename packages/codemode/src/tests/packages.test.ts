@@ -747,6 +747,30 @@ ${pluginSource(
     );
   });
 
+  it("updates the other packages when one cannot be updated", async () => {
+    const fixture = writePackage(
+      join(tmp, "fixture"),
+      { name: "orders", version: "1.4.0" },
+      { "index.js": pluginSource("orders") },
+    );
+    const store = new MemoryPackageStore({
+      user: ["npm:gone", "npm:orders"],
+    });
+    const [gone, orders] = await manager({
+      store,
+      runner: fakeNpm({ orders: fixture }, []),
+    }).update();
+    assert.equal(gone.changed, false);
+    assert.match(gone.error ?? "", /404 gone/);
+    assert.deepEqual(orders, {
+      source: "npm:orders",
+      scope: "user",
+      from: undefined,
+      to: "1.4.0",
+      changed: true,
+    });
+  });
+
   it("warns when a package's peer range excludes this codemode", async () => {
     const fits = writePackage(
       join(tmp, "fits"),

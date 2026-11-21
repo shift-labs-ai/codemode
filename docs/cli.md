@@ -91,7 +91,7 @@ See [Packages](packages.md) for sources, versions, and the package format.
 - `remove <source>`, alias `uninstall`<br>
   Removes a package's entry and its installed files. Add `-l`, `--local` to remove it from the project.
 - `update [source]`<br>
-  Updates one package or all of them. Exact versions, tags, and commits stay where they are.
+  Updates one package or all of them. Exact versions, tags, and commits stay where they are. A package that cannot be updated is reported, the others are still updated, and the command exits with status 1.
 - `list`, alias `ls`<br>
   Lists configured packages. Add `--outdated` to show the ones with newer versions.
 - `search [terms]`<br>
@@ -122,7 +122,7 @@ See [MCP Servers](mcp.md) for entries, secrets, and sign-in.
 - `mcp list`, alias `mcp ls`<br>
   Connects to every enabled server and prints its state, the number of tools its entry loads, and its error. Exits with status 1 when an enabled server is not connected.
 - `mcp refresh [name]`<br>
-  Reads tool lists again from every enabled server, or from one. A server that cannot be read is reported, the others are still read, and the command exits with status 1.
+  Reads tool lists again from every enabled server, or from one. A server that cannot be read is reported, the others are still read, and the command exits with status 1. With `--json`, prints `{ ok, refreshed, changed, problems }`.
 - `mcp remove <name>`<br>
   Removes a server and its cached tool list. Add `-l`, `--local` to remove it from the project.
 - `auth <name>`<br>

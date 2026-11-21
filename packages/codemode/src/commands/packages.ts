@@ -218,12 +218,21 @@ export async function packageUpdate(
   const pm = cliPackageManager({ quiet: options.quiet || options.json });
   try {
     const results = await pm.update(source);
+    if (results.some((r) => r.error !== undefined)) process.exitCode = 1;
     if (options.json) return printJson(results);
     if (!results.length) return console.log("No packages to update.");
-    for (const r of results)
+    for (const r of results) {
       console.log(
-        `  ${chalk.bold(r.source)} ${r.changed ? `${r.from ?? "—"} → ${r.to ?? "—"}` : chalk.dim(`up to date (${r.to ?? "—"})`)}`,
+        `  ${chalk.bold(r.source)} ${
+          r.error !== undefined
+            ? chalk.red("failed")
+            : r.changed
+              ? `${r.from ?? "—"} → ${r.to ?? "—"}`
+              : chalk.dim(`up to date (${r.to ?? "—"})`)
+        }`,
       );
+      if (r.error !== undefined) printError(r.error);
+    }
   } catch (err) {
     fail(err, options.json);
   }

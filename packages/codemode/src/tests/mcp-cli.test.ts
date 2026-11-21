@@ -240,6 +240,16 @@ describe("the command line with MCP servers", () => {
     const missing = await codemode(["mcp", "refresh", "nope"]);
     assert.equal(missing.code, 1);
     assert.match(missing.stderr, /No MCP server named "nope"/);
+
+    const config = userConfig();
+    config.mcpServers["my-tools"].enabled = false;
+    writeFileSync(
+      join(home, ".codemode", "config.json"),
+      JSON.stringify(config),
+    );
+    const none = await codemode(["mcp", "refresh"]);
+    assert.equal(none.code, 0, none.stderr);
+    assert.match(none.stdout, /No enabled MCP servers to read/);
   });
 
   it("refreshes the servers after one that is down, and counts the tools an entry loads", async () => {
