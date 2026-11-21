@@ -256,6 +256,20 @@ describe("output past the limit", () => {
     },
   );
 
+  posix("writes all of a large, fast output to the file", async () => {
+    const bytes = 8_000_000;
+    const result = await runShell(
+      SH,
+      `head -c ${bytes} /dev/zero | tr '\\0' a; echo; echo END`,
+      { maxOutputBytes: 1_000 },
+    );
+    assert.ok(result.fullOutputPath);
+    spilled.push(result.fullOutputPath);
+    assert.equal(result.exitCode, 0);
+    assert.equal(statSync(result.fullOutputPath).size, bytes + 5);
+    assert.ok(result.output.endsWith("END\n"));
+  });
+
   posix("cuts between characters, not inside one", async () => {
     const result = await runShell(
       SH,

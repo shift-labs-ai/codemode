@@ -78,6 +78,8 @@ const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 /** How long output may stay quiet, once the shell has exited, before the call ends. */
 const EXIT_STDIO_GRACE_MS = 100;
+/** Output goes to its file in blocks of this size, not a write per chunk read. */
+const SPILL_BLOCK_BYTES = 64 * 1024;
 
 /**
  * What a command wrote, within a bound: everything while it fits, then its
@@ -92,6 +94,9 @@ class ShellOutput {
   private total = 0;
   private path: string | undefined;
   private file: WriteStream | undefined;
+  /** What the file has not been handed yet: it is written in blocks. */
+  private block: Buffer[] = [];
+  private blockBytes = 0;
 
   constructor(
     private readonly maxBytes: number,
@@ -100,17 +105,23 @@ class ShellOutput {
     this.half = Math.floor(maxBytes / 2);
   }
 
-  append(chunk: Buffer): void {
-    if (!chunk.length) return;
+  /**
+   * Take more output. Answers false when the file is behind: the caller
+   * stops reading until `drained()`, so a command that writes faster than
+   * the disk takes is slowed instead of held in memory.
+   */
+  append(chunk: Buffer): boolean {
+    if (!chunk.length) return true;
     this.total += chunk.length;
-    if (this.file) this.file.write(chunk);
+    let keepReading = true;
+    if (this.file) keepReading = this.write(chunk);
     else if (this.total > this.maxBytes) this.spill(chunk);
     if (this.headBytes < this.half) {
       const part = chunk.subarray(0, this.half - this.headBytes);
       this.head.push(part);
       this.headBytes += part.length;
       chunk = chunk.subarray(part.length);
-      if (!chunk.length) return;
+      if (!chunk.length) return keepReading;
     }
     this.tail.push(chunk);
     this.tailBytes += chunk.length;
@@ -120,6 +131,37 @@ class ShellOutput {
       this.tailBytes - this.tail[0].length >= this.maxBytes - this.half
     )
       this.tailBytes -= (this.tail.shift() as Buffer).length;
+    return keepReading;
+  }
+
+  /** Resolves when the file has caught up. */
+  drained(): Promise<void> {
+    const file = this.file;
+    return file?.writableNeedDrain
+      ? new Promise((resolve) => {
+          const done = () => {
+            file.off("drain", done);
+            file.off("error", done);
+            resolve();
+          };
+          file.once("drain", done);
+          file.once("error", done);
+        })
+      : Promise.resolve();
+  }
+
+  private write(chunk: Buffer): boolean {
+    this.block.push(chunk);
+    this.blockBytes += chunk.length;
+    return this.blockBytes < SPILL_BLOCK_BYTES || this.flush();
+  }
+
+  private flush(): boolean {
+    if (!this.file || !this.blockBytes) return true;
+    const block = Buffer.concat(this.block);
+    this.block = [];
+    this.blockBytes = 0;
+    return this.file.write(block);
   }
 
   /** Start the file with everything so far; `latest` is its last part. */
@@ -132,14 +174,16 @@ class ShellOutput {
     // follows a link someone else placed at the path.
     this.file = createWriteStream(this.path, { mode: 0o600, flags: "wx" });
     this.file.on("error", () => {});
-    for (const chunk of [...this.head, ...this.tail]) this.file.write(chunk);
-    this.file.write(latest);
+    this.block = [...this.head, ...this.tail, latest];
+    this.blockBytes = this.total;
+    this.flush();
   }
 
   /** The output as text, once nothing more is appended. */
   async finish(): Promise<{ text: string; truncated: boolean; path?: string }> {
     if (this.file) {
       const file = this.file;
+      this.flush();
       await new Promise<void>((resolve) => file.end(resolve));
     }
     const head = Buffer.concat(this.head);
@@ -237,9 +281,13 @@ function endWithHost(pid: number): void {
  * A command may leave a background process holding its output pipes open,
  * so the wait ends when the pipes close or, after the shell's exit, when
  * they have been quiet for a moment. Output still arriving restarts that
- * moment, so none is cut off.
+ * moment, so none is cut off, and a moment in which `reading()` is false
+ * does not count.
  */
-function ended(child: ChildProcess): Promise<number | null> {
+function ended(
+  child: ChildProcess,
+  reading: () => boolean,
+): Promise<number | null> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let exited = false;
@@ -263,7 +311,11 @@ function ended(child: ChildProcess): Promise<number | null> {
       });
     const rearm = () => {
       clearTimeout(quiet);
-      quiet = setTimeout(done, EXIT_STDIO_GRACE_MS);
+      // Pipes the caller has paused are not quiet: their output is waiting.
+      quiet = setTimeout(
+        () => (reading() ? done() : rearm()),
+        EXIT_STDIO_GRACE_MS,
+      );
     };
     const onData = () => {
       if (exited) rearm();
@@ -355,8 +407,20 @@ export async function runShell(
   child.once("exit", () => {
     shellExitedAfterMs = performance.now() - started;
   });
-  child.stdout?.on("data", (chunk: Buffer) => output.append(chunk));
-  child.stderr?.on("data", (chunk: Buffer) => output.append(chunk));
+  let reading = true;
+  const take = (chunk: Buffer) => {
+    if (output.append(chunk) || !reading) return;
+    reading = false;
+    child.stdout?.pause();
+    child.stderr?.pause();
+    void output.drained().then(() => {
+      reading = true;
+      child.stdout?.resume();
+      child.stderr?.resume();
+    });
+  };
+  child.stdout?.on("data", take);
+  child.stderr?.on("data", take);
   const timer =
     timeoutMs === undefined
       ? undefined
@@ -370,7 +434,7 @@ export async function runShell(
 
   let code: number | null;
   try {
-    code = await ended(child);
+    code = await ended(child, () => reading);
   } catch (error) {
     await output.finish();
     throw new ShellError(
