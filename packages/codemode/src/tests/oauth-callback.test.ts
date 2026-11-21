@@ -156,6 +156,49 @@ describe("local OAuth callback lifecycle", () => {
     await visit;
   });
 
+  it("compares the callback's issuer with the authorization server it asked", async () => {
+    stubFetch(async () => Response.json({ access_token: "issued" }));
+    const attempt = (
+      issuer: RunOAuthOptions["issuer"],
+      sent: Record<string, string>,
+    ) => {
+      let visit: Promise<number> | undefined;
+      const flow = runOAuth(config, {
+        ...credentials,
+        issuer,
+        openBrowser(url) {
+          const state = new URL(url).searchParams.get("state");
+          assert.ok(state);
+          visit = nativeFetch(callback(state, { code: "c", ...sent })).then(
+            (response) => response.status,
+          );
+        },
+      });
+      return { flow, status: () => visit };
+    };
+    const issuer = { value: "https://auth.example" };
+
+    const same = attempt(issuer, { iss: "https://auth.example" });
+    assert.equal((await same.flow).accessToken, "issued");
+    assert.equal(await same.status(), 200);
+
+    // A server that does not say it always sends `iss` may leave it out.
+    const absent = attempt(issuer, {});
+    assert.equal((await absent.flow).accessToken, "issued");
+
+    const other = attempt(issuer, { iss: "https://evil.example" });
+    await assert.rejects(other.flow, {
+      message: "OAuth: the response came from another issuer",
+    });
+    assert.equal(await other.status(), 400);
+
+    const missing = attempt({ ...issuer, required: true }, {});
+    await assert.rejects(missing.flow, {
+      message: "OAuth: the response came from another issuer",
+    });
+    assert.equal(await missing.status(), 400);
+  });
+
   it("accepts only loopback HTTP callbacks and requires an explicit protocol for public clients", async () => {
     assert.deepEqual(oauthCallback(config), {
       uri: OAUTH_CALLBACK_URI,

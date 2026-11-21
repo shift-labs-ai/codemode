@@ -52,8 +52,9 @@ The `actions` object describes what is loaded. Use it instead of guessing names 
 |---|---|
 | `actions.list()` | Every action path, such as `github.issue.create` |
 | `actions.list("github")` | The paths of one plugin |
+| `actions.plugin("github")` | `name`, `description`, and `actions`: what a plugin is for, when it says, and its paths |
 | `actions.find("create issue", limit)` | Ranked matches with `path`, `access`, `description`, and `score`; five by default |
-| `actions.describe("github.issue.create")` | `path`, `plugin`, `action`, `access`, `description`, `signature`, and `inputs` |
+| `actions.describe("github.issue.create")` | `path`, `plugin`, `action`, `access`, `description`, `signature`, and `inputs`, and `hints`, `outputSchema`, and `sourceName` when the action has them |
 | `actions.check("github.issue.create", input)` | `ok`, `missing`, `unknown`, `typeErrors`, `errors`, and `signature` |
 
 `actions.check()` validates input against the action's schema and does not call the action:
@@ -62,7 +63,7 @@ The `actions` object describes what is loaded. Use it instead of guessing names 
 codemode exec 'return actions.check("github.issue.create", { owner: "acme" })'
 ```
 
-`actions.describe()` throws for an unknown path and names the closest matches. `actions.check()` returns `ok: false` with `suggestions` instead.
+`actions.describe()` throws for an unknown path and names the closest matches. `actions.plugin()` throws for an unknown plugin and names the loaded ones. `actions.check()` returns `ok: false` with `suggestions` instead.
 
 A reliable order is `find`, then `describe`, then `check`, then the call.
 

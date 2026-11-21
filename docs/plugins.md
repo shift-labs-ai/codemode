@@ -65,6 +65,8 @@ codemode exec 'return await weather.forecast.get({ latitude: 52.52, longitude: 1
 | `access` | `"read"` for actions that only retrieve data. `"write"` for anything that creates, changes, deletes, sends, executes, or may otherwise affect a system |
 | `description` | One sentence that code sees in `actions.find()` and `actions.describe()` |
 | `inputSchema` | A TypeBox object schema. Codemode validates input against it before `execute` runs |
+| `outputSchema` | A JSON Schema of the result's structured part. Optional; `actions.describe()` returns it |
+| `hints` | `destructive`, `idempotent`, and `openWorld`: what the action says about its effects beyond `access`. Optional |
 | `execute(input, ctx)` | The implementation. Its return value is the action's result |
 
 Set `additionalProperties: false` on the input schema so a misspelled field is rejected instead of ignored.
@@ -80,8 +82,11 @@ Return plain data. Results are converted to JSON before they reach the caller. T
 | `ctx.connection` | The resolved connection, with its `config` |
 | `ctx.context` | A value the host passed to `execute()` for this run, invisible to the calling code |
 | `ctx.credentials` | The host's request signer, when the host keeps credentials outside this process |
+| `ctx.signal` | An `AbortSignal` that fires when the run that made the call ends. Pass it to work that should stop with the run |
 | `ctx.log` | `info`, `warn`, and `error`, prefixed with the plugin name |
 | `ctx.updateConnection(patch)` | Persists a change to the connection's config through the host |
+
+`setDescription(text)` says what the plugin's actions are for as a group. Code reads it with `actions.plugin(name)`.
 
 ## Declare a connection
 
@@ -147,8 +152,9 @@ Codemode looks for plugins in this order:
 
 1. A trusted project's `.codemode/plugins/` folder, then the paths in its `.codemode/plugins.json`
 2. `~/.codemode/plugins/`
-3. Installed [packages](packages.md)
-4. The plugins bundled with codemode
+3. Configured [MCP servers](mcp.md), each as a plugin of its tools
+4. Installed [packages](packages.md)
+5. The plugins bundled with codemode
 
 The first plugin with a name keeps it, and codemode reports later duplicates on stderr. A plugin that does not call `setName` is named after its module file, which for a folder is `index`, so always set the name.
 
@@ -180,6 +186,8 @@ A bundled plugin's name is protected, because the name selects the connection an
   "replaceableBuiltins": ["github"]
 }
 ```
+
+An MCP server takes a bundled plugin's name only while no connection puts that plugin in use. See [Understand names](mcp.md#understand-names).
 
 A broken plugin does not stop the others from loading. Codemode reports the module's path and the reason on stderr and continues.
 

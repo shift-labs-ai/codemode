@@ -1,12 +1,20 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
-import { addConnection } from "../config/loader.js";
-import { oauthCallback, runOAuth } from "../core/oauth.js";
+import { addConnection, loadConfig } from "../config/loader.js";
+import { OAUTH_CALLBACK_URI, oauthCallback, runOAuth } from "../core/oauth.js";
+import { mcpOAuthConnection } from "../mcp/auth.js";
+import { mcpOwner } from "../mcp/plugin.js";
 import { loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
 import { connectionFields } from "../plugin/schema.js";
-import { printError, printJson, printSuccess } from "../utils/output.js";
+import {
+  printError,
+  printJson,
+  printSuccess,
+  printWarn,
+} from "../utils/output.js";
+import { cliMcpManager } from "./mcp.js";
 import { cliPackageManager } from "./packages.js";
 
 export async function auth(
@@ -19,10 +27,23 @@ export async function auth(
     quiet?: boolean;
   },
 ): Promise<void> {
+  const mcp = cliMcpManager();
   await loadAllPlugins({
     builtinAllowlist: new Set([plugin]),
     packages: cliPackageManager({ quiet: true, onMissing: "skip" }),
+    mcp,
+    mcpLoad: { connect: false },
   });
+  // An MCP server is named by its configuration key or by its name in code.
+  const server = (await mcp.list().catch(() => [])).find(
+    (found) => found.name === plugin || found.plugin === plugin,
+  );
+  if (
+    server &&
+    registry.getPlugin(server.plugin)?.sourceInfo?.owner ===
+      mcpOwner(server.name)
+  )
+    return authMcp(mcp, server, options);
   const def = registry.getPlugin(plugin);
   if (!def) {
     printError(`Plugin "${plugin}" not found. Run \`codemode plugin list\`.`);
@@ -137,6 +158,78 @@ export async function auth(
     const msg = err instanceof Error ? err.message : String(err);
     printError(msg);
     process.exit(1);
+  }
+}
+
+/**
+ * Sign in to an MCP server: discover its endpoints, register a client
+ * unless its entry names one, run the same browser consent every OAuth
+ * plugin uses, and keep the result in the server's connection beside
+ * whatever that connection already holds.
+ */
+async function authMcp(
+  mcp: ReturnType<typeof cliMcpManager>,
+  server: { name: string; plugin: string },
+  options: { name?: string; json?: boolean; quiet?: boolean },
+): Promise<void> {
+  const say = !options.quiet && !options.json;
+  const owner = mcpOwner(server.name);
+  const connectionName = options.name ?? server.plugin;
+  try {
+    const setup = await mcp.oauth(server.name, {
+      redirectUri: OAUTH_CALLBACK_URI,
+    });
+    if (say)
+      console.log(
+        `\nOpening browser to sign in to ${chalk.bold(server.name)}\u2026`,
+      );
+    const tokens = await runOAuth(
+      {
+        protocol: setup.definition,
+        scopes: setup.scopes,
+        redirectUri: setup.redirectUri,
+        publicClient: setup.application.clientSecret === undefined,
+      },
+      {
+        clientId: setup.application.clientId,
+        clientSecret: setup.application.clientSecret,
+        issuer: { value: setup.issuer, required: setup.issuerRequired },
+        onAuthUrl: (url) => {
+          if (say)
+            console.log(
+              chalk.dim(`If it doesn't open automatically, visit:\n  ${url}\n`),
+            );
+        },
+      },
+    );
+    const existing = loadConfig().connections.find(
+      (connection) =>
+        connection.name === connectionName &&
+        connection.plugin === server.plugin &&
+        connection.owner === owner,
+    );
+    await addConnection(
+      connectionName,
+      server.plugin,
+      { ...existing?.config, ...mcpOAuthConnection(setup, tokens) },
+      { owner },
+    );
+    // Connect with the new sign-in, so the tool list is cached for the
+    // runs that follow. The sign-in is saved whether or not this works.
+    await mcp.refresh(server.name).catch((error) => {
+      if (say) printWarn((error as Error).message);
+    });
+    if (options.json)
+      printJson({ ok: true, name: connectionName, plugin: server.plugin });
+    else
+      printSuccess(
+        `Signed in to ${chalk.bold(server.name)}; connection ${chalk.bold(connectionName)} saved`,
+      );
+  } catch (err: unknown) {
+    printError(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  } finally {
+    await mcp.close();
   }
 }
 

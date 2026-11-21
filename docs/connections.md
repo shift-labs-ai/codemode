@@ -53,6 +53,8 @@ Register this redirect URI with the provider unless the plugin's instructions na
 http://127.0.0.1:47823/callback
 ```
 
+An [MCP server](mcp.md#sign-in-with-oauth) reached over HTTP is signed in to the same way, by its name. It needs no client ID: codemode discovers its endpoints and registers a client.
+
 Set `CODEMODE_OAUTH_CALLBACK_PORT` to change the port. Codemode renews the access token when it expires or is rejected and stores the renewal in the connection. When the provider revokes the grant, run `codemode auth` again.
 
 ## List and remove connections
@@ -70,7 +72,7 @@ codemode connection remove gh
 
 Codemode uses one connection per plugin. When several connections name the same plugin, it prefers one made for the plugin's source and otherwise takes the first in the file.
 
-Each connection records the source of the plugin it was made for as its `owner`: `builtin`, `local`, or a package identity. A plugin from a package uses only connections made for that package, so a package cannot take over credentials by declaring another plugin's name. See [Understand names and connections](packages.md#understand-names-and-connections).
+Each connection records the source of the plugin it was made for as its `owner`: `builtin`, `local`, a package identity, or `mcp:<server>`. A plugin from a package or an MCP server uses only connections made for it, so neither can take over credentials by taking another plugin's name. See [Understand names and connections](packages.md#understand-names-and-connections).
 
 ## Understand where secrets are stored
 

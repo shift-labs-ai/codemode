@@ -44,6 +44,8 @@ See [Run Code](usage.md) for the calling conventions and the runtime.
 
 `exec` loads a bundled plugin only when a connection names it. `actions` loads every bundled plugin.
 
+Both load every enabled [MCP server](mcp.md) as a plugin. A server whose tool list is not cached is connected to once.
+
 ## Connections
 
 ```sh
@@ -97,6 +99,35 @@ See [Packages](packages.md) for sources, versions, and the package format.
 
 A source is `npm:<name>[@version]`, `git:<host>/<path>[@ref]`, a git URL, or a local path.
 
+## MCP servers
+
+```sh
+codemode mcp add files -- npx -y @modelcontextprotocol/server-filesystem .
+codemode mcp add sentry --url https://mcp.sentry.dev/mcp
+codemode auth sentry
+```
+
+See [MCP Servers](mcp.md) for entries, secrets, and sign-in.
+
+- `mcp add <name> -- <command> [args]`<br>
+  Adds a server that runs as a local program, connects to it once, and reports its state.
+- `mcp add <name> --url <url>`<br>
+  Adds a server reached over Streamable HTTP.
+- `mcp add --env <KEY=VALUE>`<br>
+  Adds a variable to the command's environment. Repeat it for several.
+- `mcp add --header <KEY=VALUE>`<br>
+  Sends a header with every request to the URL. Repeat it for several.
+- `mcp add -l`, `--local`<br>
+  Records the server in the project's `.codemode/config.json` and trusts the project. The default is `~/.codemode/config.json`.
+- `mcp list`, alias `mcp ls`<br>
+  Connects to every enabled server and prints its state, tool count, and error. Exits with status 1 when an enabled server is not connected.
+- `mcp refresh [name]`<br>
+  Reads tool lists again from every enabled server, or from one.
+- `mcp remove <name>`<br>
+  Removes a server and its cached tool list. Add `-l`, `--local` to remove it from the project.
+- `auth <name>`<br>
+  Signs in to an HTTP server that uses OAuth and saves the result as its connection. The name is the server's, as configured or as written in code.
+
 ## Plugins
 
 ```sh
@@ -106,7 +137,7 @@ codemode plugin list
 See [Plugins](plugins.md) for how plugins load.
 
 - `plugin list`<br>
-  Lists loaded plugins with their versions, action counts, and the folder or package each came from.
+  Lists loaded plugins with their versions, action counts, and the folder, package, or MCP configuration each came from. It starts no MCP server, so a server whose tool list is not cached shows no actions.
 - `plugin install <source>`<br>
   Installs a package into the project without asking. Add `-g`, `--global` to install into `~/.codemode`.
 - `plugin remove <source>`<br>
@@ -122,7 +153,7 @@ codemode trust
 - `init`<br>
   Creates `.codemode/config.json` and `.codemode/plugins/` in the working directory and trusts the new project.
 - `trust [dir]`<br>
-  Allows the plugins and packages of a project's `.codemode` folder to load. The default is the nearest one. Your own `~/.codemode` folder needs no trust and is refused.
+  Allows the plugins, packages, and MCP servers of a project's `.codemode` folder to load. The default is the nearest one. Your own `~/.codemode` folder needs no trust and is refused.
 - `trust --revoke`<br>
   Withdraws that trust.
 
@@ -130,4 +161,4 @@ See [Project trust](security.md#understand-project-trust).
 
 ## Exit status
 
-Commands exit with status 0 on success and 1 on failure. With `--json`, a failed package command prints `{ ok: false, error, code }`.
+Commands exit with status 0 on success and 1 on failure. With `--json`, a failed package or MCP command prints `{ ok: false, error, code }`.

@@ -56,11 +56,29 @@ export interface HelpInput {
 
 export type ActionAccess = "read" | "write";
 
+/**
+ * What an action's source says about its effects, beyond `access`. Claims,
+ * not checks: a host weighs them by how far it trusts the source.
+ */
+export interface ActionHints {
+  /** May delete or overwrite. */
+  destructive?: boolean;
+  /** Repeating the call with the same input changes nothing further. */
+  idempotent?: boolean;
+  /** Reaches systems beyond the one it belongs to. */
+  openWorld?: boolean;
+}
+
 export interface ActionDef {
   name: string;
   access?: ActionAccess;
   description?: string;
   inputSchema?: InputSchema;
+  /** JSON Schema of the structured part of the result, when the source declares one. */
+  outputSchema?: Record<string, unknown>;
+  hints?: ActionHints;
+  /** The name the action has at its source, when `name` is a rewritten form of it. */
+  sourceName?: string;
   execute: (input: unknown, ctx: ActionContext) => unknown | Promise<unknown>;
 }
 
@@ -71,7 +89,8 @@ export interface ConnectionConfig {
   /**
    * The owner (`PluginSourceInfo.owner`) of the plugin this connection was
    * made for. A plugin of the same name from another owner is refused the
-   * connection, and a package's plugin is refused one with no owner.
+   * connection, and a package's plugin or an MCP server is refused one with
+   * no owner.
    */
   owner?: string;
 }
@@ -83,14 +102,17 @@ export interface ConnectionConfig {
 export interface PluginSourceInfo {
   /** The plugin's module. */
   path: string;
-  /** `builtin`, the folder or plugins.json a local plugin was found in, or a package's source as configured. */
+  /**
+   * `builtin`, the folder or plugins.json a local plugin was found in, a
+   * package's source as configured, or the file an MCP server is defined in.
+   */
   source: string;
-  origin: "builtin" | "local" | "package";
+  origin: "builtin" | "local" | "package" | "mcp";
   scope?: "user" | "project" | "temporary";
   /**
-   * Who a connection made for this plugin belongs to: `builtin`, `local`, or
+   * Who a connection made for this plugin belongs to: `builtin`, `local`,
    * the package's identity (`npm:<name>`, `git:<host>/<path>`, `local:<path>`),
-   * which stays the same across versions and refs.
+   * which stays the same across versions and refs, or `mcp:<server>`.
    */
   owner: string;
 }
@@ -111,6 +133,13 @@ export interface ActionContext {
    * itself: its connection config then carries public settings only.
    */
   credentials?: CredentialBroker;
+  /**
+   * Aborted when the run that made this call ends: it returned, timed out
+   * or was stopped. An action that waits on something remote passes it on,
+   * so the work stops with the run. Present on every call the engine
+   * dispatches.
+   */
+  signal?: AbortSignal;
   log: {
     info(msg: string): void;
     warn(msg: string): void;
@@ -190,6 +219,8 @@ interface OAuthSetupOptions {
 export interface PluginDef {
   name: string;
   version: string;
+  /** What the plugin's actions are for, as a group. `actions.plugin(name)` returns it. */
+  description?: string;
   actions: ActionDef[];
   connectionConfigSchema?: ConnectionSchema;
   /** OAuth2 config for `codemode auth <plugin>`. */

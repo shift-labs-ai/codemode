@@ -8,6 +8,7 @@ import {
   userConfigDir,
 } from "../config/loader.js";
 import { isProjectTrusted } from "../config/trust.js";
+import type { McpLoadOptions, McpManager } from "../mcp/manager.js";
 import type { PackageManager } from "../packages/manager.js";
 import {
   HOST_MODULE_SPECIFIERS,
@@ -20,7 +21,7 @@ import { legacyName } from "../utils/deprecation.js";
 import type { PluginFunction } from "./api.js";
 import { resolvePluginExport } from "./api.js";
 import { registry } from "./registry.js";
-import type { PluginDef, PluginSourceInfo } from "./types.js";
+import type { ConnectionConfig, PluginDef, PluginSourceInfo } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -353,6 +354,23 @@ export interface DiscoverOptions {
   /** Package sources loaded for this discovery only, never recorded. */
   temporaryPackages?: string[];
 
+  /**
+   * Configured MCP servers to load as plugins, after the plugin folders and
+   * before packages. Their problems are reported on stderr.
+   */
+  mcp?: McpManager;
+
+  /** How the servers are loaded: whether to connect to one with no cached tool list. */
+  mcpLoad?: Pick<McpLoadOptions, "connect" | "context">;
+
+  /**
+   * The bundled plugins in use (`enabledBuiltins(connections)`). An MCP
+   * server named like one of them is not loaded; one named like any other
+   * bundled plugin takes the name, and that bundled plugin is left out.
+   * Default: `builtinAllowlist`, else none.
+   */
+  enabledBuiltins?: Iterable<string>;
+
   /** The user's codemode folder. Default: `~/.codemode`. */
   userDir?: string;
 }
@@ -363,11 +381,32 @@ export function defaultBuiltinDir(): string {
 }
 
 /**
+ * The bundled plugins a set of connections puts in use: the plugin each
+ * names, unless the connection was made for something else (a package's
+ * plugin, an MCP server). A connection with no owner counts as one made for
+ * a bundled plugin.
+ */
+export function enabledBuiltins(
+  connections: readonly Pick<ConnectionConfig, "plugin" | "owner">[],
+): Set<string> {
+  return new Set(
+    connections
+      .filter(
+        (connection) =>
+          connection.owner === undefined || connection.owner === "builtin",
+      )
+      .map((connection) => connection.plugin),
+  );
+}
+
+/**
  * Discover and return all plugins from a config directory and global dir,
  * each with its `sourceInfo`. A trusted project's plugins come first, then
- * the user's, then packages, then the bundled plugins; the first plugin
- * with a name keeps it, except that a local plugin never takes a bundled
- * plugin's name unless that plugin is listed as replaceable.
+ * the user's, then MCP servers, then packages, then the bundled plugins;
+ * the first plugin with a name keeps it, with two exceptions. A local
+ * plugin never takes a bundled plugin's name unless that plugin is listed
+ * as replaceable. An MCP server takes a bundled plugin's name only while
+ * that plugin is not in use.
  * Does NOT mutate any global state.
  */
 export async function discoverPlugins(
@@ -457,6 +496,27 @@ export async function discoverPlugins(
     "user",
   );
 
+  if (options.mcp) {
+    const inUse = new Set(
+      options.enabledBuiltins ?? options.builtinAllowlist ?? [],
+    );
+    const { plugins: servers, problems } = await options.mcp.load({
+      ...options.mcpLoad,
+      reservedNames: [
+        ...loaded,
+        ...[...builtinNames].filter((name) => inUse.has(name)),
+      ],
+    });
+    for (const problem of problems)
+      console.error(
+        `[codemode] ${problem.level === "warning" ? "Warning: " : ""}${problem.message}`,
+      );
+    for (const server of servers) {
+      if (builtinNames.has(server.name)) replaced.add(server.name);
+      addIfNew(server, server.sourceInfo?.source ?? "an MCP server");
+    }
+  }
+
   if (options.packages) {
     const { plugins: fromPackages, problems } = await options.packages.load({
       temporary: options.temporaryPackages,
@@ -498,10 +558,12 @@ export async function loadAllPlugins(
   options: DiscoverOptions = {},
 ): Promise<void> {
   const configDir = findConfigDir();
+  const config = configDir
+    ? loadConfigFrom(join(configDir, "config.json"))
+    : undefined;
   const plugins = await discoverPlugins(configDir, {
-    replaceableBuiltins: configDir
-      ? loadConfigFrom(join(configDir, "config.json")).replaceableBuiltins
-      : undefined,
+    replaceableBuiltins: config?.replaceableBuiltins,
+    enabledBuiltins: enabledBuiltins(config?.connections ?? []),
     ...options,
   });
   for (const p of plugins) {

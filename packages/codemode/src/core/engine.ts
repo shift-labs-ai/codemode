@@ -23,6 +23,7 @@ import {
 } from "../plugin/schema.js";
 import type {
   ActionContext,
+  ActionHints,
   HelpInput,
   PluginDef,
   TypedInputSchema,
@@ -147,9 +148,10 @@ interface PooledWorker {
 function workerShape(
   pluginNames: string[],
   helpData: Record<string, HelpEntry[]>,
+  descriptions: Record<string, string>,
   memoryLimitMb: number,
 ): string {
-  const surface = JSON.stringify([pluginNames, helpData]);
+  const surface = JSON.stringify([pluginNames, helpData, descriptions]);
   // FNV-1a: no dependency, stable across processes, ample for a cache key.
   let hash = 0x811c9dc5;
   for (let i = 0; i < surface.length; i++) {
@@ -316,13 +318,19 @@ export class ExecutionEngine {
     const plugins = this.registry.listPlugins();
     const pluginNames = plugins.map((p) => p.name);
     const helpData = buildHelpData(plugins);
+    const descriptions = pluginDescriptions(plugins);
     const memoryLimitMb = Math.max(
       8,
       Math.floor(memoryLimitBytes / (1024 * 1024)),
     );
     // resourceLimits are fixed at construction, so a run asking for a
     // different ceiling must not inherit an existing worker's.
-    const shape = workerShape(pluginNames, helpData, memoryLimitMb);
+    const shape = workerShape(
+      pluginNames,
+      helpData,
+      descriptions,
+      memoryLimitMb,
+    );
     const body = buildRunBody(code);
 
     let acquired: { entry: PooledWorker; pooled: boolean };
@@ -330,7 +338,7 @@ export class ExecutionEngine {
       acquired = this.acquire(
         shape,
         () =>
-          new Worker(buildWorkerSource(pluginNames, helpData), {
+          new Worker(buildWorkerSource(pluginNames, helpData, descriptions), {
             eval: true,
             // Empty by construction: without an `env` option the worker
             // inherits a copy of the host's entire environment, and
@@ -356,10 +364,15 @@ export class ExecutionEngine {
       entry.busy = true;
       entry.runs++;
 
+      // Tells every action this run called that the run is over, so remote
+      // work it still waits on is cancelled instead of left running.
+      const ended = new AbortController();
+
       let settled = false;
       const finish = (r: ExecuteResult, retire: boolean) => {
         if (settled) return;
         settled = true;
+        ended.abort();
         clearTimeout(timeoutTimer);
         clearInterval(rssTimer);
         worker.unref?.();
@@ -429,7 +442,12 @@ export class ExecutionEngine {
         if (msg.t === "log") {
           logs.push(`[${msg.level}] ${msg.line}`);
         } else if (msg.t === "invoke") {
-          this.invokeAction(msg.path, msg.args, options?.context).then(
+          this.invokeAction(
+            msg.path,
+            msg.args,
+            ended.signal,
+            options?.context,
+          ).then(
             (value) => {
               let serialized: unknown;
               try {
@@ -512,6 +530,7 @@ export class ExecutionEngine {
   private async invokeAction(
     path: string,
     rawArgs: unknown,
+    signal: AbortSignal,
     context?: unknown,
   ): Promise<unknown> {
     // A call written with no arguments reaches the action as `{}`, not
@@ -548,6 +567,7 @@ export class ExecutionEngine {
     const ctx: ActionContext = {
       connection,
       context,
+      signal,
       ...(this.hooks.credentialBroker && plugin.credential
         ? {
             credentials: this.hooks.credentialBroker({
@@ -693,6 +713,9 @@ interface HelpEntry {
   access?: "read" | "write";
   description?: string;
   inputs: Record<string, HelpInput>;
+  outputSchema?: Record<string, unknown>;
+  hints?: ActionHints;
+  sourceName?: string;
   /**
    * The action's raw typed schema, when it has one. This is what
    * `actions.check` validates against inside the worker — the same
@@ -713,10 +736,22 @@ function buildHelpData(plugins: PluginDef[]): Record<string, HelpEntry[]> {
       access: a.access,
       description: a.description,
       inputs: helpInputs(a.inputSchema),
+      ...(a.outputSchema ? { outputSchema: a.outputSchema } : {}),
+      ...(a.hints ? { hints: a.hints } : {}),
+      ...(a.sourceName !== undefined ? { sourceName: a.sourceName } : {}),
       ...(isTypedInputSchema(a.inputSchema) ? { schema: a.inputSchema } : {}),
     }));
   }
   return data;
+}
+
+/** Each described plugin's description, for `actions.plugin()`. */
+function pluginDescriptions(plugins: PluginDef[]): Record<string, string> {
+  return Object.fromEntries(
+    plugins.flatMap((p) =>
+      p.description === undefined ? [] : [[p.name, p.description]],
+    ),
+  );
 }
 
 /**
@@ -740,6 +775,7 @@ export function buildRunBody(code: string): string {
 function buildWorkerSource(
   pluginNames: string[] = [],
   helpData: Record<string, HelpEntry[]> = {},
+  descriptions: Record<string, string> = {},
 ): string {
   // Injected into every body's scope. `require` is here because bodies are
   // compiled with `new Function`, whose scope is the worker's global object.
@@ -851,6 +887,7 @@ return ${normalizeActionInput.toString()};
 })();
 
 const __help = ${JSON.stringify(helpData)};
+const __descriptions = ${JSON.stringify(descriptions)};
 
 const __makeProxy = (path = []) => new Proxy(() => undefined, {
   get(_t, prop) {
@@ -990,6 +1027,16 @@ const __actionsApi = {
     const paths = Object.keys(__index);
     return plugin ? paths.filter((p) => p.startsWith(plugin + '.')) : paths;
   },
+  plugin(name) {
+    if (!Object.prototype.hasOwnProperty.call(__help, name)) {
+      throw new Error('Unknown plugin: ' + name + '. Loaded plugins: ' + (Object.keys(__help).join(', ') || 'none') + '.');
+    }
+    return {
+      name,
+      description: __descriptions[name],
+      actions: __help[name].map((e) => name + '.' + e.action),
+    };
+  },
   describe(path) {
     const hit = __index[path];
     if (!hit) {
@@ -1005,6 +1052,9 @@ const __actionsApi = {
       description: hit.entry.description,
       signature: __formatSignature(hit.plugin, hit.entry),
       inputs: hit.entry.inputs,
+      outputSchema: hit.entry.outputSchema,
+      hints: hit.entry.hints,
+      sourceName: hit.entry.sourceName,
     };
   },
   find(query, limit = 5) {

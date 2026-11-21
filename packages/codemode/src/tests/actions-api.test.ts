@@ -470,3 +470,73 @@ describe("actions proxy fallback", () => {
     assert.deepEqual(result, { count: 5, r: [] });
   });
 });
+
+describe("actions.plugin", () => {
+  function describedEngine() {
+    const { api, resolve } = createPluginAPI("tracker");
+    api.setDescription("Issues and their comments. Search before creating.");
+    api.registerAction("issue.delete", {
+      access: "write",
+      hints: { destructive: true, idempotent: true },
+      outputSchema: {
+        type: "object",
+        properties: { deleted: { type: "boolean" } },
+      },
+      execute: async () => ({ deleted: true }),
+    });
+    const registry = new PluginRegistry();
+    registry.register(resolve());
+    registry.register(makeGithub());
+    return new ExecutionEngine(registry, {
+      ...DEFAULT_CONFIG,
+      timeoutMs: 5000,
+    });
+  }
+
+  async function runDescribed<T>(code: string) {
+    const engine = describedEngine();
+    try {
+      return (await engine.execute(code)) as { result: T; error?: string };
+    } finally {
+      engine.dispose();
+    }
+  }
+
+  it("returns a plugin's description and its action paths", async () => {
+    const { result } = await runDescribed('return actions.plugin("tracker")');
+    assert.deepEqual(result, {
+      name: "tracker",
+      description: "Issues and their comments. Search before creating.",
+      actions: ["tracker.issue.delete"],
+    });
+  });
+
+  it("has no description for a plugin that declares none", async () => {
+    const { result } = await runDescribed<{
+      description?: string;
+      actions: string[];
+    }>('return actions.plugin("github")');
+    assert.equal(result.description, undefined);
+    assert.ok(result.actions.includes("github.issue.create"));
+  });
+
+  it("names the loaded plugins when asked for one that is not", async () => {
+    const { error } = await runDescribed('return actions.plugin("nope")');
+    assert.match(
+      error ?? "",
+      /Unknown plugin: nope\. Loaded plugins: tracker, github\./,
+    );
+  });
+
+  it("describe returns an action's hints and output schema", async () => {
+    const { result } = await runDescribed<Record<string, unknown>>(
+      'return actions.describe("tracker.issue.delete")',
+    );
+    assert.deepEqual(result.hints, { destructive: true, idempotent: true });
+    assert.deepEqual(result.outputSchema, {
+      type: "object",
+      properties: { deleted: { type: "boolean" } },
+    });
+    assert.equal("sourceName" in result, false);
+  });
+});

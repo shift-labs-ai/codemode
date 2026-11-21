@@ -3,6 +3,7 @@ import type {
   ActionAccess,
   ActionContext,
   ActionDef,
+  ActionHints,
   ConnectionSchema,
   InputOf,
   InputSchema,
@@ -15,6 +16,8 @@ export interface ActionDefinition<S extends InputSchema = InputSchema> {
   access?: ActionAccess;
   description?: string;
   inputSchema?: S;
+  outputSchema?: Record<string, unknown>;
+  hints?: ActionHints;
   execute: (
     input: InputOf<S>,
     ctx: ActionContext,
@@ -29,6 +32,8 @@ export interface CodemodePluginAPI {
   setConnectionSchema(schema: ConnectionSchema): void;
   setName(name: string): void;
   setVersion(version: string): void;
+  /** What the plugin's actions are for, as a group. */
+  setDescription(description: string): void;
   /**
    * Declare OAuth2 configuration so `codemode auth <plugin>` can
    * run the browser login flow and seed this plugin's connection
@@ -98,6 +103,7 @@ export function createPluginAPI(pluginId: string | null): {
 } {
   let name = pluginId;
   let version = "0.0.0";
+  let description: string | undefined;
   const actions: ActionDef[] = [];
   let connectionConfigSchema: PluginDef["connectionConfigSchema"];
   let oauth: OAuthConfig | undefined;
@@ -111,6 +117,9 @@ export function createPluginAPI(pluginId: string | null): {
     },
     setVersion(v: string) {
       version = v;
+    },
+    setDescription(text: string) {
+      description = text;
     },
     registerAction<S extends InputSchema>(
       actionName: string,
@@ -155,6 +164,7 @@ export function createPluginAPI(pluginId: string | null): {
       actions,
       connectionConfigSchema,
     };
+    if (description !== undefined) plugin.description = description;
     if (oauth) {
       plugin.oauth = oauth;
     }

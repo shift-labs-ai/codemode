@@ -10,7 +10,7 @@ A plugin registers actions under a name that is a JavaScript identifier, such as
 
 An action declares its input with a TypeBox schema. Codemode validates input against it before the action runs, and uses the same schema for discovery and for `actions.check()`. Actions declared with the older field-map schema are described and checked the same way, but their input is not validated before they run.
 
-Codemode finds plugins in four places: a trusted project's `.codemode` folder, the user's `~/.codemode` folder, installed packages, and the plugins bundled with codemode. The first plugin to claim a name keeps it. See [Plugins](plugins.md#understand-how-plugins-load).
+Codemode finds plugins in five places: a trusted project's `.codemode` folder, the user's `~/.codemode` folder, configured MCP servers, installed packages, and the plugins bundled with codemode. The first plugin to claim a name keeps it. See [Plugins](plugins.md#understand-how-plugins-load).
 
 ## Execution
 
@@ -46,8 +46,12 @@ All interfaces use the same engine, plugins, and connection contract.
 
 A package distributes plugins through npm or git. Codemode installs packages into folders it manages, never runs their install scripts, and records them in `config.json`. A connection belongs to the plugin source it was made for, so a package cannot inherit another plugin's credentials by reusing its name. See [Packages](packages.md).
 
+## MCP servers
+
+A configured MCP server is a plugin whose actions are the server's tools. Codemode keeps each server's tool list on disk and connects when code first calls one of its tools. A server's secrets and sign-in live in its connection, like any plugin's. See [MCP Servers](mcp.md).
+
 ## Trust and permissions
 
-Codemode loads a project's plugin files and packages only after the project is trusted. Plugins and packages in the user's own folder load without a trust decision.
+Codemode loads a project's plugin files and packages, and starts its MCP servers, only after the project is trusted. Plugins, packages, and servers in the user's own folder load without a trust decision.
 
 Plugins execute inside the codemode process with its operating-system permissions. Trust decides whether code loads. It does not restrict that code afterward.

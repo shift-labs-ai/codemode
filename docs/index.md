@@ -13,6 +13,7 @@ If codemode is already installed, choose what you want to do:
 - [Run code](usage.md) to call actions, discover them from inside a run, and read results and logs.
 - [Add a connection](connections.md) to give a plugin its credentials, including OAuth logins.
 - [Browse the bundled plugins](bundled-plugins.md) that ship with codemode.
+- [Add an MCP server](mcp.md) to call its tools as actions.
 - [Understand how codemode works](how-codemode-works.md), including plugins, connections, and the runtime.
 
 ## Extend codemode
@@ -25,6 +26,7 @@ If codemode is already installed, choose what you want to do:
 
 - Use the [SDK](sdk.md) to run code, supply connections, and load plugins inside a Node.js or Bun process.
 - Use [`PackageManager`](packages.md#embed-the-package-manager) to install and load packages from a host.
+- Use [`McpManager`](mcp.md#embed-the-mcp-manager) to load MCP servers from a host.
 - Use [`pi-runline`](https://github.com/Michaelliv/pi-runline) to add it to Pi as a single tool.
 
 ## Find reference information
@@ -33,4 +35,4 @@ Use the reference pages to look up [commands and options](cli.md), [files, setti
 
 ## Work safely
 
-Plugins run inside the codemode process with its permissions, and the code runtime is not a sandbox. Project trust controls which project plugins load, but it does not limit what they do afterward. Review [Security](security.md) before running untrusted code, installing third-party packages, or trusting a project.
+Plugins run inside the codemode process with its permissions, and the code runtime is not a sandbox. Project trust controls which project plugins load, but it does not limit what they do afterward. Review [Security](security.md) before running untrusted code, installing third-party packages, adding an MCP server, or trusting a project.

@@ -4,7 +4,7 @@ Codemode turns APIs and host capabilities into actions, and an agent calls them 
 
 Each configured plugin is a global in that code. One run can search for an action, check its input, call several services, and return a single value, so an agent needs one tool instead of one per endpoint.
 
-Codemode ships with [plugins for more than 200 services](docs/bundled-plugins.md). Add your own with a [plugin file](docs/plugins.md), or install and share them as [packages](docs/packages.md) through npm or git.
+Codemode ships with [plugins for more than 200 services](docs/bundled-plugins.md). Add your own with a [plugin file](docs/plugins.md), install and share them as [packages](docs/packages.md) through npm or git, or add an [MCP server](docs/mcp.md) and call its tools as actions.
 
 Use codemode from the [command line](docs/cli.md), embed it with the [TypeScript SDK](docs/sdk.md), or add it to Pi with [`pi-runline`](https://github.com/Michaelliv/pi-runline).
 
@@ -49,7 +49,7 @@ See the [documentation](docs/index.md) for the [quickstart](docs/quickstart.md),
 
 Codemode is not a sandbox. Plugins run inside the codemode process with its permissions, and the worker thread that runs code can load Node.js modules. Actions that write, send, or delete run without asking.
 
-Codemode loads a project's plugins and packages only after you trust the project. Review third-party packages before installing them, and isolate the process when the code is untrusted. See [Security](docs/security.md).
+Codemode loads a project's plugins and packages, and starts its MCP servers, only after you trust the project. Review third-party packages and MCP servers before adding them, and isolate the process when the code is untrusted. See [Security](docs/security.md).
 
 ## Related projects
 

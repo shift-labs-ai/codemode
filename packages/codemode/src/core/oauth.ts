@@ -120,6 +120,13 @@ export interface RunOAuthOptions {
   openBrowser?: (url: string) => void | Promise<void>;
   /** Maximum wait for browser consent. Defaults to five minutes. */
   callbackTimeoutMs?: number;
+  /**
+   * The authorization server's issuer, compared with the `iss` the callback
+   * carries (RFC 9207): a different one is a response meant for another
+   * server and is refused. `required` refuses a callback with no `iss`, for
+   * a server that says it always sends one.
+   */
+  issuer?: { value: string; required?: boolean };
 }
 
 export interface BuildAuthUrlOptions {
@@ -253,6 +260,7 @@ export async function runOAuth(
     onAuthUrl,
     openBrowser = defaultOpenBrowser,
     callbackTimeoutMs = 300_000,
+    issuer,
   } = options;
   const callback = oauthCallback(flowConfig);
   const redirectUri = callback.uri;
@@ -276,6 +284,7 @@ export async function runOAuth(
       if (!signal.aborted) await openBrowser(authUrl);
     },
     callbackTimeoutMs,
+    issuer,
   );
   return exchangeAuthCode(flowConfig, {
     clientId,
@@ -329,6 +338,7 @@ function captureCode(
   expectedState: string,
   onReady: (signal: AbortSignal) => Promise<void>,
   timeoutMs: number,
+  issuer?: RunOAuthOptions["issuer"],
 ): Promise<{ code: string }> {
   if (
     !Number.isInteger(timeoutMs) ||
@@ -370,6 +380,18 @@ function captureCode(
       ) {
         res.writeHead(400).end("State mismatch");
         return;
+      }
+      if (issuer) {
+        const sent = url.searchParams.getAll("iss");
+        if (
+          sent.length > 1 ||
+          (sent.length === 1 && sent[0] !== issuer.value) ||
+          (sent.length === 0 && issuer.required)
+        ) {
+          res.writeHead(400).end("Issuer mismatch. You can close this tab.");
+          finish(new Error("OAuth: the response came from another issuer"));
+          return;
+        }
       }
       if (url.searchParams.has("error")) {
         res.writeHead(400).end("Authorization denied. You can close this tab.");

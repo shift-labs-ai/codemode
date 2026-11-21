@@ -11,6 +11,7 @@ import {
 } from "./commands/connection.js";
 import { exec } from "./commands/exec.js";
 import { init } from "./commands/init.js";
+import { mcpAdd, mcpList, mcpRefresh, mcpRemove } from "./commands/mcp.js";
 import {
   packageInstall,
   packageList,
@@ -51,6 +52,7 @@ Examples:
   $ codemode actions
   $ codemode connection add gh --plugin github --set token=ghp_xxx
   $ codemode auth gmail
+  $ codemode mcp add sentry --url https://mcp.sentry.dev/mcp
 
 https://github.com/shift-labs-ai/codemode`,
   );
@@ -232,6 +234,82 @@ program
     await packageTrust(dir, { revoke: opts.revoke, json: globals.json });
   });
 
+// ── mcp ─────────────────────────────────────────────────
+
+const mcpCmd = program
+  .command("mcp")
+  .description("Manage MCP servers, whose tools load as a plugin's actions");
+
+mcpCmd
+  .command("add <name> [command...]")
+  .description("Add an MCP server: a command after --, or --url")
+  .option("--url <url>", "A server reached over Streamable HTTP")
+  .option(
+    "--env <KEY=VALUE>",
+    "Add to the command's environment (repeatable)",
+    collect,
+    [],
+  )
+  .option(
+    "--header <KEY=VALUE>",
+    "Send with every request to the URL (repeatable)",
+    collect,
+    [],
+  )
+  .option(
+    "-l, --local",
+    "Record it in the project's .codemode instead of ~/.codemode",
+  )
+  .addHelpText(
+    "after",
+    `
+The server's name is how code calls it, with - written as _. A value may
+name a placeholder, \${NAME}, filled from the server's connection, then
+from the environment, so no secret is written into the entry.
+
+Examples:
+  $ codemode mcp add files -- npx -y @modelcontextprotocol/server-filesystem .
+  $ codemode mcp add sentry --url https://mcp.sentry.dev/mcp
+  $ codemode mcp add docs --url https://example.com/mcp --header 'Authorization=Bearer \${token}'
+  $ codemode connection add docs --plugin docs --set token=...`,
+  )
+  .action(async (name, command, opts, cmd) => {
+    const globals = cmd.optsWithGlobals();
+    await mcpAdd(name, command, {
+      url: opts.url,
+      env: opts.env,
+      header: opts.header,
+      local: opts.local,
+      json: globals.json,
+    });
+  });
+
+mcpCmd
+  .command("remove <name>")
+  .description("Remove an MCP server and its cached tool list")
+  .option("-l, --local", "Remove it from the project's .codemode")
+  .action(async (name, opts, cmd) => {
+    const globals = cmd.optsWithGlobals();
+    await mcpRemove(name, { local: opts.local, json: globals.json });
+  });
+
+mcpCmd
+  .command("list")
+  .alias("ls")
+  .description("Connect to every enabled MCP server and show its state")
+  .action(async (_opts, cmd) => {
+    const globals = cmd.optsWithGlobals();
+    await mcpList({ json: globals.json });
+  });
+
+mcpCmd
+  .command("refresh [name]")
+  .description("Read tool lists again from the servers")
+  .action(async (name, _opts, cmd) => {
+    const globals = cmd.optsWithGlobals();
+    await mcpRefresh(name, { json: globals.json });
+  });
+
 // ── plugin ──────────────────────────────────────────────
 
 const pluginCmd = program.command("plugin").description("Manage plugins");
@@ -265,7 +343,9 @@ pluginCmd
 
 program
   .command("auth <plugin>")
-  .description("Run the OAuth login flow for a plugin and save the connection")
+  .description(
+    "Run the OAuth login flow for a plugin or an MCP server and save the connection",
+  )
   .option("-n, --name <name>", "Connection name (default: plugin name)")
   .option("--client-id <id>", "OAuth client ID (falls back to env or prompt)")
   .option(
@@ -280,8 +360,12 @@ opens your browser to the provider's consent screen, catches the
 redirect on a localhost port, exchanges the code for tokens, and
 writes a connection into .codemode/config.json.
 
+An MCP server reached over HTTP needs no client ID: its endpoints are
+discovered and a client is registered with its authorization server.
+
 Examples:
   $ codemode auth gmail
+  $ codemode auth sentry
   $ codemode auth gmail --name gmail-work
   $ codemode auth gmail --client-id $CLIENT --client-secret $SECRET`,
   )

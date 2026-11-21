@@ -15,10 +15,11 @@ import {
   type ExecuteResult,
   ExecutionEngine,
 } from "./core/engine.js";
+import { McpManager } from "./mcp/manager.js";
 import { PackageManager } from "./packages/manager.js";
 import type { PluginFunction } from "./plugin/api.js";
 import { resolvePluginExport } from "./plugin/api.js";
-import { discoverPlugins } from "./plugin/loader.js";
+import { discoverPlugins, enabledBuiltins } from "./plugin/loader.js";
 import { PluginRegistry } from "./plugin/registry.js";
 import type {
   ActionAccess,
@@ -78,6 +79,8 @@ export class Codemode {
 
   private readonly _onAction: EngineHooks["onAction"];
   private readonly _credentialBroker: EngineHooks["credentialBroker"];
+  /** The MCP manager `fromProject` created, which this instance closes. */
+  private _mcp?: McpManager;
 
   private constructor(options: CodemodeOptions) {
     this._registry = new PluginRegistry();
@@ -123,13 +126,17 @@ export class Codemode {
   }
 
   /**
-   * Retire the pooled worker. Idempotent. Callers holding a long-lived
-   * Codemode should call this on shutdown; an idle pooled worker is unref'd
-   * so it will not by itself keep a process alive.
+   * Retire the pooled worker, and end the sessions of the MCP manager
+   * `fromProject` created: an open session to a stdio server holds the
+   * process open until it is closed or has been idle for five minutes.
+   * Idempotent, and the instance stays usable. Callers holding a
+   * long-lived Codemode call this on shutdown; an idle pooled worker is
+   * unref'd so it will not by itself keep a process alive.
    */
   dispose(): void {
     this._engine?.dispose();
     this._engine = null;
+    void this._mcp?.close();
   }
 
   static create(options: CodemodeOptions = {}): Codemode {
@@ -158,9 +165,10 @@ export class Codemode {
       }
       this._memoryConnections.add(connections);
     }
+    // The engine reads the registry at every run: the next one gets a
+    // worker built for the plugins registered by then, and a run in
+    // progress keeps the worker it has.
     this._registry.register(plugin);
-    // Rebuild the worker's action surface; connection custody survives disposal.
-    this.dispose();
   }
 
   /** List all available actions across all plugins. */
@@ -184,6 +192,7 @@ export class Codemode {
   plugins(): Array<{
     name: string;
     version: string;
+    description?: string;
     actions: string[];
     connectionConfigSchema?: PluginDef["connectionConfigSchema"];
     /** Where discovery found it; absent on a plugin the host supplied. */
@@ -192,6 +201,7 @@ export class Codemode {
     return this._registry.listPlugins().map((p) => ({
       name: p.name,
       version: p.version,
+      ...(p.description === undefined ? {} : { description: p.description }),
       actions: p.actions.map((a) => a.name),
       connectionConfigSchema: p.connectionConfigSchema,
       ...(p.sourceInfo ? { sourceInfo: p.sourceInfo } : {}),
@@ -215,10 +225,13 @@ export class Codemode {
    *     `config.replaceableBuiltins` lists it) and every plugin listed in
    *     `.codemode/plugins.json`,
    *   - every plugin in `~/.codemode/plugins/`,
+   *   - every enabled MCP server (`~/.codemode` and, when trusted, this
+   *     project), each as a plugin of its tools, connecting only to one
+   *     whose tool list is not cached,
    *   - every configured package (`~/.codemode` and, when trusted, this
    *     project), never installing a missing one,
-   *   - and, of the bundled plugins, only the ones named in
-   *     `config.connections[].plugin`.
+   *   - and, of the bundled plugins, only the ones a connection puts in
+   *     use (`enabledBuiltins(config.connections)`).
    *
    * Gating the builtins keeps `codemode.actions()` scoped to what the
    * project actually configured. Without this, a project with a
@@ -243,7 +256,15 @@ export class Codemode {
        */
       packages?: PackageManager | false;
       /**
-       * Whether this project's plugin files and packages may load.
+       * Configured MCP servers to load. Default: a manager over
+       * `~/.codemode` and this project, with this project's connections,
+       * that `dispose()` closes and that re-registers a server whose tools
+       * change. A manager passed here is the caller's to close. `false`
+       * loads none.
+       */
+      mcp?: McpManager | false;
+      /**
+       * Whether this project's plugin files, packages and MCP servers may load.
        * Default: whether `<userDir>/trust.json` lists it (`codemode trust`).
        */
       trust?: (projectRoot: string) => boolean | Promise<boolean>;
@@ -255,7 +276,10 @@ export class Codemode {
     if (!configDir) return null;
 
     const config = loadConfigFrom(join(configDir, "config.json"));
-    const builtinAllowlist = new Set(config.connections.map((c) => c.plugin));
+    const builtinAllowlist = enabledBuiltins(config.connections);
+    const connectionProvider = new FileConnectionProvider(
+      join(configDir, "config.json"),
+    );
     const userDir = options.userDir ?? userConfigDir();
     const trust =
       options.trust ?? ((root: string) => isProjectTrusted(root, userDir));
@@ -268,19 +292,27 @@ export class Codemode {
             trust,
             onMissing: "skip",
           }));
+    const ownMcp =
+      options.mcp === undefined
+        ? McpManager.forCodemodeFolders({
+            roots: { user: userDir, project: configDir },
+            trust,
+            connections: connectionProvider,
+          })
+        : undefined;
+    const mcp = options.mcp === false ? undefined : (options.mcp ?? ownMcp);
     const plugins = await discoverPlugins(configDir, {
       builtinAllowlist,
       builtinDir: options.builtinDir,
       replaceableBuiltins: config.replaceableBuiltins,
       trust,
       packages,
+      mcp,
       userDir,
     });
 
     const rl = new Codemode({
-      connectionProvider: new FileConnectionProvider(
-        join(configDir, "config.json"),
-      ),
+      connectionProvider,
       timeoutMs: config.timeoutMs,
       memoryLimitBytes: config.memoryLimitBytes,
       maxRunsPerWorker: config.maxRunsPerWorker,
@@ -288,6 +320,21 @@ export class Codemode {
 
     for (const plugin of plugins) {
       rl._registry.register(plugin);
+    }
+    if (ownMcp) {
+      rl._mcp = ownMcp;
+      // A server whose tools changed is registered again from its new
+      // snapshot, when it is still the plugin holding its name. The change
+      // can arrive in the middle of a run, so the worker is left alone: the
+      // next run sees the new actions and gets a worker built for them.
+      ownMcp.onToolsChanged(async () => {
+        const { plugins: servers } = await ownMcp.load({ connect: false });
+        for (const server of servers) {
+          const current = rl._registry.getPlugin(server.name);
+          if (current?.sourceInfo?.owner !== server.sourceInfo?.owner) continue;
+          rl._registry.register(server);
+        }
+      });
     }
 
     return rl;

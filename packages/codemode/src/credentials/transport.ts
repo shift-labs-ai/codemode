@@ -1040,6 +1040,31 @@ export class CredentialTransport {
     return outgoing.url.toString();
   }
 
+  /**
+   * The bearer token of an `oauth2` method's grant, renewed first when it is
+   * stale. For trusted host code whose protocol client sends its own
+   * requests, such as a streaming one that `request` cannot carry; a plugin
+   * is never handed a token. `rejected` is a token this method returned that
+   * the provider refused: a grant still holding it is renewed, and one
+   * another caller renewed meanwhile is kept.
+   */
+  async accessToken(
+    selection: CredentialBinding,
+    options: { rejected?: string } = {},
+  ): Promise<string> {
+    const binding = pinBinding(selection);
+    const method = this.registry.select(binding.type, binding.method);
+    if (method.authentication.kind !== "oauth2")
+      throw new AuthError("unsupported_operation");
+    let grant = grantFrom(method, await this.read(binding, method));
+    const refused =
+      options.rejected !== undefined &&
+      grant?.tokens.accessToken === options.rejected;
+    if (refused || !fresh(grant))
+      grant = await this.renew(binding, method, grant?.revision, refused);
+    return secret(grant?.tokens.accessToken);
+  }
+
   /** Only a declared read-only probe runs. Results never contain provider text or secrets. */
   async probe(binding: CredentialBinding): Promise<CredentialProbeResult> {
     const probe = this.registry.select(binding.type, binding.method).probe;

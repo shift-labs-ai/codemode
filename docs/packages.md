@@ -33,7 +33,7 @@ Use `--package` or `-e` to load a package for one invocation without recording i
 codemode exec -e npm:@example/codemode-orders 'return await orders.list({})'
 ```
 
-`codemode plugin install <source>` is `codemode install --local --yes`; add `--global` for a personal install. See [Command Line](cli.md#package-commands) for every package command and option.
+`codemode plugin install <source>` is `codemode install --local --yes`; add `--global` for a personal install. See [Command Line](cli.md#packages) for every package command and option.
 
 ## Choose a source
 

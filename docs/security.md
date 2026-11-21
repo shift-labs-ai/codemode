@@ -33,6 +33,7 @@ Codemode requires trust before it loads these resources from a project:
 - plugin files and folders under `.codemode/plugins/`
 - plugins listed in `.codemode/plugins.json`
 - packages recorded in the project's `.codemode/config.json`, including installing them
+- MCP servers in the project's `.codemode/config.json` and `.codemode/mcp.json`, including starting them
 
 Without trust, codemode imports none of them. It reports that the project's plugins were skipped and continues with everything else.
 
@@ -97,6 +98,16 @@ A package's plugins run with the same permissions as any other plugin.
 `codemode install` imports a package's plugin modules to build the summary it shows, before it asks for confirmation. Install scripts do not run.
 
 Review a package's source before installing it, and a project's `.codemode/plugins/` folder before trusting it. Pin an exact version or a commit when a package must not change underneath you. See [Packages](packages.md).
+
+## Review MCP servers before adding them
+
+A local MCP server is a program that runs with the permissions of the codemode process. Codemode gives it a short list of environment variables and its entry's `env`, not the rest of the environment, and does not sandbox it.
+
+An HTTP server receives the headers its entry names and whatever the code sends it. Its tools' descriptions, its instructions, and its results are text from the server, which reaches an agent through discovery and can try to steer it.
+
+A tool's `read` or `write` label comes from the server's own annotations. Treat the tools of a server you do not know as writes.
+
+Review a server's command or URL before adding it, and a project's `mcpServers` and `mcp.json` before trusting the project. See [MCP Servers](mcp.md).
 
 ## Reduce impact and improve recovery
 

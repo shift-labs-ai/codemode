@@ -75,8 +75,8 @@ export interface ConnectionProvider {
 /**
  * Refuse a connection that belongs to another plugin source. A connection
  * is bound to the owner it was made for: a plugin of the same name from
- * elsewhere does not inherit it, and a package's plugin only uses
- * connections made for that package. Plugins with no known owner (a host
+ * elsewhere does not inherit it, and a package's plugin or an MCP server
+ * only uses connections made for it. Plugins with no known owner (a host
  * that constructs or loads them itself) are not checked.
  */
 export function assertConnectionOwner(
@@ -86,7 +86,12 @@ export function assertConnectionOwner(
   const info = plugin.sourceInfo;
   if (!info) return;
   if (connection.owner === info.owner) return;
-  if (connection.owner === undefined && info.origin !== "package") return;
+  if (
+    connection.owner === undefined &&
+    info.origin !== "package" &&
+    info.origin !== "mcp"
+  )
+    return;
   throw new Error(
     `Connection "${connection.name}" was made for ${
       connection.owner === undefined
@@ -119,6 +124,8 @@ export function ownedBy(request: ConnectionRequest): { owner?: string } {
 function describeOwner(owner: string): string {
   if (owner === "builtin") return "the bundled plugin";
   if (owner === "local") return "a local plugin";
+  if (owner.startsWith("mcp:"))
+    return `MCP server ${owner.slice("mcp:".length)}`;
   return `package ${owner}`;
 }
 

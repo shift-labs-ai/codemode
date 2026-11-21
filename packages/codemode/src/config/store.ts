@@ -64,11 +64,16 @@ export function readConnectionFile(path: string): ConnectionFile {
   return data;
 }
 
-/** All local writes share ownership across reread, async work, and atomic commit. */
-export async function updateConnectionFile<T>(
+/**
+ * Change a JSON file as one step: lock it, read it with `read`, run
+ * `update`, and replace it atomically when asked to write. The lock spans
+ * the update's async work, and every writer of the file goes through here.
+ */
+export async function updateLockedFile<D, T>(
   path: string,
+  read: (path: string) => D,
   update: (
-    data: ConnectionFile,
+    data: D,
   ) => Promise<{ result: T; write: boolean }> | { result: T; write: boolean },
 ): Promise<T> {
   mkdirSync(dirname(path), { recursive: true });
@@ -83,7 +88,7 @@ export async function updateConnectionFile<T>(
   });
   try {
     if (compromised) throw compromised;
-    const data = readConnectionFile(path);
+    const data = read(path);
     const { result, write } = await update(data);
     if (compromised) throw compromised;
     if (write) {
@@ -102,4 +107,14 @@ export async function updateConnectionFile<T>(
   } finally {
     await release();
   }
+}
+
+/** All local writes share ownership across reread, async work, and atomic commit. */
+export function updateConnectionFile<T>(
+  path: string,
+  update: (
+    data: ConnectionFile,
+  ) => Promise<{ result: T; write: boolean }> | { result: T; write: boolean },
+): Promise<T> {
+  return updateLockedFile(path, readConnectionFile, update);
 }

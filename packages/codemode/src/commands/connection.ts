@@ -12,6 +12,7 @@ import {
   printSuccess,
   printWarn,
 } from "../utils/output.js";
+import { cliMcpManager } from "./mcp.js";
 import { cliPackageManager } from "./packages.js";
 
 export async function connectionAdd(
@@ -30,24 +31,34 @@ export async function connectionAdd(
 
   // The connection is bound to where the plugin comes from today, so a
   // plugin of the same name from elsewhere does not inherit it. Finding
-  // that out imports one bundled plugin at most and installs nothing.
+  // that out imports one bundled plugin at most, installs nothing and
+  // starts no MCP server.
+  const mcp = cliMcpManager();
   await loadAllPlugins({
     builtinAllowlist: new Set([options.plugin]),
     packages: cliPackageManager({ quiet: true, onMissing: "skip" }),
+    mcp,
+    mcpLoad: { connect: false },
   });
-  const owner = registry.getPlugin(options.plugin)?.sourceInfo?.owner;
-  await addConnection(name, options.plugin, configValues, { owner });
+  // An MCP server may be named as configured (`my-tools`); its connection
+  // names it as code does (`my_tools`).
+  const plugin =
+    registry.getPlugin(options.plugin)?.name ??
+    (await mcp.list().catch(() => [])).find(
+      (server) => server.name === options.plugin,
+    )?.plugin ??
+    options.plugin;
+  const owner = registry.getPlugin(plugin)?.sourceInfo?.owner;
+  await addConnection(name, plugin, configValues, { owner });
 
   if (options.json) {
-    printJson({ ok: true, name, plugin: options.plugin, owner });
+    printJson({ ok: true, name, plugin, owner });
   } else {
     if (owner === undefined)
       printWarn(
-        `No plugin named "${options.plugin}" is installed. A package's plugin will need its connection added again once installed.`,
+        `No plugin named "${plugin}" is installed. A package's plugin will need its connection added again once installed.`,
       );
-    printSuccess(
-      `Connection ${chalk.bold(name)} added (plugin: ${options.plugin})`,
-    );
+    printSuccess(`Connection ${chalk.bold(name)} added (plugin: ${plugin})`);
   }
 }
 

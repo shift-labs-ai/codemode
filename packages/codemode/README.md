@@ -6,7 +6,7 @@ The codemode library and command-line interface, published on npm as [`@shiftlab
 
 | Path | Contents |
 |---|---|
-| `src/` | The engine, plugin API and loader, connections, credentials, package manager, and commands |
+| `src/` | The engine, plugin API and loader, connections, credentials, package manager, MCP manager, and commands |
 | `src/tests/` | The test suite |
 | `scripts/` | Repository tooling, such as the generator for the bundled plugin table |
 | `dist/plugins/` | The bundled plugins, copied from `packages/codemode-plugins/dist` by the build |
