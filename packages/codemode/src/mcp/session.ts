@@ -108,6 +108,11 @@ export class McpSession {
       /** A log message the server sent (`notifications/message`). */
       onLog: (params: unknown) => void;
       onStderr: (chunk: string) => void;
+      /**
+       * A fault no request answers for: a message the server sent that is
+       * not JSON-RPC or is too large, a stream that could not be resumed.
+       */
+      onFault: (error: Error) => void;
     },
   ) {
     this.server = options.server;
@@ -323,6 +328,8 @@ export class McpSession {
     client.onNotification("notifications/message", (params) =>
       options.onLog(params),
     );
+    // The client drops an error nobody listens for.
+    client.onError((error) => options.onFault(error));
     // Closing the client fails its pending requests and closes the transport.
     // Kept once: a second `close()` returns before the first has finished.
     let closing: Promise<void> | undefined;

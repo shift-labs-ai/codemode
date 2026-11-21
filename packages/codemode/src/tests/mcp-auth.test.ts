@@ -272,6 +272,55 @@ describe("finding how to sign in to an MCP server", () => {
   });
 });
 
+describe("asking a server that does not answer how to sign in", () => {
+  /** A server whose requests wait until they are abandoned; nothing else exists. */
+  function silent(options: { connectTimeoutMs?: number } = {}) {
+    const mcp = new McpManager({
+      store: new MemoryMcpStore({ user: { srv: { url: SERVER } } }),
+      fetch: ((input: string | URL | Request, init?: RequestInit) =>
+        String(input) === SERVER
+          ? new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(init.signal?.reason),
+              );
+            })
+          : Promise.resolve(
+              new Response("not found", { status: 404 }),
+            )) as typeof globalThis.fetch,
+      ...options,
+    });
+    managers.push(mcp);
+    return mcp;
+  }
+
+  it("stops when its caller gives up", async () => {
+    const giveUp = new AbortController();
+    const asked = silent().oauth("srv", {
+      redirectUri: REDIRECT,
+      signal: giveUp.signal,
+    });
+    setTimeout(() => giveUp.abort(), 20);
+    await assert.rejects(asked, { name: "AbortError" });
+    await assert.rejects(
+      silent().oauth("srv", {
+        redirectUri: REDIRECT,
+        signal: AbortSignal.abort(),
+      }),
+      { name: "AbortError" },
+    );
+  });
+
+  it("waits for it no longer than for any connect", async () => {
+    const started = Date.now();
+    await assert.rejects(
+      silent({ connectTimeoutMs: 50 }).oauth("srv", { redirectUri: REDIRECT }),
+      (error) =>
+        isMcpServerError(error) && error.code === "sign_in_unsupported",
+    );
+    assert.ok(Date.now() - started < 5_000);
+  });
+});
+
 describe("a signed-in MCP server", () => {
   it("is asked to sign in before anything is stored, and says how", async () => {
     const w = world();

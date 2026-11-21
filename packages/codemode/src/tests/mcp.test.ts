@@ -43,6 +43,7 @@ import type { ActionContext } from "../plugin/types.js";
 import { Codemode } from "../sdk.js";
 import {
   type FakeServer,
+  fakeHttp,
   fakeServer,
   placeholder,
 } from "./helpers/mcp-server.js";
@@ -604,6 +605,23 @@ describe("calling a server's tools from code", () => {
     assert.match(uncaught.error ?? "", /Issue 7 is locked/);
   });
 
+  it("reads a failed tool's text past a content block that is not one", async () => {
+    const server = fakeServer({
+      tools: [DELETE],
+      call: () =>
+        ({
+          content: [null, "text", { type: "text", text: "Locked." }],
+          isError: true,
+        }) as never,
+    });
+    const mcp = manager({ tracker: { command: "x" } }, { tracker: server });
+    const codemode = codemodeWith({ plugins: (await mcp.load()).plugins });
+    const { error } = await codemode.execute(
+      `return await tracker.delete_issue({ id: "7" })`,
+    );
+    assert.match(error ?? "", /Locked\./);
+  });
+
   it("checks input against the tool's schema before the server is called", async () => {
     const server = fakeServer({ tools: [SEARCH] });
     const mcp = manager({ tracker: { command: "x" } }, { tracker: server });
@@ -944,6 +962,113 @@ describe("connections and sessions", () => {
       events.some(
         (event) => event.type === "state" && event.state === "closed",
       ),
+    );
+  });
+});
+
+describe("an HTTP server's session", () => {
+  const ADDRESS = "https://tools.test/mcp";
+
+  /**
+   * A server over HTTP that names its session, as one that keeps state
+   * does. `refuse` answers a request in the server's place.
+   */
+  function overHttp(refuse: (request: Request) => Response | undefined) {
+    const server = fakeServer({
+      tools: [SEARCH],
+      resources: [{ uri: "note://1", name: "First", text: "hello" }],
+    });
+    const state = { session: "s1" };
+    const http = fakeHttp(server, ADDRESS, refuse);
+    const mcp = new McpManager({
+      store: new MemoryMcpStore({ user: { tools: { url: ADDRESS } } }),
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const response = await http(input, init);
+        if (response.ok) response.headers.set("mcp-session-id", state.session);
+        return response;
+      }) as typeof globalThis.fetch,
+    });
+    managers.push(mcp);
+    const called = (method: string) =>
+      server.received.filter((r) => r.method === method).length;
+    return { server, state, mcp, called };
+  }
+
+  it("opens a new session and calls once when the server has forgotten the old one", async () => {
+    const { state, mcp, called } = overHttp((request) => {
+      const sent = request.headers.get("mcp-session-id");
+      return sent && sent !== state.session
+        ? new Response("unknown session", { status: 404 })
+        : undefined;
+    });
+    const codemode = codemodeWith({ plugins: (await mcp.load()).plugins });
+    const run = () =>
+      codemode.execute(`return await tools.search_issues({ query: "x" })`);
+    assert.equal((await run()).error, undefined);
+    assert.equal(called("initialize"), 1);
+
+    // The server restarts: it knows no session by the old name.
+    state.session = "s2";
+    assert.equal((await run()).error, undefined);
+    assert.equal(called("initialize"), 2);
+    assert.equal(called("tools/call"), 2);
+  });
+
+  it("tries a read again after a passing failure, and never a tool call", async () => {
+    let failing = false;
+    const { mcp, called } = overHttp((request) => {
+      if (!failing || request.method !== "POST") return undefined;
+      failing = false;
+      return new Response("busy", { status: 503 });
+    });
+    const codemode = codemodeWith({ plugins: (await mcp.load()).plugins });
+
+    failing = true;
+    const read = await codemode.execute(
+      `return (await tools.resources.list()).resources.length`,
+    );
+    assert.deepEqual(read, { result: 1, logs: [] });
+
+    failing = true;
+    const call = await codemode.execute(
+      `return await tools.search_issues({ query: "x" })`,
+    );
+    assert.match(call.error ?? "", /status 503/);
+    assert.equal(called("tools/call"), 0);
+  });
+});
+
+describe("faults no call answers for", () => {
+  it("reports what the client would drop, with the server's name", async () => {
+    const server = fakeServer({ tools: [SEARCH] });
+    let opened: ReturnType<FakeServer["transport"]> | undefined;
+    const events: McpEvent[] = [];
+    const mcp = manager(
+      { a: { command: "x" } },
+      {
+        a: {
+          ...server,
+          transport() {
+            opened = server.transport();
+            return opened;
+          },
+        },
+      },
+      { onEvent: (event) => events.push(event) },
+    );
+    await mcp.load();
+    (opened as unknown as { emitError(error: Error): void }).emitError(
+      new Error("Received a line that is not JSON"),
+    );
+    assert.deepEqual(
+      events.filter((event) => event.type === "fault"),
+      [
+        {
+          type: "fault",
+          server: "a",
+          message: "Received a line that is not JSON",
+        },
+      ],
     );
   });
 });

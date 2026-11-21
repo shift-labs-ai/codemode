@@ -341,7 +341,7 @@ pluginCmd
     await pluginList({ json: globals.json });
   });
 
-// ── init ────────────────────────────────────────────────
+// ── auth and init ───────────────────────────────────────
 
 program
   .command("auth <plugin>")

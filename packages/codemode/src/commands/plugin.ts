@@ -4,7 +4,7 @@ import type { PackageScope } from "../packages/store.js";
 import { loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
 import { printError, printJson, printSuccess } from "../utils/output.js";
-import { cliMcpManager } from "./mcp.js";
+import { withCliMcp } from "./mcp.js";
 import { cliPackageManager, packageInstall } from "./packages.js";
 
 /**
@@ -55,12 +55,14 @@ export async function pluginRemove(
 }
 
 export async function pluginList(options: { json?: boolean }): Promise<void> {
-  await loadAllPlugins({
-    packages: cliPackageManager({ quiet: true }),
-    // From cached tool lists only: listing plugins starts no server.
-    mcp: cliMcpManager(),
-    mcpLoad: { connect: false },
-  });
+  await withCliMcp((mcp) =>
+    loadAllPlugins({
+      packages: cliPackageManager({ quiet: true }),
+      // From cached tool lists only: listing plugins starts no server.
+      mcp,
+      mcpLoad: { connect: false },
+    }),
+  );
   const loaded = registry.listPlugins();
 
   if (options.json) {

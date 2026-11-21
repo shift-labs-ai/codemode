@@ -11,7 +11,7 @@ import type {
   TypedInputSchema,
 } from "../plugin/types.js";
 import type { McpServerSnapshot } from "./cache.js";
-import { loadsTool, type McpServer } from "./config.js";
+import { isRecord, loadsTool, type McpServer } from "./config.js";
 import { McpServerError } from "./errors.js";
 
 /** The owner of a server's connection: no other plugin of its name may use it. */
@@ -86,10 +86,13 @@ export function toolResult(
 ): unknown {
   const { _meta, ...rest } = result;
   if (!result.isError) return rest;
+  // The client checks that `content` is an array, not what it holds.
   const text =
-    result.content
+    (result.content as unknown[])
       .flatMap((block) =>
-        block.type === "text" && typeof block.text === "string"
+        isRecord(block) &&
+        block.type === "text" &&
+        typeof block.text === "string"
           ? [block.text]
           : [],
       )

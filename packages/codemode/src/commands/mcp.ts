@@ -19,9 +19,7 @@ import {
  * project `.codemode` for project scope (trusted through `codemode trust`),
  * and the project's connections for the servers' secrets and sign-ins.
  */
-export function cliMcpManager(
-  options: { trustProject?: boolean } = {},
-): McpManager {
+function cliMcpManager(options: { trustProject?: boolean } = {}): McpManager {
   const project = findConfigDir() ?? undefined;
   return McpManager.forCodemodeFolders({
     roots: { user: userConfigDir(), project },
@@ -35,7 +33,8 @@ export function cliMcpManager(
 /**
  * Run `work` with the CLI's manager, and end its sessions before the
  * command reports or exits, whichever way `work` ends: a stdio server is a
- * child process, and none is left running.
+ * child process, and none is left running. Every command gets its manager
+ * here.
  */
 export async function withCliMcp<T>(
   work: (mcp: McpManager) => Promise<T>,
@@ -132,9 +131,7 @@ export async function mcpRemove(
 ): Promise<void> {
   const scope = scopeOf(options);
   try {
-    const removed = await cliMcpManager({
-      trustProject: scope === "project",
-    }).remove(name, { scope });
+    const removed = await withCliMcp((mcp) => mcp.remove(name, { scope }));
     if (!removed) throw new Error(`No ${scope} MCP server is named ${name}`);
     if (options.json) printJson({ ok: true, removed: name, scope });
     else printSuccess(`Removed MCP server ${chalk.bold(name)} (${scope})`);

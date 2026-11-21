@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { dirname } from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   exchangeAuthCode,
   OAUTH_CALLBACK_URI,
@@ -9,6 +13,10 @@ import {
 } from "../core/oauth.js";
 import type { OAuthConfig } from "../plugin/types.js";
 import { stubFetch } from "./helpers/plugin.js";
+
+const SPARE_CONNECTION = fileURLToPath(
+  new URL("./helpers/oauth-spare-connection.ts", import.meta.url),
+);
 
 const nativeFetch = globalThis.fetch;
 afterEach(() => {
@@ -197,6 +205,17 @@ describe("local OAuth callback lifecycle", () => {
       message: "OAuth: the response came from another issuer",
     });
     assert.equal(await missing.status(), 400);
+  });
+
+  it("lets the process end while a browser still holds a spare connection", async () => {
+    // Node's listener is what waits on such a connection, so the flow runs
+    // under Node: the run ends by itself, or the timeout ends it.
+    const ran = await promisify(execFile)(
+      "node",
+      ["--import", "jiti/register", SPARE_CONNECTION],
+      { cwd: dirname(SPARE_CONNECTION), timeout: 4_000 },
+    );
+    assert.equal(ran.stdout.trim(), "issued");
   });
 
   it("accepts only loopback HTTP callbacks and requires an explicit protocol for public clients", async () => {

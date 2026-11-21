@@ -296,7 +296,7 @@ Failures are `McpServerError` values with a `code`. Check them with `isMcpServer
 | `idleMs`, `maxSessions` | 5 minutes, 64 | When an unused session is closed |
 | `connectTimeoutMs`, `retryFailedAfterMs` | 10 seconds, 1 minute | How long `load()` waits for a server, and how long it leaves an unreachable one alone |
 | `client` | `codemode` and its version | How codemode names itself to servers |
-| `onEvent` | None | Receives session states, changed tool lists, server log messages, stderr, and progress |
+| `onEvent` | None | Receives session states, changed tool lists, server log messages, stderr, progress, and faults that no call rejects with, such as a message from the server that is not JSON-RPC |
 
 An action call uses the connection the engine resolved for it, and the manager keeps one session per server and identity. Two calls share a session only when the server, the identity, and every value the entry was filled with are the same.
 

@@ -59,6 +59,12 @@ export type McpEvent =
   /** A log message the server sent (`notifications/message`). */
   | { type: "log"; server: string; params: unknown }
   | { type: "stderr"; server: string; chunk: string }
+  /**
+   * A fault no call rejects with: a message from the server that is not
+   * JSON-RPC or is too large, a stream that could not be resumed. A call
+   * waiting on such a message ends by its timeout.
+   */
+  | { type: "fault"; server: string; message: string }
   | {
       type: "progress";
       server: string;
@@ -451,7 +457,13 @@ export class McpManager {
     if (usesOAuth(server)) {
       // An unauthenticated connect, for the server's challenge: where its
       // resource metadata is and the scope it asks for.
-      const client = new mcp.McpClient(this.clientInfo());
+      options.signal?.throwIfAborted();
+      const client = new mcp.McpClient({
+        ...this.clientInfo(),
+        requestTimeoutMs: this.connectTimeoutMs,
+      });
+      const stop = () => void client.close().catch(() => undefined);
+      options.signal?.addEventListener("abort", stop, { once: true });
       try {
         await client.connect(
           await this.createTransport(mcp)({
@@ -463,8 +475,10 @@ export class McpManager {
         if (error instanceof mcp.McpAuthRequiredError)
           challenge = parseWwwAuthenticate(error.wwwAuthenticate);
       } finally {
+        options.signal?.removeEventListener("abort", stop);
         await client.close().catch(() => undefined);
       }
+      options.signal?.throwIfAborted();
     }
     return discoverMcpOAuth({
       server,
@@ -730,6 +744,10 @@ export class McpManager {
   private readonly variable = (name: string): string | undefined =>
     this.options.variable ? this.options.variable(name) : process.env[name];
 
+  private get connectTimeoutMs(): number {
+    return this.options.connectTimeoutMs ?? 10_000;
+  }
+
   private clientInfo(): { name: string; version: string } {
     return (
       this.options.client ?? {
@@ -845,7 +863,7 @@ export class McpManager {
         signInHint:
           this.options.signInHint?.(server.name) ??
           `Run \`codemode auth ${server.name}\`.`,
-        connectTimeoutMs: this.options.connectTimeoutMs ?? 10_000,
+        connectTimeoutMs: this.connectTimeoutMs,
         fetch: this.options.fetch,
         onReport: (report) => this.record(server, report),
         onState: (changed) =>
@@ -859,6 +877,12 @@ export class McpManager {
           this.emit({ type: "log", server: server.name, params }),
         onStderr: (chunk) =>
           this.emit({ type: "stderr", server: server.name, chunk }),
+        onFault: (error) =>
+          this.emit({
+            type: "fault",
+            server: server.name,
+            message: error.message,
+          }),
       });
       this.sessions.set(key, created);
       session = created;
