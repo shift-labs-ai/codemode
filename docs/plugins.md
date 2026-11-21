@@ -146,6 +146,35 @@ The declaration states what the secret is, how it is placed, and the HTTPS targe
 
 [Credentials](credentials.md) covers every kind of declaration, including OAuth, AWS, and cookie sessions. [Credentials Reference](credentials-reference.md) lists the request and error helpers.
 
+## Run a shell command
+
+A plugin that runs commands uses `runShell` from `@shiftlabs/codemode/utils/cli`. It starts one new process per call and ends that process, and everything it started, when the call times out or is aborted:
+
+```typescript
+import { runShell } from "@shiftlabs/codemode/utils/cli";
+
+const result = await runShell(
+  { program: "/bin/bash", args: ["-c"] },
+  "git status --short",
+  { cwd: repo, timeoutMs: 30_000, signal: ctx.signal },
+);
+// { output: " M README.md\n", exitCode: 0, truncated: false, wallTimeMs: 12 }
+```
+
+Pass `ctx.signal` so that a command ends with the run that started it.
+
+| Outcome | Result |
+|---|---|
+| The script exits, with any exit code | Resolves with `output`, `exitCode`, `truncated`, and `wallTimeMs` |
+| A signal ends the shell | Resolves with `exitCode` 128 plus the signal's number |
+| The program cannot start, or `cwd` does not exist | Rejects with a `ShellError` whose `code` is `spawn_failed` |
+| The script outlives `timeoutMs` | Rejects with `code` `timed_out`. `output` holds what it wrote |
+| `signal` aborts | Rejects with `code` `aborted` |
+
+`output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output past `maxOutputBytes`, 1 MiB by default, keeps its start and end around a marker, and the whole of it is written to a file named by `fullOutputPath` that only your account can read.
+
+The command inherits the environment of the codemode process, with `env` added to it. Check a failure with `isShellError()`.
+
 ## Understand how plugins load
 
 Codemode looks for plugins in this order:

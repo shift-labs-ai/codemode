@@ -53,3 +53,14 @@ export function commandExists(name: string): boolean {
     return false;
   }
 }
+
+export {
+  isShellError,
+  killProcessTree,
+  type RunShellOptions,
+  runShell,
+  ShellError,
+  type ShellErrorCode,
+  type ShellProgram,
+  type ShellResult,
+} from "./shell.js";

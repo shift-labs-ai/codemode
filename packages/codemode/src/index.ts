@@ -308,5 +308,20 @@ export type {
 } from "./plugin/types.js";
 export type { CodemodeExecuteOptions, CodemodeOptions } from "./sdk.js";
 export { Codemode } from "./sdk.js";
-export type { ExecOptions, ExecResult, OutputParser } from "./utils/cli.js";
-export { commandExists, syncExec } from "./utils/cli.js";
+export type {
+  ExecOptions,
+  ExecResult,
+  OutputParser,
+  RunShellOptions,
+  ShellErrorCode,
+  ShellProgram,
+  ShellResult,
+} from "./utils/cli.js";
+export {
+  commandExists,
+  isShellError,
+  killProcessTree,
+  runShell,
+  ShellError,
+  syncExec,
+} from "./utils/cli.js";
