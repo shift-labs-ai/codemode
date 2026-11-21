@@ -6,10 +6,9 @@
  * handing back a worker whose baked-in configuration does not match what the
  * caller asked for, or failing to retire one that is no longer trustworthy.
  *
- * Two tests here are regressions for bugs found by re-reading the diff:
- * `workerShape` originally keyed on `JSON.stringify(helpData).length` (a
- * length, so collidable), and per-call `memoryLimitBytes` was ignored entirely
- * on a reused worker because `resourceLimits` is fixed at construction.
+ * Two tests here guard the worker's shape key: it must be a digest of the
+ * plugin surface, since a length collides, and it must hold the memory
+ * limit, since `resourceLimits` is fixed at construction.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -86,9 +85,9 @@ describe("worker shape: a run never inherits the wrong worker", () => {
   }, 30_000);
 
   test("REGRESSION: plugin surfaces of equal serialized length are distinguished", async () => {
-    // The original shape key was `JSON.stringify(helpData).length`. These two
-    // surfaces serialize to the same length, so a length-based key collides
-    // and the second Codemode would be handed a worker exposing `aaa.go`.
+    // These two surfaces serialize to the same length, so a length-based
+    // shape key collides and hands the second Codemode a worker exposing
+    // `aaa.go`.
     const one = engine({ plugins: [plugin("aaa")] });
     const two = engine({ plugins: [plugin("bbb")] });
     const a = await one.execute("return actions.list();");
@@ -251,9 +250,9 @@ describe("contamination a scrub cannot remove retires the worker", () => {
   }, 30_000);
 
   test("REPLACING an existing intrinsic method retires the worker", async () => {
-    // The name-only fingerprint this replaced could not see this: overwriting
-    // push adds no new property name. It is also the likeliest real-world
-    // monkey-patch, so it must not reach the next body.
+    // A fingerprint of property names cannot see this: overwriting push adds
+    // no new name. It is also the likeliest real-world monkey-patch, so it
+    // must not reach the next body.
     const rl = engine();
     const before = await rl.execute(WORKER_ID);
     await rl.execute(
@@ -283,7 +282,7 @@ describe("contamination a scrub cannot remove retires the worker", () => {
 
   test("an ordinary body does NOT trip the contamination check", async () => {
     // The fingerprint must not be so twitchy that normal work retires the
-    // worker — that would quietly restore the per-run-worker leak.
+    // worker: a worker per run leaks a thread's arena each time.
     const rl = engine();
     const a = await rl.execute(
       "const m = new Map([[1,2]]); const s = new Set([1]); const d = new Date(); return [m.get(1), s.has(1), typeof d.toISOString()];",
@@ -301,8 +300,8 @@ describe("contamination a scrub cannot remove retires the worker", () => {
 describe("a hostile body cannot corrupt a later run", () => {
   // The worker is documented as an ergonomic surface, not a security
   // sandbox: a body can reach `require("node:worker_threads").parentPort`.
-  // Pooling means a forged message could now target a *later* run rather than
-  // only the body's own, so run ids are unguessable tokens.
+  // On a pooled worker a forged message can target a *later* run, not only
+  // the body's own, so run ids are unguessable tokens.
   test("a body cannot read its own run id", async () => {
     const rl = engine();
     // `new Function` compiles in the worker's global scope, so module-scope
@@ -337,11 +336,11 @@ describe("a hostile body cannot corrupt a later run", () => {
   }, 30_000);
 
   test("REGRESSION: a body cannot install a listener that hijacks later runs", async () => {
-    // The real attack, and the reason run-id randomisation was not enough:
+    // The real attack, and the reason run-id randomisation is not enough:
     // a listener on parentPort survives into later runs and is *told* each
     // new runId by the host's own "run" message, so it can forge a "done"
-    // for a run it could never have guessed. Verified to fully hijack every
-    // subsequent run before the require chokepoint was added.
+    // for a run it could never have guessed. The require chokepoint is what
+    // stops it.
     const rl = engine();
     const install = await rl.execute(`
       const { parentPort } = require("node:worker_threads");
@@ -399,11 +398,10 @@ describe("a hostile body cannot corrupt a later run", () => {
 });
 
 describe("the host runtime a body is promised", () => {
-  // Pooling compiles bodies with `new Function`, whose scope is the worker's
-  // global object rather than the module scope the body used to be inlined
-  // into. Globals survive that move; module-scope bindings do not. `require`
-  // is the one that matters and is injected explicitly — without this test a
-  // memory fix silently revokes a documented capability.
+  // Bodies are compiled with `new Function`, whose scope is the worker's
+  // global object, not the worker's module scope. Globals are reachable
+  // there; module-scope bindings are not. `require` is the one that matters
+  // and is injected explicitly: it is a documented capability.
   test("require is available and functional", async () => {
     const rl = engine();
     const r = await rl.execute(

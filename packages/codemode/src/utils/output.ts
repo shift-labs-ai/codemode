@@ -17,6 +17,27 @@ export function printWarn(msg: string): void {
 }
 
 /**
+ * Report a command's failure and exit with status 1. With `json`, one
+ * object on stdout: `{ ok: false, error, code }` and whatever `details`
+ * adds; `code` is the error's own, for an error that carries one.
+ */
+export function failCommand(
+  err: unknown,
+  options: { json?: boolean; code?: string; details?: object } = {},
+): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if (options.json)
+    printJson({
+      ok: false,
+      error: message,
+      code: options.code,
+      ...options.details,
+    });
+  else printError(message);
+  process.exit(1);
+}
+
+/**
  * Repeated `KEY=VALUE` arguments as an object. The value may itself
  * contain `=`; a pair with no key or no `=` is an error naming `flag`.
  */

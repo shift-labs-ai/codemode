@@ -57,9 +57,9 @@ function makeGithub() {
     ),
     execute: async (input) => input,
   });
-  // Mirrors the nested shape that exposed SHFT-1187 live
-  // (vex.sessions.remove): required fields and an additional-properties
-  // rule that exist only INSIDE the array items.
+  // The nested shape of SHFT-1187 (vex.sessions.remove): required fields
+  // and an additional-properties rule that exist only INSIDE the array
+  // items.
   api.registerAction("collab.add", {
     access: "write",
     description: "Add collaborators",
@@ -322,9 +322,8 @@ describe("actions.check", () => {
   });
 
   it("flags a nested array item missing its required field (SHFT-1187)", async () => {
-    // The live false positive: top-level fields all fine, the defect
-    // only inside members[0]. check must reject exactly what execute
-    // rejects, with the nested path named.
+    // Top-level fields all fine, the defect only inside members[0]. check
+    // must reject exactly what execute rejects, with the nested path named.
     const result = await run<{
       ok: boolean;
       missing: string[];

@@ -213,8 +213,7 @@ const RSS_WATCHDOG_SLACK_BYTES = 128 * 1024 * 1024;
  * Reuse is given up the moment it could be unsafe. A worker is retired on
  * timeout, crash, memory kill, plugin-surface change, leftover timers, or
  * after `maxRunsPerWorker` bodies. A run that arrives while the pooled worker
- * is busy gets its own throwaway worker, so concurrency semantics are
- * unchanged.
+ * is busy gets its own throwaway worker, so overlapping runs stay parallel.
  */
 export class ExecutionEngine {
   private registry: PluginRegistry;
@@ -259,7 +258,7 @@ export class ExecutionEngine {
    * else — wrong shape, quota spent, or already busy — gets a fresh worker.
    * A worker created because the pool was occupied stays private to that run
    * (`pooled` is false) and is destroyed when the run ends, so overlapping
-   * callers keep the parallelism they had before pooling existed.
+   * callers run in parallel.
    */
   private acquire(
     shape: string,
@@ -698,10 +697,10 @@ function formatError(cause: unknown): string {
 }
 
 // ferrosearch is a Rust native addon and cannot be inlined as worker source.
-// Resolve its entry point
-// host-side and require it by absolute path inside the worker: eval'd worker
-// code gets a cwd-relative `require`, so a bare specifier would resolve
-// against the caller's cwd instead of codemode's own node_modules.
+// Resolve its entry point host-side and require it by absolute path inside
+// the worker: eval'd worker code gets a cwd-relative `require`, so a bare
+// specifier would resolve against the caller's cwd instead of codemode's own
+// node_modules.
 const ferrosearchPath = createRequire(import.meta.url).resolve(
   "@shift-labs/ferrosearch",
 );
@@ -1155,9 +1154,9 @@ const __baselineGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
 // 2. Mutations to shared intrinsics (Array.prototype.push = ..., a new own
 //    property on Object, etc). NOT removable: restoring an arbitrary mutation
-//    would mean snapshotting every descriptor of every intrinsic. Instead
-//    fingerprint their own-property names and compare — a change means the
-//    body reshaped something shared and the worker must not be reused.
+//    would mean rewriting every descriptor of every intrinsic. Instead
+//    snapshot their own properties and compare — a change means the body
+//    reshaped something shared and the worker must not be reused.
 const __intrinsics = [
   Object, Object.prototype, Array, Array.prototype, Function.prototype,
   String.prototype, Number.prototype, Boolean.prototype, Promise,

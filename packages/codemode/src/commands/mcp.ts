@@ -7,8 +7,8 @@ import type { McpScope } from "../mcp/config.js";
 import { isMcpServerError } from "../mcp/errors.js";
 import { McpManager, type McpServerStatus } from "../mcp/manager.js";
 import {
+  failCommand,
   keyValuePairs,
-  printError,
   printJson,
   printSuccess,
   printWarn,
@@ -59,15 +59,10 @@ function scopeOf(options: { local?: boolean }): McpScope {
 }
 
 function fail(err: unknown, json?: boolean): never {
-  const message = err instanceof Error ? err.message : String(err);
-  if (json)
-    printJson({
-      ok: false,
-      error: message,
-      code: isMcpServerError(err) ? err.code : undefined,
-    });
-  else printError(message);
-  process.exit(1);
+  failCommand(err, {
+    json,
+    code: isMcpServerError(err) ? err.code : undefined,
+  });
 }
 
 export async function mcpAdd(

@@ -208,17 +208,20 @@ describe("local OAuth callback lifecycle", () => {
     assert.equal(await missing.status(), 400);
   });
 
-  it("lets the process end while a browser still holds a spare connection", async (t) => {
-    // Node's listener is what waits on such a connection, so the flow runs
-    // under Node: the run ends by itself, or the timeout ends it.
-    if (!commandExists("node")) return t.skip("needs node on the PATH");
-    const ran = await promisify(execFile)(
-      "node",
-      ["--import", "jiti/register", SPARE_CONNECTION],
-      { cwd: dirname(SPARE_CONNECTION), timeout: 4_000 },
-    );
-    assert.equal(ran.stdout.trim(), "issued");
-  });
+  // Node's listener is what waits on such a connection, so the flow runs
+  // under Node, where there is one: the run ends by itself, or the timeout
+  // ends it.
+  (commandExists("node") ? it : it.skip)(
+    "lets the process end while a browser still holds a spare connection",
+    async () => {
+      const ran = await promisify(execFile)(
+        "node",
+        ["--import", "jiti/register", SPARE_CONNECTION],
+        { cwd: dirname(SPARE_CONNECTION), timeout: 4_000 },
+      );
+      assert.equal(ran.stdout.trim(), "issued");
+    },
+  );
 
   it("accepts only loopback HTTP callbacks and requires an explicit protocol for public clients", async () => {
     assert.deepEqual(oauthCallback(config), {

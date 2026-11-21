@@ -1,6 +1,6 @@
 # SDK
 
-The `@shiftlabs/codemode` package embeds codemode in a Node.js or Bun process. It provides the engine, plugin loading, connection storage, credential signing, and package management that the command-line interface uses.
+The `@shiftlabs/codemode` package embeds codemode in a Node.js or Bun process. It provides the engine, plugin loading, connection storage, credential signing, package management, and MCP servers that the command-line interface uses.
 
 Use the SDK when an application runs code for its own users or agents. The host supplies plugins and connections explicitly, so nothing is read from disk or the environment unless the host asks.
 
@@ -113,7 +113,7 @@ It registers the project's plugin files, packages, and MCP servers when the proj
 | `trust` | Decides whether the project's plugins, packages, and MCP servers load. The default reads `trust.json` in `userDir` |
 | `userDir` | The user's codemode folder. The default is `~/.codemode` |
 | `packages` | A `PackageManager` to load packages with, or `false` to load none |
-| `mcp` | An `McpManager` to load MCP servers with, which the caller then closes, or `false` to load none |
+| `mcp` | An `McpManager` to load MCP servers with, or `false` to load none. The caller closes a manager it passes, and registers a server again when its tools change |
 
 See [Supply trust from a host](security.md#supply-trust-from-a-host).
 

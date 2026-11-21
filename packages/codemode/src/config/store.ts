@@ -65,6 +65,21 @@ export function readConnectionFile(path: string): ConnectionFile {
 }
 
 /**
+ * Replace a file's content in one step, so a reader never sees half of it.
+ * The file is readable by its owner only: what is kept this way holds
+ * secrets, or text a program printed.
+ */
+export function replaceFile(path: string, content: string): void {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, { mode: 0o600, flag: "wx" });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+/**
  * Change a JSON file as one step: lock it, read it with `read`, run
  * `update`, and replace it atomically when asked to write. The lock spans
  * the update's async work, and every writer of the file goes through here.
@@ -91,18 +106,7 @@ export async function updateLockedFile<D, T>(
     const data = read(path);
     const { result, write } = await update(data);
     if (compromised) throw compromised;
-    if (write) {
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      try {
-        writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, {
-          mode: 0o600,
-          flag: "wx",
-        });
-        renameSync(temporary, path);
-      } finally {
-        rmSync(temporary, { force: true });
-      }
-    }
+    if (write) replaceFile(path, `${JSON.stringify(data, null, 2)}\n`);
     return result;
   } finally {
     await release();

@@ -2,6 +2,7 @@ import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
 import { addConnection, loadConfig } from "../config/loader.js";
+import { connectionFor } from "../connections/types.js";
 import { OAUTH_CALLBACK_URI, oauthCallback, runOAuth } from "../core/oauth.js";
 import { mcpOAuthConnection } from "../mcp/auth.js";
 import type { McpManager } from "../mcp/manager.js";
@@ -9,6 +10,7 @@ import { mcpOwner } from "../mcp/plugin.js";
 import { loadAllPlugins } from "../plugin/loader.js";
 import { registry } from "../plugin/registry.js";
 import { connectionFields } from "../plugin/schema.js";
+import type { ConnectionConfig } from "../plugin/types.js";
 import {
   printError,
   printJson,
@@ -169,6 +171,19 @@ async function authWith(
 }
 
 /**
+ * The connection an MCP server acts through, of those stored: the one the
+ * connection provider resolves for it, when that one was made for it.
+ */
+export function serverConnection<T extends ConnectionConfig>(
+  connections: T[],
+  server: { name: string; plugin: string },
+): T | undefined {
+  const owner = mcpOwner(server.name);
+  const found = connectionFor(connections, { plugin: server.plugin, owner });
+  return found?.owner === owner ? found : undefined;
+}
+
+/**
  * Sign in to an MCP server: discover its endpoints, register a client
  * unless its entry names one, run the same browser consent every OAuth
  * plugin uses, and keep the result in the server's connection beside
@@ -181,7 +196,10 @@ async function authMcp(
 ): Promise<void> {
   const say = !options.quiet && !options.json;
   const owner = mcpOwner(server.name);
-  const connectionName = options.name ?? server.plugin;
+  const stored = () => serverConnection(loadConfig().connections, server);
+  // The connection the server already uses takes the sign-in, whatever it
+  // is named: a second one for the same server would never be resolved.
+  const connectionName = options.name ?? stored()?.name ?? server.plugin;
   try {
     const setup = await mcp.oauth(server.name, {
       redirectUri: OAUTH_CALLBACK_URI,
@@ -209,12 +227,9 @@ async function authMcp(
         },
       },
     );
-    const existing = loadConfig().connections.find(
-      (connection) =>
-        connection.name === connectionName &&
-        connection.plugin === server.plugin &&
-        connection.owner === owner,
-    );
+    // Read again: the consent took a while, and the values are kept.
+    const current = stored();
+    const existing = current?.name === connectionName ? current : undefined;
     await addConnection(
       connectionName,
       server.plugin,

@@ -22,6 +22,7 @@ import { parseSource } from "../packages/source.js";
 import type { PackageScope } from "../packages/store.js";
 import { environment } from "../utils/deprecation.js";
 import {
+  failCommand,
   printError,
   printJson,
   printSuccess,
@@ -86,16 +87,11 @@ function scopeOf(options: { local?: boolean }): PackageScope {
 }
 
 function fail(err: unknown, json?: boolean, report?: PackageReport): never {
-  const message = err instanceof Error ? err.message : String(err);
-  if (json)
-    printJson({
-      ok: false,
-      error: message,
-      code: isPackageError(err) ? err.code : undefined,
-      ...(report ? { report } : {}),
-    });
-  else printError(message);
-  process.exit(1);
+  failCommand(err, {
+    json,
+    code: isPackageError(err) ? err.code : undefined,
+    details: report ? { report } : undefined,
+  });
 }
 
 function printReport(report: PackageReport): void {

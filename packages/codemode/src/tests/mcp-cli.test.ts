@@ -20,12 +20,44 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { serverConnection } from "../commands/auth.js";
 import { placeholder } from "./helpers/mcp-server.js";
 
 const MAIN = fileURLToPath(new URL("../main.ts", import.meta.url));
 const STDIO_SERVER = fileURLToPath(
   new URL("./helpers/mcp-stdio-server.mjs", import.meta.url),
 );
+
+describe("the connection a sign-in is saved in", () => {
+  const server = { name: "my-tools", plugin: "my_tools" };
+  const connection = (name: string, owner?: string) => ({
+    name,
+    plugin: "my_tools",
+    config: {},
+    ...(owner === undefined ? {} : { owner }),
+  });
+
+  it("is the one the server already uses, whatever it is named", () => {
+    assert.equal(
+      serverConnection(
+        [connection("other", "npm:x"), connection("tools", "mcp:my-tools")],
+        server,
+      )?.name,
+      "tools",
+    );
+  });
+
+  it("is none of those made for something else of the same name", () => {
+    assert.equal(
+      serverConnection(
+        [connection("bundled"), connection("pkg", "npm:x")],
+        server,
+      ),
+      undefined,
+    );
+    assert.equal(serverConnection([], server), undefined);
+  });
+});
 
 describe("the command line with MCP servers", () => {
   let tmp: string;

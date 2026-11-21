@@ -1,14 +1,8 @@
-import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Tool } from "@earendil-works/pi-mcp";
-import type { McpScope } from "./config.js";
+import { replaceFile } from "../config/store.js";
+import { isRecord, type McpScope } from "./config.js";
 import type { McpServerErrorCode } from "./errors.js";
 
 /** What a server said about itself the last time it was connected to. */
@@ -44,23 +38,22 @@ export interface McpToolCache {
 }
 
 function isSnapshot(value: unknown): value is McpServerSnapshot {
-  const snapshot = value as McpServerSnapshot | null;
+  if (!isRecord(value)) return false;
+  const snapshot = value as Partial<McpServerSnapshot>;
   return (
-    !!snapshot &&
-    typeof snapshot === "object" &&
     typeof snapshot.key === "string" &&
     typeof snapshot.savedAt === "number" &&
     typeof snapshot.resources === "boolean" &&
     (snapshot.failure === undefined ||
-      (typeof snapshot.failure?.code === "string" &&
+      (isRecord(snapshot.failure) &&
+        typeof snapshot.failure.code === "string" &&
         typeof snapshot.failure.message === "string")) &&
     Array.isArray(snapshot.tools) &&
     snapshot.tools.every(
-      (tool) =>
-        tool &&
+      (tool: unknown) =>
+        isRecord(tool) &&
         typeof tool.name === "string" &&
-        !!tool.inputSchema &&
-        typeof tool.inputSchema === "object",
+        isRecord(tool.inputSchema),
     )
   );
 }
@@ -106,18 +99,7 @@ export class FileMcpToolCache implements McpToolCache {
     const path = this.path(scope, server);
     if (!path) return;
     mkdirSync(dirname(path), { recursive: true });
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    try {
-      // Readable by its owner only: a failed server's record quotes what the
-      // server printed.
-      writeFileSync(temporary, `${JSON.stringify(snapshot)}\n`, {
-        mode: 0o600,
-        flag: "wx",
-      });
-      renameSync(temporary, path);
-    } finally {
-      rmSync(temporary, { force: true });
-    }
+    replaceFile(path, `${JSON.stringify(snapshot)}\n`);
   }
 
   async remove(scope: McpScope, server: string): Promise<void> {

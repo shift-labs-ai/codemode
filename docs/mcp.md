@@ -175,7 +175,7 @@ An HTTP server whose entry sends no `Authorization` header is signed in to with 
 codemode auth sentry
 ```
 
-Codemode discovers the server's authorization server, registers a client named `codemode` with it, opens the consent page, and saves the result in the server's connection. It renews the token when it expires or is refused, and asks for `codemode auth` again when the grant can no longer be renewed.
+Codemode discovers the server's authorization server, registers a client named `codemode` with it, opens the consent page, and saves the result in the server's connection. It uses the connection the server already has, and keeps the values in it, or adds one named after the server. It renews the token when it expires or is refused, and asks for `codemode auth` again when the grant can no longer be renewed.
 
 For a server that does not register clients, name a client you registered:
 

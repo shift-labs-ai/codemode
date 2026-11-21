@@ -126,7 +126,7 @@ See [MCP Servers](mcp.md) for entries, secrets, and sign-in.
 - `mcp remove <name>`<br>
   Removes a server and its cached tool list. Add `-l`, `--local` to remove it from the project.
 - `auth <name>`<br>
-  Signs in to an HTTP server that uses OAuth and saves the result as its connection. The name is the server's, as configured or as written in code.
+  Signs in to an HTTP server that uses OAuth and saves the result in its connection. The name is the server's, as configured or as written in code.
 
 ## Plugins
 

@@ -259,8 +259,9 @@ export class Codemode {
        * Configured MCP servers to load. Default: a manager over
        * `~/.codemode` and this project, with this project's connections,
        * that `dispose()` closes and that re-registers a server whose tools
-       * change. A manager passed here is the caller's to close. `false`
-       * loads none.
+       * change. A manager passed here is the caller's: to close, and to
+       * re-register from (`onToolsChanged`, then `addPlugin`), so that one
+       * manager can serve many instances. `false` loads none.
        */
       mcp?: McpManager | false;
       /**
