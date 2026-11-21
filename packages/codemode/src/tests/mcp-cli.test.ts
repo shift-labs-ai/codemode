@@ -242,6 +242,39 @@ describe("the command line with MCP servers", () => {
     assert.match(missing.stderr, /No MCP server named "nope"/);
   });
 
+  it("refreshes the servers after one that is down, and counts the tools an entry loads", async () => {
+    const down = await codemode([
+      "mcp",
+      "add",
+      "down",
+      "--",
+      join(tmp, "no-such-command"),
+    ]);
+    assert.equal(down.code, 0, down.stderr);
+    await addFixture();
+    const config = userConfig();
+    config.mcpServers["my-tools"].tools = ["echo", "env"];
+    writeFileSync(
+      join(home, ".codemode", "config.json"),
+      JSON.stringify(config),
+    );
+    const refreshed = await codemode(["mcp", "refresh", "--json"]);
+    assert.equal(refreshed.code, 1);
+    const result = JSON.parse(refreshed.stdout);
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.refreshed, ["my-tools"]);
+    assert.deepEqual(
+      result.problems.map((problem: { server: string }) => problem.server),
+      ["down"],
+    );
+    const text = await codemode(["mcp", "refresh"]);
+    assert.equal(text.code, 1);
+    assert.match(text.stderr, /"down" failed to connect/);
+    assert.match(text.stdout, /Tool lists read again/);
+    const listed = await codemode(["mcp", "list"]);
+    assert.match(listed.stdout, /my-tools connected, 2 tool\(s\)/);
+  });
+
   it("removes a server and its cached tool list", async () => {
     await addFixture();
     await codemode(["mcp", "list"]);

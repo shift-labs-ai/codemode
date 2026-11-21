@@ -235,9 +235,11 @@ async function authMcp(
     );
     // Connect with the new sign-in, so the tool list is cached for the
     // runs that follow. The sign-in is saved whether or not this works.
-    await mcp.refresh(server.name).catch((error) => {
-      if (say) printWarn((error as Error).message);
-    });
+    const unread = await mcp.refresh(server.name).then(
+      ({ problems }) => problems.map((problem) => problem.message),
+      (error) => [(error as Error).message],
+    );
+    if (say) for (const message of unread) printWarn(message);
     if (options.json)
       printJson({ ok: true, name: connectionName, plugin: server.plugin });
     else

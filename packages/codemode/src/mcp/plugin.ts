@@ -163,6 +163,11 @@ function resourceActions(calls: McpServerCalls): ActionDef[] {
   ];
 }
 
+/** The tools of a server's list that its entry loads. */
+export function loadedTools(server: McpServer, tools: Tool[]): Tool[] {
+  return tools.filter((tool) => loadsTool(server.config, tool.name));
+}
+
 /**
  * A server as a plugin: one action per tool its entry loads, and the
  * resource actions when it offers resources. Without a snapshot (never
@@ -173,9 +178,7 @@ export function serverPlugin(
   snapshot: McpServerSnapshot | undefined,
   calls: McpServerCalls,
 ): PluginDef {
-  const tools = (snapshot?.tools ?? []).filter((tool) =>
-    loadsTool(server.config, tool.name),
-  );
+  const tools = loadedTools(server, snapshot?.tools ?? []);
   const names = actionNames(tools.map((tool) => tool.name));
   const actions: ActionDef[] = tools.map((tool) => {
     const name = names.get(tool.name) ?? tool.name;

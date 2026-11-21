@@ -35,6 +35,7 @@ export {
   type McpLoadResult,
   McpManager,
   type McpManagerOptions,
+  type McpRefreshResult,
   type McpServerInfo,
   type McpServerStatus,
 } from "./manager.js";

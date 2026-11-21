@@ -120,9 +120,9 @@ See [MCP Servers](mcp.md) for entries, secrets, and sign-in.
 - `mcp add -l`, `--local`<br>
   Records the server in the project's `.codemode/config.json` and trusts the project. The default is `~/.codemode/config.json`.
 - `mcp list`, alias `mcp ls`<br>
-  Connects to every enabled server and prints its state, tool count, and error. Exits with status 1 when an enabled server is not connected.
+  Connects to every enabled server and prints its state, the number of tools its entry loads, and its error. Exits with status 1 when an enabled server is not connected.
 - `mcp refresh [name]`<br>
-  Reads tool lists again from every enabled server, or from one.
+  Reads tool lists again from every enabled server, or from one. A server that cannot be read is reported, the others are still read, and the command exits with status 1.
 - `mcp remove <name>`<br>
   Removes a server and its cached tool list. Add `-l`, `--local` to remove it from the project.
 - `auth <name>`<br>

@@ -188,6 +188,7 @@ export {
   type McpManagerOptions,
   type McpOAuthSetup,
   type McpProblem,
+  type McpRefreshResult,
   type McpResolvedServer,
   type McpScope,
   type McpServer,

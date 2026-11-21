@@ -12,6 +12,7 @@ import {
 import {
   failCommand,
   keyValuePairs,
+  printError,
   printJson,
   printSuccess,
   printWarn,
@@ -192,14 +193,21 @@ export async function mcpRefresh(
   options: { json?: boolean },
 ): Promise<void> {
   try {
-    const changed = await withCliMcp((mcp) => mcp.refresh(name));
-    if (options.json) printJson({ ok: true, changed });
-    else
-      printSuccess(
-        changed.length
-          ? `Tool lists read again; changed: ${changed.join(", ")}`
-          : "Tool lists read again; nothing changed",
-      );
+    const { refreshed, changed, problems } = await withCliMcp((mcp) =>
+      mcp.refresh(name),
+    );
+    if (options.json)
+      printJson({ ok: !problems.length, refreshed, changed, problems });
+    else {
+      for (const problem of problems) printError(problem.message);
+      if (refreshed.length)
+        printSuccess(
+          changed.length
+            ? `Tool lists read again; changed: ${changed.join(", ")}`
+            : "Tool lists read again; nothing changed",
+        );
+    }
+    if (problems.length) process.exitCode = 1;
   } catch (err) {
     fail(err, options.json);
   }

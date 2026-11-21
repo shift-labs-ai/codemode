@@ -1170,7 +1170,7 @@ describe("tool lists that change", () => {
     });
     await mcp.load();
     server.options.tools = [DELETE];
-    assert.deepEqual(await mcp.refresh(), ["a"]);
+    assert.deepEqual((await mcp.refresh()).changed, ["a"]);
     assert.deepEqual(heard, ["a"]);
   });
 
@@ -1180,12 +1180,45 @@ describe("tool lists that change", () => {
     const mcp = manager({ a: { command: "x" }, b: { command: "x" } }, { a, b });
     await mcp.load();
     b.options.tools = [DELETE];
-    assert.deepEqual(await mcp.refresh(), ["b"]);
-    assert.deepEqual(await mcp.refresh("b"), []);
+    assert.deepEqual(await mcp.refresh(), {
+      refreshed: ["a", "b"],
+      changed: ["b"],
+      problems: [],
+    });
+    assert.deepEqual((await mcp.refresh("b")).changed, []);
     await assert.rejects(
       mcp.refresh("missing"),
       /No MCP server named "missing"/,
     );
+  });
+
+  it("reads the other servers again when one cannot be reached", async () => {
+    const b = fakeServer({ tools: [SEARCH] });
+    const mcp = manager(
+      { down: { command: "x" }, b: { command: "x" } },
+      { b },
+      { retryFailedAfterMs: 0 },
+    );
+    await mcp.load();
+    b.options.tools = [DELETE];
+    const { refreshed, changed, problems } = await mcp.refresh();
+    assert.deepEqual(refreshed, ["b"]);
+    assert.deepEqual(changed, ["b"]);
+    assert.deepEqual(
+      problems.map((problem) => [problem.server, problem.code]),
+      [["down", "connect_failed"]],
+    );
+    assert.match(problems[0].message, /MCP server "down" failed to connect/);
+  });
+
+  it("counts the tools an entry loads, not all the server offers", async () => {
+    const server = fakeServer({ tools: [SEARCH, DELETE] });
+    const mcp = manager(
+      { a: { command: "x", tools: ["!delete_*"] } },
+      { a: server },
+    );
+    assert.equal((await mcp.status())[0].tools, 1);
+    assert.equal((await mcp.list())[0].cachedTools, 1);
   });
 
   it("swaps a server's plugin into a project instance when its tools change", async () => {
