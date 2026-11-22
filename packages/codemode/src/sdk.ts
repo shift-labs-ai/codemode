@@ -64,6 +64,14 @@ export interface CodemodeOptions {
    */
   outputLimit?: OutputLimitSetting;
   /**
+   * How much of what it produces one action may hold in memory and hand to
+   * the code that called it, for the sake of the process. An action that
+   * produces output in parts, such as a command or a query, keeps what is
+   * past it in an output file, and reads this as `ctx.maxOutputBytes`.
+   * Default: 8 MiB.
+   */
+  maxActionOutputBytes?: number;
+  /**
    * Observer fired in the host process for every action invocation
    * that enters a plugin's `execute()` — unknown paths and failed
    * input validation never reach plugin code and are not reported.
@@ -83,6 +91,8 @@ export interface CodemodeExecuteOptions {
   outputDir?: string;
   /** How much this run hands back, in place of the instance's. */
   outputLimit?: OutputLimitSetting;
+  /** How much one action may hold in memory during this run, in place of the instance's. */
+  maxActionOutputBytes?: number;
 }
 
 export class Codemode {
@@ -135,6 +145,9 @@ export class Codemode {
         : {}),
       ...(options.outputLimit !== undefined
         ? { outputLimit: options.outputLimit }
+        : {}),
+      ...(options.maxActionOutputBytes !== undefined
+        ? { maxActionOutputBytes: options.maxActionOutputBytes }
         : {}),
     };
   }
@@ -344,6 +357,7 @@ export class Codemode {
       maxRunsPerWorker: config.maxRunsPerWorker,
       outputDir: config.outputDir,
       outputLimit: config.outputLimit,
+      maxActionOutputBytes: config.maxActionOutputBytes,
     });
 
     for (const plugin of plugins) {

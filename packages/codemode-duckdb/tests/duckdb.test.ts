@@ -182,11 +182,13 @@ describe("duckdb.query", () => {
     );
   });
 
-  it("keeps the rows past 8 MiB in a file, a line of JSON each", async () => {
+  it("keeps the rows past what the host lets it hold in a file, a line of JSON each", async () => {
     const outputDir = join(harness.tmp, "outbox");
-    const sql =
-      "select range as n, repeat('x', 1000) as text from range(10000)";
-    const { result, error } = await codemode({}, { outputDir }).execute(`
+    const sql = "select range as n, repeat('x', 1000) as text from range(300)";
+    const { result, error } = await codemode(
+      {},
+      { outputDir, maxActionOutputBytes: 100_000 },
+    ).execute(`
       const { rows, totalRows, truncated, fullOutputPath } = await duckdb.query({ sql: "${sql}" });
       return { kept: rows.length, last: rows.at(-1).n, totalRows, truncated, fullOutputPath };
     `);
@@ -198,27 +200,43 @@ describe("duckdb.query", () => {
       truncated: boolean;
       fullOutputPath: string;
     };
-    // A row is 1,023 or 1,024 bytes as a line of JSON.
-    assert.ok(found.kept > 8_100 && found.kept < 8_300);
-    assert.equal(found.last, found.kept - 1);
-    assert.deepEqual([found.totalRows, found.truncated], [10_000, true]);
+    // A row is 1,018 or 1,019 bytes as a line of JSON, and 98 fit in 100,000.
+    assert.deepEqual(
+      [found.kept, found.last, found.totalRows, found.truncated],
+      [98, 97, 300, true],
+    );
     assert.equal(dirname(found.fullOutputPath), outputDir);
     assert.match(found.fullOutputPath, /codemode-duckdb-[0-9a-f]{16}\.jsonl$/);
     const lines = readFileSync(found.fullOutputPath, "utf8").trim().split("\n");
-    assert.equal(lines.length, 10_000);
-    assert.equal(JSON.parse(lines[9_999]).n, 9_999);
+    assert.equal(lines.length, 300);
+    assert.deepEqual(
+      [JSON.parse(lines[0]).n, JSON.parse(lines[299]).n],
+      [0, 299],
+    );
     assert.equal(statSync(found.fullOutputPath).mode & 0o777, 0o600);
+  });
+
+  it("holds 8 MiB of rows unless the host says otherwise", async () => {
+    const { result, error } = await codemode().execute(`
+      const { rows, totalRows, truncated } = await duckdb.query({ sql: "select range as n, repeat('x', 1000) as text from range(9000)" });
+      return [rows.length > 8100 && rows.length < 8300, totalRows, truncated];
+    `);
+    assert.equal(error, undefined);
+    assert.deepEqual(result, [true, 9_000, true]);
   });
 
   it("still returns the first rows where the file cannot be written", async () => {
     const outputDir = join(harness.tmp, "outbox");
-    const { result, error } = await codemode({}, { outputDir }).execute(`
+    const { result, error } = await codemode(
+      {},
+      { outputDir, maxActionOutputBytes: 100_000 },
+    ).execute(`
       require("node:fs").rmSync(${JSON.stringify(outputDir)}, { recursive: true });
-      const { rows, totalRows, truncated, fullOutputPath } = await duckdb.query({ sql: "select range as n, repeat('x', 1000) as text from range(10000)" });
-      return [rows.length > 8000, totalRows, truncated, fullOutputPath === undefined];
+      const { rows, totalRows, truncated, fullOutputPath } = await duckdb.query({ sql: "select range as n, repeat('x', 1000) as text from range(300)" });
+      return [rows.length, totalRows, truncated, fullOutputPath === undefined];
     `);
     assert.equal(error, undefined);
-    assert.deepEqual(result, [true, 10_000, true, true]);
+    assert.deepEqual(result, [98, 300, true, true]);
   });
 
   it("reads and writes files", async () => {

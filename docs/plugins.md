@@ -86,6 +86,7 @@ Return a file's path instead of large or binary content. `writeOutputFile(prefix
 | `ctx.credentials` | The host's request signer, when the host keeps credentials outside this process |
 | `ctx.signal` | An `AbortSignal` that fires when the run that made the call ends. Pass it to work that should stop with the run |
 | `ctx.outputDir` | Where the host keeps output files, when it names a place. Write large or binary output there with `writeOutputFile()` and return the path |
+| `ctx.maxOutputBytes` | How much the host lets an action hold in memory and hand back, 8 MiB by default. Pass it to `runShell`, or keep what is past it in a file |
 | `ctx.log` | `info`, `warn`, and `error`, prefixed with the plugin name |
 | `ctx.updateConnection(patch)` | Persists a change to the connection's config through the host |
 
@@ -159,12 +160,18 @@ import { runShell } from "@shiftlabs/codemode/utils/cli";
 const result = await runShell(
   { program: "/bin/bash", args: ["-c"] },
   "git status --short",
-  { cwd: repo, timeoutMs: 30_000, signal: ctx.signal, outputDir: ctx.outputDir },
+  {
+    cwd: repo,
+    timeoutMs: 30_000,
+    signal: ctx.signal,
+    maxOutputBytes: ctx.maxOutputBytes,
+    outputDir: ctx.outputDir,
+  },
 );
 // { output: " M README.md\n", exitCode: 0, truncated: false, wallTimeMs: 12 }
 ```
 
-Pass `ctx.signal` so that a command ends with the run that started it, and `ctx.outputDir` so that output it cannot hold in memory is kept where the host keeps its output files.
+Pass `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
 
 | Outcome | Result |
 |---|---|
@@ -174,7 +181,7 @@ Pass `ctx.signal` so that a command ends with the run that started it, and `ctx.
 | The script outlives `timeoutMs` | Rejects with `code` `timed_out`. `output` holds what it wrote |
 | `signal` aborts | Rejects with `code` `aborted` |
 
-`output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output is returned whole up to `maxOutputBytes`, 8 MiB by default, which guards the process's memory. Past that it is its last lines, closed by a line that says which lines they are, and the whole of it is written to a file named by `fullOutputPath` that only your account can read. The file is in `outputDir`, or in the system's temporary directory.
+`output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output is returned whole up to `maxOutputBytes`, which guards the process's memory. Past that it is its last lines, closed by a line that says which lines they are, and the whole of it is written to a file named by `fullOutputPath` that only your account can read. The file is in `outputDir`, or in the system's temporary directory.
 
 The command inherits the environment of the codemode process, with `env` added to it. It runs in a process group of its own, and codemode ends that group when its own process exits or is interrupted. Check a failure with `isShellError()`.
 

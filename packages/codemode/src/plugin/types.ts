@@ -146,6 +146,13 @@ export interface ActionContext {
    * the system's temporary directory is then used.
    */
   outputDir?: string;
+  /**
+   * How much of what it produces the action may hold in memory and hand to
+   * the code that called it, as the host sets it. An action that produces
+   * output in parts keeps what is past it in an output file. Present on
+   * every call the engine dispatches.
+   */
+  maxOutputBytes?: number;
   log: {
     info(msg: string): void;
     warn(msg: string): void;

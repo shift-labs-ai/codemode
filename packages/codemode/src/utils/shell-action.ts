@@ -55,7 +55,7 @@ const shellRunOutput = {
   properties: {
     output: {
       type: "string",
-      description: `stdout and stderr together, all of it up to ${formatSize(ACTION_MEMORY_BYTES)}. Past that: its last lines, then a line that says which lines they are.`,
+      description: `stdout and stderr together, all of it up to what the host lets an action hold, ${formatSize(ACTION_MEMORY_BYTES)} by default. Past that: its last lines, then a line that says which lines they are.`,
     },
     exitCode: {
       type: "number",
@@ -95,7 +95,7 @@ export function shellConnectionSchema(defaultShell: string) {
 export interface ShellRunActionOptions {
   /** The program's name as the action's description says it: `bash`, `PowerShell`, `Node.js`. */
   shell: string;
-  /** The start of the name of the file that keeps output past what the action holds in memory. */
+  /** The start of the name of the file that keeps output past `ctx.maxOutputBytes`. */
   outputFilePrefix: string;
   /**
    * The program a call runs, from the one the connection names as `shell`
@@ -143,6 +143,7 @@ export function shellRunAction(
         env,
         timeoutMs,
         signal: ctx.signal,
+        maxOutputBytes: ctx.maxOutputBytes,
         outputDir: ctx.outputDir,
         outputFilePrefix: options.outputFilePrefix,
       });

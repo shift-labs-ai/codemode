@@ -32,11 +32,14 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-/** A plugin whose one action answers the directory it was handed. */
+/** A plugin whose actions answer what the host handed them about output. */
 function probe() {
   const { api, resolve } = createPluginAPI("probe");
   api.registerAction("outputDir", {
     execute: (_input, ctx) => ctx.outputDir ?? null,
+  });
+  api.registerAction("maxOutputBytes", {
+    execute: (_input, ctx) => ctx.maxOutputBytes ?? null,
   });
   return resolve();
 }
@@ -166,5 +169,45 @@ describe("the directory a host names for output", () => {
     );
     assert.equal(truncated, true);
     assert.equal(dirname(fullResultPath as string), join(project, "outbox"));
+  });
+});
+
+describe("how much a host lets an action hold in memory", () => {
+  const run = "return await probe.maxOutputBytes()";
+
+  it("reaches every action as ctx.maxOutputBytes: 8 MiB, or what the instance or one run sets", async () => {
+    assert.equal((await codemode().execute(run)).result, 8 * 1024 * 1024);
+    const set = codemode({ maxActionOutputBytes: 2_048 });
+    assert.equal((await set.execute(run)).result, 2_048);
+    assert.equal(
+      (await set.execute(run, { maxActionOutputBytes: 4_096 })).result,
+      4_096,
+    );
+  });
+
+  it("is refused when it is not a size, or too small to say anything in", async () => {
+    for (const maxActionOutputBytes of [0, 1_023, 1.5, Number.NaN]) {
+      const { error } = await codemode({ maxActionOutputBytes }).execute(run);
+      assert.match(error ?? "", /Invalid maxActionOutputBytes/);
+    }
+  });
+
+  it("comes from a project's config.json", async () => {
+    const project = join(tmp, "project");
+    mkdirSync(join(project, ".codemode"), { recursive: true });
+    writeFileSync(
+      join(project, ".codemode", "config.json"),
+      JSON.stringify({ connections: [], maxActionOutputBytes: 2_048 }),
+    );
+    const loaded = await Codemode.fromProject(project, {
+      builtinDir: join(tmp, "no-builtins"),
+      userDir: join(tmp, "home"),
+      packages: false,
+      mcp: false,
+    });
+    assert.ok(loaded);
+    instances.push(loaded);
+    loaded.addPlugin(probe());
+    assert.equal((await loaded.execute(run)).result, 2_048);
   });
 });

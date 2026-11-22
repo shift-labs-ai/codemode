@@ -48,6 +48,7 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 | `maxRunsPerWorker` | Runs one worker serves before it is replaced. The default is 500 |
 | `outputDir` | Where output files are written: a command's whole output, a run's whole result, generated media. The default is the system's temporary directory |
 | `outputLimit` | How much a run hands back. The default is 2,000 lines and 50 KB. See [Limit a run's result](#limit-a-runs-result) |
+| `maxActionOutputBytes` | How much one action may hold in memory. The default is 8 MiB. See [Limit what an action holds](#limit-what-an-action-holds) |
 
 `addPlugin(plugin, connections?)` registers another plugin. Later runs see it, and a run in progress is not disturbed. `actions()`, `plugins()`, and `connections()` report what the instance holds. `connections()` lists only in-memory connections.
 
@@ -117,6 +118,26 @@ Cut text ends with a line that says which lines it shows and names the file, suc
 A run's `error` and `logs` are held to the same limit. Each keeps its last lines and names a file with all of it.
 
 Pass either option to `execute()` to set it for one run. Actions read the directory as `ctx.outputDir`, and the shell runner, the DuckDB package, and the media plugins write their files there. Output files are readable only by the account that runs codemode, and codemode never deletes them: the host that names the directory clears it.
+
+## Limit what an action holds
+
+An action that produces output in parts, such as a command or a query, holds at most 8 MiB of it in memory and hands that to the code that called it. Set `maxActionOutputBytes` to change that:
+
+```typescript
+const codemode = Codemode.create({
+  plugins,
+  maxActionOutputBytes: 64 * 1024 * 1024,
+});
+```
+
+This limit guards the process, where the output limit serves the reader. They are set apart:
+
+| Setting | Applies to | Default | Past it |
+|---|---|---|---|
+| `maxActionOutputBytes` | What one action hands to code | 8 MiB | The action keeps the rest in a file and says so in its result |
+| `outputLimit` | What a run hands back | 2,000 lines and 50 KB | Codemode cuts the result and names a file with all of it |
+
+The least it can be is 1,024 bytes. Pass it to `execute()` to set it for one run. Actions read it as `ctx.maxOutputBytes`; `runShell`, the shell packages, and the DuckDB package follow it.
 
 ## Load plugins
 

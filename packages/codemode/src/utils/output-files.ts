@@ -18,8 +18,10 @@ import { join } from "node:path";
 
 /**
  * How much of what it produces one action holds in memory and hands to the
- * code that called it. Past it, an action that produces output in parts
- * keeps the rest in a file. It guards the process, not a reader.
+ * code that called it, unless the host sets another amount. Past it, an
+ * action that produces output in parts keeps the rest in a file. It guards
+ * the process, not a reader. Actions read the host's amount as
+ * `ctx.maxOutputBytes`.
  */
 export const ACTION_MEMORY_BYTES = 8 * 1024 * 1024;
 

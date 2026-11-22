@@ -42,10 +42,10 @@ Pass values in `params` instead of writing them into the SQL.
 | `columns` | Each column's `name` and DuckDB `type`, in order |
 | `rows` | One object per row, keyed by column name |
 | `totalRows` | How many rows the statement returned |
-| `truncated` | Whether `rows` is fewer than all of them, which a result past 8 MiB is |
+| `truncated` | Whether `rows` is fewer than all of them |
 | `fullOutputPath` | A file with every row, a line of JSON each, when `truncated` |
 
-Code gets every row up to 8 MiB of them. A larger result is read to its end and written to a file in the host's output directory, and `rows` is then the first 8 MiB.
+Code gets every row up to what the host lets an action hold, [8 MiB by default](../../docs/sdk.md#limit-what-an-action-holds). A larger result is read to its end and written to a file in the host's output directory, and `rows` is then the first of them that fit.
 
 What a run returns is a separate matter: codemode cuts it to the host's [output limit](../../docs/sdk.md#limit-a-runs-result), 2,000 lines or 50 KB by default. Aggregate in SQL or pick what matters in code, and return that.
 

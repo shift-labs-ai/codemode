@@ -4,7 +4,13 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -58,10 +64,12 @@ function sh(rl: CodemodePluginAPI): void {
 async function run(
   input: Record<string, unknown>,
   config: Record<string, unknown> = {},
+  options: Parameters<typeof Codemode.create>[0] = {},
 ): Promise<ShellResult> {
   const codemode = Codemode.create({
     plugins: [sh],
     connections: [{ name: "sh", plugin: "sh", config }],
+    ...options,
   });
   instances.push(codemode);
   const { result, error } = await codemode.execute(
@@ -112,6 +120,25 @@ describe("a shell plugin's run action", () => {
       );
     },
   );
+
+  posix("holds as much output as the host lets an action hold", async () => {
+    const command =
+      "i=0; while [ $i -lt 100 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done";
+    const whole = await run({ command });
+    assert.deepEqual([whole.truncated, whole.output.length], [false, 4_107]);
+    const bounded = await run(
+      { command },
+      {},
+      { maxActionOutputBytes: 1_024, outputDir: tmp },
+    );
+    assert.equal(bounded.truncated, true);
+    assert.ok(Buffer.byteLength(bounded.output) <= 1_024);
+    assert.match(
+      bounded.output,
+      /\[Showing lines \d+-101 of 101 \(4\.0KB in all\)\. Full output: .*codemode-sh-[0-9a-f]{16}\.log\]$/,
+    );
+    assert.equal(statSync(bounded.fullOutputPath as string).size, 4_107);
+  });
 
   it("is a write that says which shell it runs", () => {
     const action = shellRunAction({

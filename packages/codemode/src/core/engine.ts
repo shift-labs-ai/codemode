@@ -30,7 +30,9 @@ import type {
   TypedInputSchema,
 } from "../plugin/types.js";
 import { notifyObserver } from "../utils/observer.js";
+import { ACTION_MEMORY_BYTES } from "../utils/output-files.js";
 import {
+  MIN_OUTPUT_LIMIT,
   type OutputLimitSetting,
   resolveOutputLimit,
 } from "../utils/output-limit.js";
@@ -60,6 +62,8 @@ export interface EngineOptions {
   outputDir?: string;
   /** How much this run hands back. Default: the config's `outputLimit`. */
   outputLimit?: OutputLimitSetting;
+  /** How much one action may hold in memory. Default: the config's `maxActionOutputBytes`. */
+  maxActionOutputBytes?: number;
 }
 
 /**
@@ -351,6 +355,22 @@ export class ExecutionEngine {
     } catch (error) {
       return { result: null, error: (error as Error).message, logs };
     }
+    const maxActionOutputBytes =
+      options?.maxActionOutputBytes ??
+      this.config.maxActionOutputBytes ??
+      ACTION_MEMORY_BYTES;
+    if (
+      !(
+        Number.isSafeInteger(maxActionOutputBytes) &&
+        maxActionOutputBytes >= MIN_OUTPUT_LIMIT.bytes
+      )
+    ) {
+      return {
+        result: null,
+        error: `Invalid maxActionOutputBytes: ${maxActionOutputBytes}. Pass a whole number of bytes, at least ${MIN_OUTPUT_LIMIT.bytes}.`,
+        logs,
+      };
+    }
     if (outputDir !== undefined) {
       try {
         mkdirSync(outputDir, { recursive: true });
@@ -492,7 +512,7 @@ export class ExecutionEngine {
             msg.args,
             ended.signal,
             options?.context,
-            outputDir,
+            { outputDir, maxOutputBytes: maxActionOutputBytes },
           ).then(
             (value) => {
               let serialized: unknown;
@@ -580,8 +600,8 @@ export class ExecutionEngine {
     path: string,
     rawArgs: unknown,
     signal: AbortSignal,
-    context?: unknown,
-    outputDir?: string,
+    context: unknown,
+    output: { outputDir: string | undefined; maxOutputBytes: number },
   ): Promise<unknown> {
     // A call written with no arguments reaches the action as `{}`, not
     // `undefined`, so plugins can read `input.foo` without guarding.
@@ -618,7 +638,10 @@ export class ExecutionEngine {
       connection,
       context,
       signal,
-      ...(outputDir === undefined ? {} : { outputDir }),
+      ...(output.outputDir === undefined
+        ? {}
+        : { outputDir: output.outputDir }),
+      maxOutputBytes: output.maxOutputBytes,
       ...(this.hooks.credentialBroker && plugin.credential
         ? {
             credentials: this.hooks.credentialBroker({

@@ -27,6 +27,13 @@ export interface CodemodeConfig {
    * lines and 50 KB.
    */
   outputLimit?: OutputLimitSetting;
+  /**
+   * How much of what it produces one action may hold in memory and hand to
+   * the code that called it. An action that produces output in parts, such
+   * as a command or a query, keeps what is past it in an output file.
+   * Default: 8 MiB.
+   */
+  maxActionOutputBytes?: number;
   /** Installed plugin packages; `PackageManager` reads and writes them. */
   packages?: PackageEntry[];
   /** What the CLI installs packages with. Read from the user's config. Default: npm. */
