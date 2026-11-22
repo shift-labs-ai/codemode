@@ -1,5 +1,7 @@
+import { dataUrlOf } from "../image.js";
 import { nearestRatio } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
+import { type ImagesAnswer, imagesOf } from "./answer.js";
 
 /** The shapes every Recraft model takes, as `w:h`. */
 const RATIOS = [
@@ -27,10 +29,6 @@ const model = (id: string): ImageModel => ({
   create: true,
   edit: !/^recraftv2|flash/.test(id),
 });
-
-interface Answer {
-  data?: Array<{ b64_json?: string }>;
-}
 
 export const recraft: ImageProvider = {
   name: "recraft",
@@ -72,14 +70,14 @@ export const recraft: ImageProvider = {
       n: numImages,
       response_format: "b64_json",
     };
-    const answer = await api.request<Answer>(
+    const answer = await api.request<ImagesAnswer>(
       images.length
         ? {
             path: "images/imageToImage",
             method: "POST",
             json: {
               ...common,
-              image_url: images[0].dataUrl,
+              image_url: dataUrlOf(images[0]),
               strength: EDIT_STRENGTH,
             },
           }
@@ -92,8 +90,6 @@ export const recraft: ImageProvider = {
             },
           },
     );
-    return (answer.data ?? []).flatMap(({ b64_json }) =>
-      b64_json ? [{ base64: b64_json }] : [],
-    );
+    return imagesOf(answer);
   },
 };

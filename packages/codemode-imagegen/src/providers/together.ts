@@ -1,5 +1,7 @@
+import { dataUrlOf } from "../image.js";
 import { fitSize } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
+import { type ImagesAnswer, imagesOf } from "./answer.js";
 
 /** Together's image models take sides that are multiples of 16, within these bounds. */
 const SIZES = {
@@ -25,10 +27,6 @@ interface Listed {
   id?: string;
   display_name?: string;
   type?: string;
-}
-
-interface Answer {
-  data?: Array<{ b64_json?: string }>;
 }
 
 export const together: ImageProvider = {
@@ -69,8 +67,8 @@ export const together: ImageProvider = {
   async generate(api, { prompt, model: { id }, numImages, size, images }) {
     if (takesOneImage(id) && images.length > 1)
       throw new Error(`${id} takes one image. Pass one path in images.`);
-    const urls = images.map((image) => image.dataUrl);
-    const answer = await api.request<Answer>({
+    const urls = images.map(dataUrlOf);
+    const answer = await api.request<ImagesAnswer>({
       path: "images/generations",
       method: "POST",
       json: {
@@ -86,8 +84,6 @@ export const together: ImageProvider = {
           : {}),
       },
     });
-    return (answer.data ?? []).flatMap(({ b64_json }) =>
-      b64_json ? [{ base64: b64_json }] : [],
-    );
+    return imagesOf(answer);
   },
 };

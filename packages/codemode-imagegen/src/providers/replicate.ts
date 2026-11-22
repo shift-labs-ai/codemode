@@ -1,7 +1,7 @@
 import { pathSegment, pathSegments } from "@shiftlabs/codemode";
 import { inputFor } from "../schema.js";
 import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
-import { finished, hostedModel, modelFields } from "./hosted.js";
+import { describedModel, finished, hostedModel } from "./hosted.js";
 
 /** Replicate's collections for the two things this package does. */
 const COLLECTIONS = [
@@ -43,20 +43,21 @@ function listed(
     : [];
 }
 
-async function find(api: ProviderApi, id: string) {
+async function findModel(api: ProviderApi, id: string) {
   const model = await api.request<Listed>({
     path: `models/${pathSegments(id)}`,
   });
   const schemas =
     model.latest_version?.openapi_schema?.components?.schemas ?? {};
-  return {
-    version: model.latest_version?.id,
-    model: hostedModel(
-      { id, description: model.description },
-      schemas.Input,
-      schemas,
-    ),
-  };
+  return hostedModel(
+    {
+      id,
+      description: model.description,
+      version: model.latest_version?.id,
+    },
+    schemas.Input,
+    schemas,
+  );
 }
 
 export const replicate: ImageProvider = {
@@ -101,11 +102,12 @@ export const replicate: ImageProvider = {
       ),
     );
   },
-  findModel: async (api, id) => (await find(api, id)).model,
+  findModel,
   async generate(api, request) {
     const { id } = request.model;
-    const { model, version } = await find(api, id);
-    const fields = modelFields(model, id);
+    const { fields, version } = await describedModel(request.model, (found) =>
+      findModel(api, found),
+    );
     // The request waits up to a minute for the model, and answers a running job past that.
     let prediction = await api.request<Prediction>({
       path: "predictions",

@@ -1,6 +1,9 @@
+import { dataUrlOf } from "../image.js";
 import { nearestRatio, type Size } from "../size.js";
 import type { ImageProvider } from "../types.js";
+import { type ImagesAnswer, imagesOf } from "./answer.js";
 
+/** The aspect ratios xAI's image models take. */
 const RATIOS = [
   "1:1",
   "3:4",
@@ -27,10 +30,6 @@ function resolutionFor({ width, height }: Size): string {
 
 interface Listed {
   models?: Array<{ id?: string; input_modalities?: string[] }>;
-}
-
-interface Answer {
-  data?: Array<{ b64_json?: string }>;
 }
 
 export const xai: ImageProvider = {
@@ -62,8 +61,8 @@ export const xai: ImageProvider = {
     );
   },
   async generate(api, { prompt, model, numImages, size, images }) {
-    const sources = images.map((image) => ({ url: image.dataUrl }));
-    const answer = await api.request<Answer>({
+    const sources = images.map((image) => ({ url: dataUrlOf(image) }));
+    const answer = await api.request<ImagesAnswer>({
       path: images.length ? "images/edits" : "images/generations",
       method: "POST",
       json: {
@@ -81,8 +80,6 @@ export const xai: ImageProvider = {
         ...(sources.length > 1 ? { images: sources } : {}),
       },
     });
-    return (answer.data ?? []).flatMap(({ b64_json }) =>
-      b64_json ? [{ base64: b64_json }] : [],
-    );
+    return imagesOf(answer);
   },
 };

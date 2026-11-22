@@ -1,6 +1,7 @@
 import { multipartBody } from "@shiftlabs/codemode";
 import { fitSize, nearestSize, type Size } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
+import { type ImagesAnswer, imagesOf } from "./answer.js";
 
 /** The sizes the first GPT Image line and DALL-E take. */
 const FIXED_SIZES: Size[] = [
@@ -27,10 +28,6 @@ function sizeFor(id: string, size: Size): string {
     ? nearestSize(size, FIXED_SIZES)
     : fitSize(size, FREE_SIZES);
   return `${width}x${height}`;
-}
-
-interface Answer {
-  data?: Array<{ b64_json?: string }>;
 }
 
 export const openai: ImageProvider = {
@@ -68,7 +65,7 @@ export const openai: ImageProvider = {
       n: numImages,
       ...(size ? { size: sizeFor(id, size) } : {}),
     };
-    let answer: Answer;
+    let answer: ImagesAnswer;
     if (images.length) {
       const form = new FormData();
       for (const [name, value] of Object.entries(common))
@@ -95,8 +92,6 @@ export const openai: ImageProvider = {
           ? { ...common, response_format: "b64_json" }
           : { ...common, output_format: "png" },
       });
-    return (answer.data ?? []).flatMap(({ b64_json }) =>
-      b64_json ? [{ base64: b64_json }] : [],
-    );
+    return imagesOf(answer);
   },
 };

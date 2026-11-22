@@ -1,7 +1,21 @@
 /**
  * What an image is, read from its first bytes: its type, and its size in
- * pixels where the format states one.
+ * pixels where the format states one. And the two forms an API takes an
+ * image's bytes in.
  */
+
+/** An image's bytes in base64, for an API that takes them in JSON. */
+export function base64Of(image: { bytes: Uint8Array }): string {
+  return Buffer.from(image.bytes).toString("base64");
+}
+
+/** An image as a `data:` URL, for an API that takes a link or one of these. */
+export function dataUrlOf(image: {
+  bytes: Uint8Array;
+  mimeType: string;
+}): string {
+  return `data:${image.mimeType};base64,${base64Of(image)}`;
+}
 
 export interface ImageFacts {
   mimeType: string;

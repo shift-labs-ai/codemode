@@ -1,7 +1,7 @@
 import { pathSegment, pathSegments } from "@shiftlabs/codemode";
 import { inputFor } from "../schema.js";
 import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
-import { finished, hostedModel, modelFields } from "./hosted.js";
+import { describedModel, finished, hostedModel } from "./hosted.js";
 
 /** fal's categories for the two things this package does. */
 const CATEGORIES = ["text-to-image", "image-to-image"];
@@ -96,7 +96,9 @@ export const fal: ImageProvider = {
   findModel,
   async generate(api, request) {
     const { id } = request.model;
-    const fields = modelFields(await findModel(api, id), id);
+    const { fields } = await describedModel(request.model, (found) =>
+      findModel(api, found),
+    );
     const { request_id } = await api.request<{ request_id?: string }>({
       path: pathSegments(id),
       method: "POST",

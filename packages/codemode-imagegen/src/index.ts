@@ -11,7 +11,7 @@
  * provider's key. Code never names a provider.
  */
 
-import { basename, extname } from "node:path";
+import { basename } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   type ActionContext,
@@ -172,30 +172,20 @@ function described({ id, name, description, create, edit }: ImageModel) {
   };
 }
 
-const MIME_TYPES: Readonly<Record<string, string>> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-};
+/** The types of image a model edits. */
+const SOURCE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
-/** Read an image to edit. Its type is what its bytes say, else what its name says. */
+/** Read an image to edit. What it is, its bytes say: a file that is none of the types a model edits is refused. */
 async function sourceImage(path: string): Promise<SourceImage> {
   const bytes = await readLocalFile(path, {
     subject: `${NAME}: ${path}`,
     maxBytes: MAX_SOURCE_BYTES,
     oversize: `${NAME}: ${path} is larger than ${MAX_SOURCE_BYTES / (1024 * 1024)} MiB`,
   });
-  const mimeType =
-    imageFacts(bytes)?.mimeType ?? MIME_TYPES[extname(path).toLowerCase()];
-  if (!mimeType) throw new Error(`${NAME}: ${path} is not an image.`);
-  return {
-    bytes,
-    mimeType,
-    fileName: basename(path),
-    dataUrl: `data:${mimeType};base64,${bytes.toString("base64")}`,
-  };
+  const facts = imageFacts(bytes);
+  if (!facts || !SOURCE_TYPES.includes(facts.mimeType))
+    throw new Error(`${NAME}: ${path} is not a PNG, JPEG, WebP or GIF image.`);
+  return { bytes, mimeType: facts.mimeType, fileName: basename(path) };
 }
 
 const sizeInputs = {
@@ -357,7 +347,7 @@ export function imagegen(
       );
     const response = await downloadResource(url.href, {
       allowedOrigins: [url.origin],
-      fetch: ((input, init) => globalThis.fetch(input, init)) as typeof fetch,
+      fetch: globalThis.fetch,
     });
     if (!response.ok)
       throw new Error(
@@ -460,7 +450,6 @@ export function imagegen(
             ),
           ]),
         ),
-        ...Object.assign({}, ...providers.map((provider) => provider.fields)),
       }),
     );
 

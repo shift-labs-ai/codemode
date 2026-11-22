@@ -10,14 +10,15 @@ import type { ImageModel, ProviderApi } from "../types.js";
 export const JOB_DEADLINE_MS = 5 * 60_000;
 const POLL_MS = 1_500;
 
-/** A hosted model with the fields its input takes. */
+/** A hosted model as its host describes it: the fields its input takes, and the version to run. */
 export interface HostedModel extends ImageModel {
   fields: ModelFields;
+  version?: string;
 }
 
 /** A model and its fields from its input schema, or nothing when it takes no prompt. */
 export function hostedModel(
-  about: { id: string; name?: string; description?: string },
+  about: { id: string; name?: string; description?: string; version?: string },
   input: unknown,
   schemas: unknown,
 ): HostedModel | undefined {
@@ -27,11 +28,27 @@ export function hostedModel(
       id: about.id,
       ...(about.name ? { name: about.name } : {}),
       ...(about.description ? { description: about.description } : {}),
+      ...(about.version ? { version: about.version } : {}),
       create: !fields.images?.required,
       edit: fields.images !== undefined,
       fields,
     }
   );
+}
+
+/**
+ * A request's model as its host describes it. A model the plugin found by
+ * its id already is; one from a list is asked for with `find`.
+ */
+export async function describedModel(
+  model: ImageModel,
+  find: (id: string) => Promise<HostedModel | undefined>,
+): Promise<HostedModel> {
+  const described =
+    "fields" in model ? (model as HostedModel) : await find(model.id);
+  if (!described)
+    throw new Error(`${model.id} publishes no input this package can fill.`);
+  return described;
 }
 
 /**
@@ -54,15 +71,4 @@ export async function finished<T>(
       );
     await api.wait(POLL_MS);
   }
-}
-
-/** The fields of a model as its host described it, or a refusal when it described none. */
-export function modelFields(
-  found: ImageModel | undefined,
-  id: string,
-): ModelFields {
-  const fields = (found as HostedModel | undefined)?.fields;
-  if (!fields)
-    throw new Error(`${id} publishes no input this package can fill.`);
-  return fields;
 }

@@ -3,7 +3,6 @@
  * goes, the models it has, and how one request for images is made of it.
  */
 
-import type * as t from "typebox";
 import type { Size } from "./size.js";
 
 /** A model a provider makes images with. */
@@ -23,8 +22,6 @@ export interface SourceImage {
   bytes: Uint8Array<ArrayBuffer>;
   mimeType: string;
   fileName: string;
-  /** The image as a `data:` URL, for an API that takes it in JSON. */
-  dataUrl: string;
 }
 
 /** One request for images, the same for every provider. */
@@ -81,8 +78,6 @@ export interface ImageProvider {
   key: { header: string; prefix?: string } | { query: string };
   /** The addresses the key may be sent beneath, by a name no other provider uses. The first is the default. */
   targets: Record<string, ProviderTarget>;
-  /** Connection fields of the provider's own, beside its key. */
-  fields?: Record<string, t.TSchema>;
   /** Hosts its images are fetched from, each with its subdomains. Fetches carry no key. */
   downloads?: string[];
   /** The model each action uses when neither the call nor the connection names one. */

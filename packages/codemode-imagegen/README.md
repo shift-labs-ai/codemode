@@ -59,7 +59,7 @@ await imagegen.edit({
 });
 ```
 
-`images` is 1 to 8 paths of PNG, JPEG, WebP, or GIF files. Some models take one image, and a call that passes more is refused.
+`images` is 1 to 8 paths of PNG, JPEG, WebP, or GIF files. What a file is, its bytes say: one that is none of these is refused, whatever its name. Some models take one image, and a call that passes more is refused.
 
 ## Choose a model
 

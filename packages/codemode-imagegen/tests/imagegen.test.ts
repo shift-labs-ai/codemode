@@ -417,11 +417,18 @@ describe("imagegen.edit", () => {
 
   it("refuses a file that is not an image, and one that is not there", async () => {
     const sent = serve([["/models", () => ({ data: [] })]]);
-    const text = join(harness.tmp, "notes.txt");
+    // Its bytes say what a file is, so a name that ends in .png does not make one an image.
+    const text = join(harness.tmp, "notes.png");
     writeFileSync(text, "not an image");
     assert.match(
       await refused("edit", { prompt: "p", images: [text] }, through("openai")),
-      /notes\.txt is not an image\./,
+      /notes\.png is not a PNG, JPEG, WebP or GIF image\./,
+    );
+    const svg = join(harness.tmp, "logo.svg");
+    writeFileSync(svg, '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    assert.match(
+      await refused("edit", { prompt: "p", images: [svg] }, through("openai")),
+      /logo\.svg is not a PNG, JPEG, WebP or GIF image\./,
     );
     assert.match(
       await refused(
@@ -504,6 +511,45 @@ describe("a provider that hosts other people's models", () => {
     assert.equal(download?.headers.authorization, undefined);
     assert.deepEqual(readFileSync(result.images[0].path), PNG);
     assert.equal(result.model, "fal-ai/flux/schnell");
+  });
+
+  it("fal: asks once for the schema of a model its list does not hold", async () => {
+    const sent = serve([
+      [
+        "expand=openapi",
+        () => ({
+          models: [
+            {
+              endpoint_id: "fal-ai/unlisted",
+              metadata: { category: "text-to-image" },
+              openapi: {
+                components: {
+                  schemas: { UnlistedInput: { properties: { prompt: {} } } },
+                },
+              },
+            },
+          ],
+        }),
+      ],
+      ["api.fal.ai", () => ({ models: [] })],
+      ["/status", () => ({ status: "COMPLETED" })],
+      [
+        "/requests/r-1",
+        () => ({ images: [{ url: "https://fal.media/files/a.png" }] }),
+      ],
+      ["queue.fal.run", () => ({ request_id: "r-1" })],
+      ["fal.media", () => PNG],
+    ]);
+    const result = await call<Made>(
+      "create",
+      { prompt: "p", model: "fal-ai/unlisted" },
+      through("fal"),
+    );
+    assert.equal(result.model, "fal-ai/unlisted");
+    assert.equal(
+      sent.filter(({ url }) => url.includes("expand=openapi")).length,
+      1,
+    );
   });
 
   it("fal: refuses a size the model has no field for, before queueing anything", async () => {
@@ -1062,11 +1108,11 @@ describe("a hosted model's schema", () => {
     images: [],
   };
   const image = {
-    bytes: new Uint8Array(),
+    bytes: new Uint8Array([0]),
     mimeType: "image/png",
     fileName: "a.png",
-    dataUrl: "data:image/png;base64,AA==",
   };
+  const dataUrl = "data:image/png;base64,AA==";
 
   it("says which fields take the count, the size and the images", () => {
     assert.deepEqual(
@@ -1128,7 +1174,7 @@ describe("a hosted model's schema", () => {
         size: undefined,
         images: [image, image],
       }),
-      { prompt: "p", image_urls: [image.dataUrl, image.dataUrl] },
+      { prompt: "p", image_urls: [dataUrl, dataUrl] },
     );
   });
 

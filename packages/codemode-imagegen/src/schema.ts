@@ -6,6 +6,7 @@
  * images, so one request can be written as that model's input.
  */
 
+import { dataUrlOf } from "./image.js";
 import { nearestRatio, nearestSize, parseSize, type Size } from "./size.js";
 import type { ImageRequest } from "./types.js";
 
@@ -137,7 +138,7 @@ export function inputFor(
     if (!fields.images) throw new Error(`${model.id} takes no images.`);
     if (!fields.images.many && images.length > 1)
       throw new Error(`${model.id} takes one image. Pass one path in images.`);
-    const urls = images.map((image) => image.dataUrl);
+    const urls = images.map(dataUrlOf);
     input[fields.images.name] = fields.images.many ? urls : urls[0];
   }
   return input;
