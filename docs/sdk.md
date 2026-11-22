@@ -47,7 +47,7 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 | `timeoutMs`, `memoryLimitBytes` | Default limits for each run: 30 seconds and 64 MB |
 | `maxRunsPerWorker` | Runs one worker serves before it is replaced. The default is 500 |
 | `outputDir` | Where output files are written: a command's whole output, a run's whole result, generated media. The default is the system's temporary directory |
-| `maxResultBytes` | The most a run's result may take. The default is no limit. See [Limit a run's result](#limit-a-runs-result) |
+| `outputLimit` | How much a run hands back. The default is 2,000 lines and 50 KB. See [Limit a run's result](#limit-a-runs-result) |
 
 `addPlugin(plugin, connections?)` registers another plugin. Later runs see it, and a run in progress is not disturbed. `actions()`, `plugins()`, and `connections()` report what the instance holds. `connections()` lists only in-memory connections.
 
@@ -81,26 +81,40 @@ Concurrent calls to `execute()` run in separate workers. See [Run Code](usage.md
 
 ## Limit a run's result
 
-A run can return more than its caller should read at once, such as every row of a table or the whole result of an MCP tool. Set `maxResultBytes` to bound it, and `outputDir` to choose where the rest is kept:
+A run hands back at most 2,000 lines and 50 KB, whichever comes first, so that whoever reads the result, usually a model, is not handed more than it can use. Set `outputLimit` to change that, and `outputDir` to choose where the rest is kept:
 
 ```typescript
 const codemode = Codemode.create({
   plugins,
   outputDir: "/data/workspace/outbox",
-  maxResultBytes: 64 * 1024,
+  outputLimit: { lines: 500, bytes: 16 * 1024 },
 });
 
 const { result, truncated, fullResultPath } = await codemode.execute(code);
 ```
 
-A result within the limit is returned as it is. A larger one is written whole to a new file in `outputDir`, and `result` is then text: the start and the end of the result's JSON, or of the string it is, around a note of how many bytes were left out.
+Either number can be set alone, and `outputLimit: false` sets no limit.
+
+The limit applies to what a run returns, not to what happens inside it. Code works with whole values: an action that returns 400 KB of rows gives the code all of them, and only what the code returns is measured.
+
+A result within the limit is returned as it is. A larger one is written whole to a new file in `outputDir` and cut:
+
+| Result | What is returned |
+|---|---|
+| A string | Its last lines |
+| A value that one string makes too large, such as a command's output beside its exit code | The same value, with that string cut to its last lines |
+| Any other value | Text: the first lines of its JSON |
+
+The cut text ends with a line that says which lines it shows and names the file, such as `[Showing lines 1883-3120 of 3120 (212.4KB in all). Full output: /data/workspace/outbox/codemode-result-3f9c2a1b7d4e5f60.txt]`.
 
 | Field | Contents |
 |---|---|
-| `truncated` | `true` when `result` is the start and end of a larger one |
+| `truncated` | `true` when `result` is cut from a larger one |
 | `fullResultPath` | The file that holds the whole result: `.json`, or `.txt` for a string |
 
-Pass either option to `execute()` to set it for one run. Actions read the directory as `ctx.outputDir`, and the shell runner and the media plugins write their files there. Output files are readable only by the account that runs codemode, and codemode never deletes them: the host that names the directory clears it.
+A run's `error` and `logs` are held to the same limit. Each keeps its last lines and names a file with all of it.
+
+Pass either option to `execute()` to set it for one run. Actions read the directory as `ctx.outputDir`, and the shell runner, the DuckDB package, and the media plugins write their files there. Output files are readable only by the account that runs codemode, and codemode never deletes them: the host that names the directory clears it.
 
 ## Load plugins
 

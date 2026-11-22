@@ -68,6 +68,10 @@ program
     collect,
     [],
   )
+  .option(
+    "--no-limit",
+    "Print the whole result and logs, however large, instead of cutting them to the output limit",
+  )
   .addHelpText(
     "after",
     `
@@ -87,6 +91,7 @@ Examples:
     await exec(code, {
       file: opts.file,
       packages: opts.package,
+      limit: opts.limit,
       json: globals.json,
       quiet: globals.quiet,
     });

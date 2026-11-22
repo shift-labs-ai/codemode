@@ -22,10 +22,9 @@ import {
   DuckDBTypeId,
 } from "@duckdb/node-api";
 import {
+  ACTION_MEMORY_BYTES,
   type ActionContext,
   type CodemodePluginAPI,
-  formatSize,
-  OUTPUT_LIMIT,
   OutputFileWriter,
 } from "@shiftlabs/codemode";
 import { packageVersion } from "@shiftlabs/codemode/utils/cli";
@@ -176,9 +175,9 @@ class Database {
   }
 
   /**
-   * A result's rows within the output limit: the first of them, a row
-   * standing for a line. Past the limit every row goes to a file, a line of
-   * JSON each, and the result is read to its end to write it and to count
+   * A result's rows: all of them while they fit in what an action holds in
+   * memory, and then the first of them, with every row in a file, a line of
+   * JSON each. The result is read to its end to write the file and to count
    * its rows.
    */
   private async rows(
@@ -210,10 +209,7 @@ class Database {
           const size = Buffer.byteLength(line, "utf8");
           if (file) {
             lines += line;
-          } else if (
-            rows.length < OUTPUT_LIMIT.lines &&
-            keptBytes + size <= OUTPUT_LIMIT.bytes
-          ) {
+          } else if (keptBytes + size <= ACTION_MEMORY_BYTES) {
             rows.push(row);
             kept += line;
             keptBytes += size;
@@ -335,7 +331,8 @@ const queryOutput = {
     },
     rows: {
       type: "array",
-      description: `One object per row, keyed by column name: the first ${OUTPUT_LIMIT.lines} rows or ${formatSize(OUTPUT_LIMIT.bytes)} of them, whichever comes first. A 64-bit integer is a number when a number holds it exactly, else a string. A decimal is a string.`,
+      description:
+        "One object per row, keyed by column name. A 64-bit integer is a number when a number holds it exactly, else a string. A decimal is a string.",
       items: { type: "object" },
     },
     totalRows: {
@@ -344,7 +341,8 @@ const queryOutput = {
     },
     truncated: {
       type: "boolean",
-      description: "Whether `rows` is fewer than all of them.",
+      description:
+        "Whether `rows` is fewer than all of them: they are the first 8 MiB of a larger result.",
     },
     fullOutputPath: {
       type: "string",
@@ -374,7 +372,8 @@ export default function duckdb(rl: CodemodePluginAPI): void {
 
   rl.registerAction("query", {
     access: "write",
-    description: `Run DuckDB SQL and return its rows. Rows are cut to the first ${OUTPUT_LIMIT.lines} or ${formatSize(OUTPUT_LIMIT.bytes)}, whichever comes first, with all of them in the file \`fullOutputPath\` names: select fewer, or aggregate. SQL can read and write files, attach other databases, and load extensions. Without \`db\`, the query runs on a new in-memory database and nothing it creates is kept.`,
+    description:
+      "Run DuckDB SQL and return its rows. SQL can read and write files, attach other databases, and load extensions. Without `db`, the query runs on a new in-memory database and nothing it creates is kept.",
     hints: { destructive: true, openWorld: true },
     inputSchema: queryInput,
     outputSchema: queryOutput,

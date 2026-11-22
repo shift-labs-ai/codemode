@@ -3,9 +3,9 @@ import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
 import {
+  ACTION_MEMORY_BYTES,
+  clippedNote,
   clipTail,
-  formatSize,
-  OUTPUT_LIMIT,
   OutputFileWriter,
   type OutputLimit,
 } from "./output-files.js";
@@ -32,9 +32,9 @@ export interface RunShellOptions {
   timeoutMs?: number;
   /** Aborting kills the command's process group and rejects the call. */
   signal?: AbortSignal;
-  /** How many of its last lines the result carries. Default: `OUTPUT_LIMIT.lines`, 2000. */
+  /** How many of its last lines the result carries. Default: all of them. */
   maxOutputLines?: number;
-  /** How many bytes of its last lines the result carries. Default: `OUTPUT_LIMIT.bytes`, 50 KB. */
+  /** How many bytes of its last lines the result carries. Default: `ACTION_MEMORY_BYTES`, 8 MiB. */
   maxOutputBytes?: number;
   /** The start of the name of the file that keeps output past the limit. Default: `codemode-shell`. */
   outputFilePrefix?: string;
@@ -184,13 +184,8 @@ class ShellOutput {
     const clipped = clipTail(fromLine.trim() ? fromLine : whole, this.limit);
     // What is kept may be whole, and then ends with its line break.
     const shownText = clipped.text.replace(/\n$/, "");
-    const total = this.lines;
-    const first = total - clipped.lines + 1;
-    const shown = clipped.partialLine
-      ? `Showing the last ${formatSize(Buffer.byteLength(clipped.text, "utf8"))} of line ${first}`
-      : `Showing lines ${first}-${total} of ${total}`;
     return {
-      text: `${shownText}\n\n[${shown} (${formatSize(this.total)} in all).${path ? ` Full output: ${path}` : ""}]`,
+      text: `${shownText}\n\n${clippedNote(clipped, "last", { lines: this.lines, bytes: this.total }, path)}`,
       truncated: true,
       ...(path ? { path } : {}),
     };
@@ -387,8 +382,8 @@ export async function runShell(
       `Invalid timeout: a number of milliseconds above 0 and at most ${MAX_TIMEOUT_MS}`,
     );
   const limit = {
-    lines: options.maxOutputLines ?? OUTPUT_LIMIT.lines,
-    bytes: options.maxOutputBytes ?? OUTPUT_LIMIT.bytes,
+    lines: options.maxOutputLines ?? Number.POSITIVE_INFINITY,
+    bytes: options.maxOutputBytes ?? ACTION_MEMORY_BYTES,
   };
   if (!(limit.lines >= 1 && limit.bytes >= 1))
     throw new RangeError(

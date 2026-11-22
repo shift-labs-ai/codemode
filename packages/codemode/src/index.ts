@@ -70,6 +70,7 @@ export {
   oauthCallback,
   runOAuth,
 } from "./core/oauth.js";
+export type { OutputLimitSetting } from "./core/run-output.js";
 export { awsEndpoint, awsRegion, parseAwsXml } from "./credentials/aws.js";
 export type { AwsCredentialSpec } from "./credentials/aws-plugin.js";
 export {
@@ -333,9 +334,7 @@ export {
   syncExec,
 } from "./utils/cli.js";
 export {
-  clipTail,
-  clipText,
-  formatSize,
+  ACTION_MEMORY_BYTES,
   OUTPUT_LIMIT,
   OutputFileWriter,
   type OutputLimit,

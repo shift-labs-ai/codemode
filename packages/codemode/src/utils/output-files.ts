@@ -18,9 +18,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * How much of an output an action hands back: at most this many lines and
- * this many bytes, whichever is reached first. The rest is in an output
- * file. One rule for every action, so that code learns it once.
+ * How much a run hands back to whoever asked for it: at most this many
+ * lines and this many bytes, whichever is reached first. The rest is in an
+ * output file. It is for the reader's sake, usually a model's, and a host
+ * sets its own; what code inside a run works with is not held to it.
  */
 export const OUTPUT_LIMIT = { lines: 2000, bytes: 50 * 1024 } as const;
 
@@ -28,6 +29,13 @@ export interface OutputLimit {
   lines: number;
   bytes: number;
 }
+
+/**
+ * How much of what it produces one action holds in memory and hands to the
+ * code that called it. Past it, an action that produces output in parts
+ * keeps the rest in a file. It guards the process, not a reader.
+ */
+export const ACTION_MEMORY_BYTES = 8 * 1024 * 1024;
 
 /** Output can carry private data, so only the user may read the files. */
 const OUTPUT_FILE_MODE = 0o600;
@@ -161,29 +169,6 @@ export class OutputFileWriter {
   }
 }
 
-/**
- * `text` within `maxBytes` of UTF-8: all of it, or its start and end around
- * a note of what lies between. It is cut between characters: a streaming
- * decode holds back an unfinished sequence at the end of the start, and the
- * end skips the rest of one.
- */
-export function clipText(
-  text: string,
-  maxBytes: number,
-): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(text, "utf8");
-  if (bytes.length <= maxBytes) return { text, truncated: false };
-  const half = Math.floor(maxBytes / 2);
-  const head = bytes.subarray(0, half);
-  const tail = bytes.subarray(bytes.length - (maxBytes - half));
-  let start = 0;
-  while (start < tail.length && (tail[start] & 0xc0) === 0x80) start++;
-  return {
-    text: `${new TextDecoder().decode(head, { stream: true })}\n\n[... ${bytes.length - maxBytes} bytes omitted ...]\n\n${new TextDecoder().decode(tail.subarray(start))}`,
-    truncated: true,
-  };
-}
-
 /** A size as a person reads it: `512B`, `50.0KB`, `1.4MB`. */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -199,6 +184,11 @@ function linesOf(text: string): string[] {
   return lines;
 }
 
+/** How many lines `text` has. */
+export function countLines(text: string): number {
+  return linesOf(text).length;
+}
+
 /** The end of `line` that fits in `maxBytes`, cut between characters. */
 function endOf(line: string, maxBytes: number): string {
   const bytes = Buffer.from(line, "utf8");
@@ -207,14 +197,87 @@ function endOf(line: string, maxBytes: number): string {
   return bytes.subarray(start).toString("utf8");
 }
 
-export interface ClippedTail {
+/** The start of `line` that fits in `maxBytes`, cut between characters. */
+function startOf(line: string, maxBytes: number): string {
+  // A streaming decode holds back a sequence the cut left unfinished.
+  return new TextDecoder().decode(
+    Buffer.from(line, "utf8").subarray(0, Math.max(0, maxBytes)),
+    { stream: true },
+  );
+}
+
+export interface Clipped {
   /** The lines kept, joined, with no line break after the last. */
   text: string;
   truncated: boolean;
   /** How many lines `text` has. */
   lines: number;
-  /** Whether `text` starts with only the end of a line too long to keep whole. */
+  /** Whether one of them is only part of a line too long to keep whole. */
   partialLine: boolean;
+}
+
+/** Whether `text` is within `limit` as it is. */
+export function withinLimit(
+  text: string,
+  limit: OutputLimit = OUTPUT_LIMIT,
+): boolean {
+  return (
+    Buffer.byteLength(text, "utf8") <= limit.bytes &&
+    countLines(text) <= limit.lines
+  );
+}
+
+/**
+ * The first whole lines of `text` within `limit`. A first line that is over
+ * the byte limit by itself is kept in part, from its start, so that the
+ * answer is never empty.
+ */
+export function clipHead(
+  text: string,
+  limit: OutputLimit = OUTPUT_LIMIT,
+): Clipped {
+  const lines = linesOf(text);
+  if (withinLimit(text, limit))
+    return { text, truncated: false, lines: lines.length, partialLine: false };
+  const kept: string[] = [];
+  let bytes = 0;
+  let partialLine = false;
+  for (const line of lines) {
+    if (kept.length >= limit.lines) break;
+    const size = Buffer.byteLength(line, "utf8") + (kept.length ? 1 : 0);
+    if (bytes + size > limit.bytes) {
+      if (!kept.length) {
+        kept.push(startOf(line, limit.bytes));
+        partialLine = true;
+      }
+      break;
+    }
+    kept.push(line);
+    bytes += size;
+  }
+  return {
+    text: kept.join("\n"),
+    truncated: true,
+    lines: kept.length,
+    partialLine,
+  };
+}
+
+/**
+ * The line that follows a clipped output and says what it shows of what
+ * there was, and where the whole of it is when it was kept.
+ */
+export function clippedNote(
+  clipped: Clipped,
+  keeps: "first" | "last",
+  total: { lines: number; bytes: number },
+  path: string | undefined,
+): string {
+  const from = keeps === "first" ? 1 : total.lines - clipped.lines + 1;
+  const shown = clipped.partialLine
+    ? `Showing the ${keeps} ${formatSize(Buffer.byteLength(clipped.text, "utf8"))} of line ${from}`
+    : `Showing lines ${from}-${from + clipped.lines - 1} of ${total.lines}`;
+  return `[${shown} (${formatSize(total.bytes)} in all).${path ? ` Full output: ${path}` : ""}]`;
 }
 
 /**
@@ -225,12 +288,9 @@ export interface ClippedTail {
 export function clipTail(
   text: string,
   limit: OutputLimit = OUTPUT_LIMIT,
-): ClippedTail {
+): Clipped {
   const lines = linesOf(text);
-  if (
-    lines.length <= limit.lines &&
-    Buffer.byteLength(text, "utf8") <= limit.bytes
-  )
+  if (withinLimit(text, limit))
     return { text, truncated: false, lines: lines.length, partialLine: false };
   const kept: string[] = [];
   let bytes = 0;

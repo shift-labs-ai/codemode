@@ -15,6 +15,7 @@ import {
   type ExecuteResult,
   ExecutionEngine,
 } from "./core/engine.js";
+import type { OutputLimitSetting } from "./core/run-output.js";
 import { McpManager } from "./mcp/manager.js";
 import { PackageManager } from "./packages/manager.js";
 import type { PluginFunction } from "./plugin/api.js";
@@ -55,11 +56,13 @@ export interface CodemodeOptions {
    */
   outputDir?: string;
   /**
-   * The most a run's result may take, as UTF-8 text. A larger result is
-   * written whole to an output file and returned as its start and end,
-   * with `truncated` and `fullResultPath`. Default: no limit.
+   * How much a run hands back, for the sake of whoever reads it. A run's
+   * result, error and logs are each cut to this many lines and bytes,
+   * whichever comes first, with the whole in an output file. Either number
+   * can be set alone, and `false` sets no limit. Default: 2000 lines and
+   * 50 KB. Code inside a run works with whole values.
    */
-  maxResultBytes?: number;
+  outputLimit?: OutputLimitSetting;
   /**
    * Observer fired in the host process for every action invocation
    * that enters a plugin's `execute()` — unknown paths and failed
@@ -78,8 +81,8 @@ export interface CodemodeExecuteOptions {
   context?: unknown;
   /** Where this run's output files are written, in place of the instance's. */
   outputDir?: string;
-  /** The most this run's result may take, in place of the instance's. */
-  maxResultBytes?: number;
+  /** How much this run hands back, in place of the instance's. */
+  outputLimit?: OutputLimitSetting;
 }
 
 export class Codemode {
@@ -130,8 +133,8 @@ export class Codemode {
       ...(options.outputDir !== undefined
         ? { outputDir: options.outputDir }
         : {}),
-      ...(options.maxResultBytes !== undefined
-        ? { maxResultBytes: options.maxResultBytes }
+      ...(options.outputLimit !== undefined
+        ? { outputLimit: options.outputLimit }
         : {}),
     };
   }
@@ -340,7 +343,7 @@ export class Codemode {
       memoryLimitBytes: config.memoryLimitBytes,
       maxRunsPerWorker: config.maxRunsPerWorker,
       outputDir: config.outputDir,
-      maxResultBytes: config.maxResultBytes,
+      outputLimit: config.outputLimit,
     });
 
     for (const plugin of plugins) {

@@ -27,7 +27,8 @@ export interface CommandRunner {
   ): Promise<CommandResult>;
 }
 
-const OUTPUT_LIMIT = 1024 * 1024;
+/** How much of what a package manager or git wrote is kept, for an error to quote. */
+const KEPT_OUTPUT_CHARS = 1024 * 1024;
 
 /**
  * One argument for cmd.exe, quoted. Inside double quotes cmd still expands
@@ -93,10 +94,10 @@ export const nodeCommandRunner: CommandRunner = {
       let stdout = "";
       let stderr = "";
       child.stdout?.on("data", (chunk: Buffer) => {
-        if (stdout.length < OUTPUT_LIMIT) stdout += chunk.toString();
+        if (stdout.length < KEPT_OUTPUT_CHARS) stdout += chunk.toString();
       });
       child.stderr?.on("data", (chunk: Buffer) => {
-        if (stderr.length < OUTPUT_LIMIT) stderr += chunk.toString();
+        if (stderr.length < KEPT_OUTPUT_CHARS) stderr += chunk.toString();
       });
       child.on("error", (error) => settle(() => reject(error)));
       child.on("close", (code, ended) =>

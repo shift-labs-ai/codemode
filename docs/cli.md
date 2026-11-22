@@ -30,7 +30,9 @@ codemode actions --connected
 See [Run Code](usage.md) for the calling conventions and the runtime.
 
 - `exec <code>`, alias `e`<br>
-  Runs JavaScript and prints the returned value. Logs go to stderr, and `--quiet` hides them. A failed run exits with status 1. With `--json`, prints `{ result, logs }` or `{ error, logs }`, with `truncated` and `fullResultPath` when the result passed [`maxResultBytes`](configuration.md#settings).
+  Runs JavaScript and prints the returned value. Logs go to stderr, and `--quiet` hides them. A failed run exits with status 1. With `--json`, prints `{ result, logs }` or `{ error, logs }`, with `truncated` and `fullResultPath` when the result passed the [output limit](configuration.md#settings).
+- `exec --no-limit`<br>
+  Prints the whole result and logs, however large. Use it to pipe a result to another program.
 - `exec -f`, `--file`<br>
   Treats `<code>` as the path of a file to run.
 - `exec -e`, `--package <source>`<br>

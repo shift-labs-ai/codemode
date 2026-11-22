@@ -147,13 +147,17 @@ const scenarios: Record<string, Scenario> = {
     };
   },
 
-  // A large value in the final return reaches the host caller intact.
+  // A large value in the final return reaches a host caller that set no
+  // output limit intact.
   async "final-result-large"() {
     const engine = makeEngine(64);
-    const out = await engine.execute(`
+    const out = await engine.execute(
+      `
       const att = await files.getAttachment({ messageId: "m1" });
       return { data: att.data };
-    `);
+    `,
+      { outputLimit: false },
+    );
     const data = (out.result as { data?: unknown } | null)?.data;
     return {
       error: out.error ?? null,

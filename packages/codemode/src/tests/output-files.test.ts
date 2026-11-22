@@ -20,8 +20,8 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { createPluginAPI } from "../plugin/api.js";
 import { Codemode } from "../sdk.js";
 import {
+  clipHead,
   clipTail,
-  clipText,
   OUTPUT_LIMIT,
   OutputFileWriter,
   writeOutputFile,
@@ -175,22 +175,37 @@ describe("the last lines of a text within the output limit", () => {
   });
 });
 
-describe("text clipped to a size", () => {
-  it("is itself while it fits, then its start and end around what was left out", () => {
-    assert.deepEqual(clipText("short", 5), { text: "short", truncated: false });
-    const long = `START${"x".repeat(100)}END`;
-    const clipped = clipText(long, 20);
-    assert.equal(clipped.truncated, true);
-    assert.equal(
-      clipped.text,
-      "STARTxxxxx\n\n[... 88 bytes omitted ...]\n\nxxxxxxxEND",
-    );
+describe("the first lines of a text within the output limit", () => {
+  const limit = { lines: 3, bytes: 20 };
+
+  it("are whole lines, as many as the line limit and the byte limit allow", () => {
+    assert.deepEqual(clipHead("a\nb\nc\n", limit), {
+      text: "a\nb\nc\n",
+      truncated: false,
+      lines: 3,
+      partialLine: false,
+    });
+    assert.deepEqual(clipHead("a\nb\nc\nd\ne\n", limit), {
+      text: "a\nb\nc",
+      truncated: true,
+      lines: 3,
+      partialLine: false,
+    });
+    assert.deepEqual(clipHead("head\n0123456789\nlast line", limit), {
+      text: "head\n0123456789",
+      truncated: true,
+      lines: 2,
+      partialLine: false,
+    });
   });
 
-  it("is cut between characters", () => {
-    const clipped = clipText("é".repeat(100), 21);
-    assert.equal(clipped.truncated, true);
-    assert.equal(clipped.text.includes("\uFFFD"), false);
+  it("are the start of a first line too long to keep whole, cut between characters", () => {
+    assert.deepEqual(clipHead(`${"é".repeat(30)}\nshort`, limit), {
+      text: "é".repeat(10),
+      truncated: true,
+      lines: 1,
+      partialLine: true,
+    });
   });
 });
 
@@ -223,7 +238,7 @@ describe("the directory a host names for output", () => {
       JSON.stringify({
         connections: [],
         outputDir: "outbox",
-        maxResultBytes: 50,
+        outputLimit: { bytes: 1000 },
       }),
     );
     const loaded = await Codemode.fromProject(project, {
@@ -235,60 +250,9 @@ describe("the directory a host names for output", () => {
     assert.ok(loaded);
     instances.push(loaded);
     const { truncated, fullResultPath } = await loaded.execute(
-      `return "x".repeat(500)`,
+      `return "x".repeat(5000)`,
     );
     assert.equal(truncated, true);
     assert.equal(dirname(fullResultPath as string), join(project, "outbox"));
-  });
-});
-
-describe("a run's result past the size a host allows", () => {
-  const big = `return { rows: Array.from({ length: 500 }, (_, i) => ({ id: i, name: "row " + i })) }`;
-
-  it("is returned whole when no limit is set, or when it fits", async () => {
-    const unlimited = await codemode().execute(big);
-    assert.equal((unlimited.result as { rows: unknown[] }).rows.length, 500);
-    assert.equal(unlimited.truncated, undefined);
-    const fits = await codemode({ maxResultBytes: 1_000 }).execute(
-      "return { ok: true }",
-    );
-    assert.deepEqual(fits, { result: { ok: true }, logs: [] });
-  });
-
-  it("is its start and end, with all of it in a file in the host's directory", async () => {
-    const outputDir = join(tmp, "outputs");
-    const { result, truncated, fullResultPath, error } = await codemode({
-      maxResultBytes: 400,
-      outputDir,
-    }).execute(big);
-    assert.equal(error, undefined);
-    assert.equal(truncated, true);
-    assert.equal(typeof result, "string");
-    assert.ok((result as string).startsWith('{"rows":[{"id":0,'));
-    assert.ok((result as string).endsWith('"name":"row 499"}]}'));
-    assert.match(result as string, /\[\.\.\. \d+ bytes omitted \.\.\.\]/);
-    assert.ok(fullResultPath);
-    assert.equal(dirname(fullResultPath), outputDir);
-    assert.match(fullResultPath, /codemode-result-[0-9a-f]{16}\.json$/);
-    const whole = JSON.parse(readFileSync(fullResultPath, "utf8"));
-    assert.equal(whole.rows.length, 500);
-    assert.deepEqual(whole.rows[499], { id: 499, name: "row 499" });
-  });
-
-  it("keeps a long string as text, and takes a limit for one run", async () => {
-    const { result, truncated, fullResultPath } = await codemode({
-      outputDir: tmp,
-    }).execute(`return "a".repeat(5000) + "END"`, { maxResultBytes: 100 });
-    assert.equal(truncated, true);
-    assert.ok((result as string).endsWith("END"));
-    assert.ok(fullResultPath?.endsWith(".txt"));
-    assert.equal(readFileSync(fullResultPath as string, "utf8").length, 5003);
-  });
-
-  it("is refused as a setting when it is not a size", async () => {
-    for (const maxResultBytes of [0, -1, 1.5, Number.NaN]) {
-      const { error } = await codemode({ maxResultBytes }).execute("return 1");
-      assert.match(error ?? "", /Invalid maxResultBytes/);
-    }
   });
 });

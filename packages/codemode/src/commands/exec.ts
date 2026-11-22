@@ -16,6 +16,8 @@ export async function exec(
     json?: boolean;
     quiet?: boolean;
     packages?: string[];
+    /** False for the whole result and logs, in place of the output limit. */
+    limit?: boolean;
   },
 ): Promise<void> {
   if (options.file) {
@@ -37,7 +39,12 @@ async function run(
   code: string,
   config: ReturnType<typeof loadConfig>,
   mcp: McpManager,
-  options: { json?: boolean; quiet?: boolean; packages?: string[] },
+  options: {
+    json?: boolean;
+    quiet?: boolean;
+    packages?: string[];
+    limit?: boolean;
+  },
 ): Promise<boolean> {
   await loadAllPlugins({
     builtinAllowlist: enabledBuiltins(config.connections),
@@ -49,7 +56,10 @@ async function run(
     connectionProvider: new FileConnectionProvider(configPath()),
   });
 
-  const result = await engine.execute(code);
+  const result = await engine.execute(
+    code,
+    options.limit === false ? { outputLimit: false } : undefined,
+  );
   engine.dispose();
 
   if (result.error) {
@@ -86,9 +96,7 @@ async function run(
     }
     if (result.truncated)
       printWarn(
-        result.fullResultPath
-          ? `The result is cut to its start and end. All of it: ${result.fullResultPath}`
-          : "The result is cut to its start and end.",
+        `The result is cut to the output limit. ${result.fullResultPath ? `All of it: ${result.fullResultPath}. ` : ""}Pass --no-limit to print it whole.`,
       );
   }
   return true;

@@ -30,20 +30,29 @@ import type {
   TypedInputSchema,
 } from "../plugin/types.js";
 import { notifyObserver } from "../utils/observer.js";
-import { clipText, writeOutputFile } from "../utils/output-files.js";
 import { MAX_TIMEOUT_MS } from "../utils/timers.js";
+import {
+  boundError,
+  boundLogs,
+  boundResult,
+  type OutputLimitSetting,
+  resolveOutputLimit,
+} from "./run-output.js";
 
 export { MAX_TIMEOUT_MS };
 
 export interface ExecuteResult {
   /**
-   * What the code returned. A result past `maxResultBytes` is text here:
-   * the start and the end of its JSON, or of the string it is.
+   * What the code returned, within the output limit. A larger string is its
+   * last lines. A larger value keeps its shape when one string in it is cut
+   * to its last lines, and is otherwise text: the first lines of its JSON.
    */
   result: unknown;
+  /** Why the run failed, within the output limit: its last lines. */
   error?: string;
+  /** What the code logged, within the output limit: the last of it. */
   logs: string[];
-  /** Present when `result` is the start and end of a larger one. */
+  /** Present when `result` is cut from a larger one. */
   truncated?: true;
   /** The file holding the whole result, when `result` does not. */
   fullResultPath?: string;
@@ -56,8 +65,8 @@ export interface EngineOptions {
   context?: unknown;
   /** Where this run's output files are written. Default: the config's `outputDir`. */
   outputDir?: string;
-  /** The most this run's result may take. Default: the config's `maxResultBytes`. */
-  maxResultBytes?: number;
+  /** How much this run hands back. Default: the config's `outputLimit`. */
+  outputLimit?: OutputLimitSetting;
 }
 
 /**
@@ -197,40 +206,6 @@ export function shouldArmRssWatchdog(
 // Extra slack on top of the configured memory limit for the RSS watchdog,
 // since whole-process RSS includes the host's own working set.
 const RSS_WATCHDOG_SLACK_BYTES = 128 * 1024 * 1024;
-
-/**
- * A run's result within `maxBytes`: itself, or the start and end of its
- * text with the whole of it in an output file. A result that cannot be
- * written whole is still returned clipped, without a path.
- */
-function boundedResult(
-  result: unknown,
-  maxBytes: number | undefined,
-  outputDir: string | undefined,
-): Pick<ExecuteResult, "result" | "truncated" | "fullResultPath"> {
-  if (maxBytes === undefined || result === undefined || result === null)
-    return { result };
-  const isText = typeof result === "string";
-  const whole = isText ? result : JSON.stringify(result);
-  const clipped = clipText(whole, maxBytes);
-  if (!clipped.truncated) return { result };
-  let fullResultPath: string | undefined;
-  try {
-    fullResultPath = writeOutputFile(
-      "codemode-result",
-      isText ? ".txt" : ".json",
-      whole,
-      outputDir,
-    );
-  } catch {
-    // The clipped result still says that it is one.
-  }
-  return {
-    result: clipped.text,
-    truncated: true,
-    ...(fullResultPath === undefined ? {} : { fullResultPath }),
-  };
-}
 
 /**
  * Executes agent code in a node:worker_threads worker.
@@ -375,17 +350,13 @@ export class ExecutionEngine {
         logs,
       };
     }
-    const maxResultBytes =
-      options?.maxResultBytes ?? this.config.maxResultBytes;
-    if (
-      maxResultBytes !== undefined &&
-      !(Number.isSafeInteger(maxResultBytes) && maxResultBytes > 0)
-    ) {
-      return {
-        result: null,
-        error: `Invalid maxResultBytes: ${maxResultBytes}. Pass a whole number of bytes above 0.`,
-        logs,
-      };
+    let outputLimit: ReturnType<typeof resolveOutputLimit>;
+    try {
+      outputLimit = resolveOutputLimit(
+        options?.outputLimit ?? this.config.outputLimit,
+      );
+    } catch (error) {
+      return { result: null, error: (error as Error).message, logs };
     }
     if (outputDir !== undefined) {
       try {
@@ -460,7 +431,18 @@ export class ExecutionEngine {
         worker.off("error", onError);
         worker.off("exit", onExit);
         this.release(entry, pooled, retire);
-        resolve(r);
+        // Every way a run ends passes here, so all of them are bounded.
+        resolve(
+          outputLimit
+            ? {
+                ...r,
+                ...(r.error === undefined
+                  ? boundResult(r.result, outputLimit, outputDir)
+                  : { error: boundError(r.error, outputLimit, outputDir) }),
+                logs: boundLogs(r.logs, outputLimit, outputDir),
+              }
+            : r,
+        );
       };
 
       // The acquire-time unref must not let the host exit mid-run: hold
@@ -569,7 +551,7 @@ export class ExecutionEngine {
           finish(
             msg.ok
               ? {
-                  ...boundedResult(msg.result, maxResultBytes, outputDir),
+                  result: msg.result,
                   logs,
                 }
               : { result: null, error: msg.error ?? "Unknown error", logs },

@@ -71,6 +71,8 @@ A reliable order is `find`, then `describe`, then `check`, then the call.
 
 `codemode exec` prints the returned value to stdout. Strings print as they are, and other values print as indented JSON. A run that returns nothing prints nothing.
 
+A result past 2,000 lines or 50 KB is cut to that, with all of it in a file the output names. Return less, or add `--no-limit` to print it whole. See [Limit a run's result](sdk.md#limit-a-runs-result).
+
 Calls to `console.log`, `console.warn`, `console.error`, `console.info`, and `console.debug` are captured and printed to stderr, each prefixed with its level.
 
 Add `--json` for one machine-readable object:

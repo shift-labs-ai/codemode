@@ -9,7 +9,7 @@ import { accessSync, constants } from "node:fs";
 import { resolve } from "node:path";
 import * as t from "typebox";
 import type { ActionDefinition } from "../plugin/api.js";
-import { formatSize, OUTPUT_LIMIT } from "./output-files.js";
+import { ACTION_MEMORY_BYTES, formatSize } from "./output-files.js";
 import { runShell, type ShellProgram } from "./shell.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 
@@ -54,7 +54,7 @@ const shellRunOutput = {
   properties: {
     output: {
       type: "string",
-      description: `stdout and stderr together. Past ${OUTPUT_LIMIT.lines} lines or ${formatSize(OUTPUT_LIMIT.bytes)}: the last lines within both, then a line that says which lines they are.`,
+      description: `stdout and stderr together, all of it up to ${formatSize(ACTION_MEMORY_BYTES)}. Past that: its last lines, then a line that says which lines they are.`,
     },
     exitCode: {
       type: "number",
@@ -126,7 +126,7 @@ export function shellRunAction(
 ): ActionDefinition<typeof shellRunInput> {
   return {
     access: "write",
-    description: `Run a ${options.shell} script and return its output and exit code. Output is cut to its last ${OUTPUT_LIMIT.lines} lines or ${formatSize(OUTPUT_LIMIT.bytes)}, whichever comes first, with all of it in the file \`fullOutputPath\` names. A script that ends with a failure still returns: check \`exitCode\`. A script that cannot start, or that outlives \`timeoutMs\`, rejects.`,
+    description: `Run a ${options.shell} script and return its output and exit code. A script that ends with a failure still returns: check \`exitCode\`. A script that cannot start, or that outlives \`timeoutMs\`, rejects.`,
     hints: { destructive: true, openWorld: true },
     inputSchema: shellRunInput,
     outputSchema: shellRunOutput,

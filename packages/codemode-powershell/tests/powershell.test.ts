@@ -113,24 +113,32 @@ describe("powershell.run", () => {
   );
 
   withPowerShell(
-    "keeps output past the limit in the host's output directory",
+    "hands code all of a large output, and the run its last lines",
     async () => {
       const outputDir = join(harness.tmp, "outbox");
-      const { result, error } = await codemode({}, { outputDir }).execute(
-        `return await powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END" })`,
+      const inside = await codemode({}, { outputDir }).execute(
+        `return (await powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END; exit 4" })).output.length`,
+      );
+      assert.ok((inside.result as number) >= 1_500_003);
+      const { result, truncated, fullResultPath, error } = await codemode(
+        {},
+        { outputDir },
+      ).execute(
+        `return await powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END; exit 4" })`,
       );
       assert.equal(error, undefined);
+      assert.equal(truncated, true);
       const found = result as ShellResult;
-      assert.equal(found.truncated, true);
-      assert.match(found.output, /END\r?\n\n\[Showing .* Full output: /);
-      assert.ok(Buffer.byteLength(found.output) < 52_000);
-      assert.ok(found.fullOutputPath);
-      assert.equal(dirname(found.fullOutputPath), outputDir);
+      assert.equal(found.exitCode, 4);
       assert.match(
-        found.fullOutputPath,
-        /codemode-powershell-[0-9a-f]{16}\.log$/,
+        found.output,
+        /END\r?\n\n\[Showing .* \(1\.4MB in all\)\. Full output: /,
       );
-      assert.ok(statSync(found.fullOutputPath).size >= 1_500_004);
+      assert.ok(Buffer.byteLength(JSON.stringify(found, null, 2)) <= 51_200);
+      assert.ok(fullResultPath);
+      assert.equal(dirname(fullResultPath), outputDir);
+      assert.match(fullResultPath, /codemode-result-[0-9a-f]{16}\.json$/);
+      assert.ok(statSync(fullResultPath).size > 1_500_000);
     },
   );
 

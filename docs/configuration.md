@@ -55,7 +55,7 @@ Settings are top-level keys of `config.json`:
 | `memoryLimitBytes` | number | `67108864` | Memory limit for one run. Values below 8 MB are raised to 8 MB |
 | `maxRunsPerWorker` | number | `500` | Runs one worker thread serves before codemode replaces it |
 | `outputDir` | string | The system's temporary directory | Where output files are written: a command's whole output, a run's whole result, generated media. Codemode makes the directory, and a relative path resolves from the directory that holds the `.codemode` folder |
-| `maxResultBytes` | number | No limit | The most a run's result may take. A larger result is written whole to a file in `outputDir` and returned as its start and end |
+| `outputLimit` | `{ lines, bytes }` or `false` | 2,000 lines and 50 KB | How much a run hands back. A larger result, error, or log is written whole to a file in `outputDir` and cut to the limit. Either number can be set alone, and `false` sets no limit. See [Limit a run's result](sdk.md#limit-a-runs-result) |
 | `replaceableBuiltins` | `string[]` | `[]` | Bundled plugins that a local plugin of the same name may replace |
 | `packageManager` | `"npm" \| "pnpm" \| "bun"` | `"npm"` | The program that installs npm packages. Read from `~/.codemode/config.json` only |
 

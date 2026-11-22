@@ -67,7 +67,9 @@ if (built.exitCode !== 0) return built.output;
 | The command outlives `timeoutMs` | The call rejects, with what the command wrote |
 | The run ends first | The command, and what it started, is ended |
 
-`output` is stdout and stderr together. Past 2,000 lines or 50 KB, whichever comes first, it is the last lines within both, followed by a line that says which lines they are. `fullOutputPath` then names a file with all of it, in the host's [output directory](../../docs/sdk.md#limit-a-runs-result).
+`output` is stdout and stderr together, and code gets all of it up to 8 MiB. Past that it is the last lines, and `fullOutputPath` names a file with all of it.
+
+What a run returns is a separate matter: codemode cuts it to the host's [output limit](../../docs/sdk.md#limit-a-runs-result), 2,000 lines or 50 KB by default. A returned `output` past that is cut to its last lines, beside its `exitCode`, with all of it in a file.
 
 ## Configure the connection
 
