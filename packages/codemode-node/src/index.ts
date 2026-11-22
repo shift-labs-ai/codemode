@@ -5,14 +5,16 @@
  *
  *   const text = await node.fs.readFile({ path: "notes.txt" })
  *
- * Running a command is the bash and powershell packages' work.
+ * Every call stands alone: nothing stays open between calls. A read or a
+ * request that is under way ends with the run that started it, and a result
+ * too large or not text to hand back is a file instead. Running a command
+ * is the bash and powershell packages' work.
  */
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, type WriteStream } from "node:fs";
 import {
   access,
-  appendFile,
   copyFile,
   lstat,
   mkdir,
@@ -53,23 +55,177 @@ import {
   resolve,
   sep,
 } from "node:path";
-import type {
-  ActionDef,
-  CodemodePluginAPI,
-  InputSchema,
+import { finished } from "node:stream/promises";
+import {
+  type ActionContext,
+  type CodemodePluginAPI,
+  createOutputFileStream,
+  writeOutputFile,
 } from "@shiftlabs/codemode";
-import { packageVersion } from "@shiftlabs/codemode/utils/cli";
+import { MAX_TIMEOUT_MS, packageVersion } from "@shiftlabs/codemode/utils/cli";
+import * as t from "typebox";
 
-type JsonObject = Record<string, unknown>;
+/** The most a file read or a response body hands back in memory. */
+const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
-type NodeAction = Omit<ActionDef, "name">;
+const OUTPUT_FILE_PREFIX = "codemode-node";
 
-const pathInput = (description = "Filesystem path"): InputSchema => ({
-  path: { type: "string", required: true, description },
-});
+const strict = { additionalProperties: false } as const;
 
-function action(name: string, def: NodeAction): ActionDef {
-  return { name, ...def };
+const path = (
+  description = "A path. A relative one resolves from the connection's `cwd`.",
+) => t.String({ minLength: 1, description });
+const onePath = t.Object({ path: path() }, strict);
+const fromTo = t.Object(
+  { from: path("The source path."), to: path("The destination path.") },
+  strict,
+);
+const segments = t.Object(
+  {
+    segments: t.Array(t.String(), { description: "Path segments, in order." }),
+  },
+  strict,
+);
+const maxBytes = (what: string, otherwise: string) =>
+  t.Optional(
+    t.Integer({
+      minimum: 1,
+      description: `The most bytes of ${what} to hand back. Default: ${DEFAULT_MAX_BYTES}. ${otherwise}`,
+    }),
+  );
+const textEncoding = t.Optional(
+  t.Union(
+    [
+      t.Literal("utf8"),
+      t.Literal("base64"),
+      t.Literal("hex"),
+      t.Literal("latin1"),
+      t.Literal("utf16le"),
+    ],
+    { description: "How the text is encoded. Default: utf8." },
+  ),
+);
+const digestEncoding = t.Optional(
+  t.Union([t.Literal("hex"), t.Literal("base64"), t.Literal("base64url")], {
+    description: "How the bytes are written. Default: hex.",
+  }),
+);
+
+/** The directory relative paths resolve from: the connection's `cwd`, else codemode's own. */
+function base(ctx: ActionContext): string {
+  const { cwd } = ctx.connection.config;
+  return typeof cwd === "string" && cwd ? resolve(cwd) : process.cwd();
+}
+
+function at(ctx: ActionContext, path: string): string {
+  return resolve(base(ctx), path);
+}
+
+function describeStats(stats: Awaited<ReturnType<typeof stat>>) {
+  return {
+    size: stats.size,
+    mode: stats.mode,
+    uid: stats.uid,
+    gid: stats.gid,
+    atimeMs: stats.atimeMs,
+    mtimeMs: stats.mtimeMs,
+    ctimeMs: stats.ctimeMs,
+    birthtimeMs: stats.birthtimeMs,
+    isFile: stats.isFile(),
+    isDirectory: stats.isDirectory(),
+    isSymbolicLink: stats.isSymbolicLink(),
+    isBlockDevice: stats.isBlockDevice(),
+    isCharacterDevice: stats.isCharacterDevice(),
+    isFIFO: stats.isFIFO(),
+    isSocket: stats.isSocket(),
+  };
+}
+
+/** Whether a response says its body is text. */
+function saysText(contentType: string): boolean {
+  return /^text\/|[/+](json|xml)\b|javascript|x-www-form-urlencoded/i.test(
+    contentType,
+  );
+}
+
+/** The extension of the file a response body is kept in: the URL's own, when it has a plain one. */
+function bodyExtension(url: string, contentType: string): string {
+  if (/[/+]json\b/i.test(contentType)) return ".json";
+  const named = extname(new URL(url).pathname);
+  if (/^\.\w{1,8}$/.test(named)) return named;
+  return saysText(contentType) ? ".txt" : ".bin";
+}
+
+async function write(stream: WriteStream, chunk: Uint8Array): Promise<void> {
+  if (stream.write(chunk)) return;
+  await new Promise<void>((resolved, rejected) => {
+    stream.once("drain", resolved);
+    stream.once("error", rejected);
+  });
+}
+
+/**
+ * A response's body: as text when it is text within `limit`, and otherwise
+ * all of it in an output file. A body is never handed back in part.
+ */
+async function readBody(
+  response: Response,
+  url: string,
+  limit: number,
+  outputDir: string | undefined,
+): Promise<{ body?: unknown; bodyPath?: string; bytes: number }> {
+  const contentType = response.headers.get("content-type") ?? "";
+  const extension = bodyExtension(url, contentType);
+  const held: Uint8Array[] = [];
+  let bytes = 0;
+  let file: ReturnType<typeof createOutputFileStream> | undefined;
+  try {
+    for await (const chunk of response.body ?? []) {
+      bytes += chunk.length;
+      if (!file) {
+        held.push(chunk);
+        if (bytes <= limit) continue;
+        file = createOutputFileStream(OUTPUT_FILE_PREFIX, extension, outputDir);
+        for (const earlier of held.splice(0)) await write(file.stream, earlier);
+        continue;
+      }
+      await write(file.stream, chunk);
+    }
+    if (file) {
+      file.stream.end();
+      await finished(file.stream);
+      return { bodyPath: file.path, bytes };
+    }
+  } catch (error) {
+    if (file) {
+      file.stream.destroy();
+      rmSync(file.path, { force: true });
+    }
+    throw error;
+  }
+  const whole = Buffer.concat(held);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(whole);
+  } catch {
+    return {
+      bodyPath: writeOutputFile(
+        OUTPUT_FILE_PREFIX,
+        extension,
+        whole,
+        outputDir,
+      ),
+      bytes,
+    };
+  }
+  if (/[/+]json\b/i.test(contentType)) {
+    try {
+      return { body: JSON.parse(text), bytes };
+    } catch {
+      // A body that says JSON and is not: its text is the truth.
+    }
+  }
+  return { body: text, bytes };
 }
 
 export default function node(rl: CodemodePluginAPI): void {
@@ -78,107 +234,87 @@ export default function node(rl: CodemodePluginAPI): void {
   rl.setDescription(
     "Read and write files, work with paths, read system facts, hash, and make HTTP requests on the machine codemode runs on, with the permissions of the codemode process.",
   );
-  for (const action of nodeActions) {
-    rl.registerAction(action.name, action);
-  }
-}
+  rl.setConnectionSchema(
+    t.Object({
+      cwd: t.Optional(
+        t.String({
+          description:
+            "The directory relative paths resolve from. Default: the directory codemode runs in.",
+        }),
+      ),
+    }),
+  );
 
-const nodeActions: ActionDef[] = [
-  // fs/promises-shaped actions
-  action("fs.readFile", {
+  // Files
+
+  rl.registerAction("fs.readFile", {
     access: "read",
-    description: "Read a file from the host filesystem",
-    inputSchema: {
-      path: { type: "string", required: true, description: "File path" },
-      encoding: {
-        type: "string",
-        required: false,
-        description:
-          "Text encoding. Defaults to utf8. Use base64 for binary-safe reads.",
+    description:
+      "Read a file as text. A file larger than `maxBytes` is refused, with its size.",
+    inputSchema: t.Object(
+      {
+        path: path(),
+        encoding: textEncoding,
+        maxBytes: maxBytes(
+          "the file",
+          "Read a larger file in parts with bash, or query it with duckdb.",
+        ),
       },
+      strict,
+    ),
+    async execute({ path, encoding = "utf8", maxBytes }, ctx) {
+      const file = at(ctx, path);
+      const limit = maxBytes ?? DEFAULT_MAX_BYTES;
+      const { size } = await stat(file);
+      if (size > limit)
+        throw new Error(
+          `node: ${file} is ${size} bytes, over the limit of ${limit}. Pass a larger maxBytes, or read it in parts another way.`,
+        );
+      return readFile(file, { encoding, signal: ctx.signal });
     },
-    async execute(input) {
-      const { path, encoding = "utf8" } = objectInput<{
-        path: string;
-        encoding?: BufferEncoding;
-      }>(input);
-      return readFile(path, { encoding });
-    },
-  }),
-  action("fs.writeFile", {
-    access: "write",
-    description: "Write text data to a file on the host filesystem",
-    inputSchema: {
-      path: { type: "string", required: true, description: "File path" },
-      data: { type: "string", required: true, description: "File contents" },
-      encoding: {
-        type: "string",
-        required: false,
-        description: "Text encoding. Defaults to utf8.",
+  });
+
+  for (const [name, flag, description] of [
+    ["fs.writeFile", "w", "Write text to a file, replacing what it held."],
+    ["fs.appendFile", "a", "Add text to the end of a file."],
+  ] as const)
+    rl.registerAction(name, {
+      access: "write",
+      description,
+      hints: { destructive: flag === "w" },
+      inputSchema: t.Object(
+        {
+          path: path(),
+          data: t.String({ description: "The text to write." }),
+          encoding: textEncoding,
+        },
+        strict,
+      ),
+      async execute({ path, data, encoding = "utf8" }, ctx) {
+        const file = at(ctx, path);
+        await writeFile(file, data, { encoding, flag, signal: ctx.signal });
+        return { ok: true, path: file };
       },
-    },
-    async execute(input) {
-      const {
-        path,
-        data,
-        encoding = "utf8",
-      } = objectInput<{
-        path: string;
-        data: string;
-        encoding?: BufferEncoding;
-      }>(input);
-      await writeFile(path, data, { encoding });
-      return ok({ path });
-    },
-  }),
-  action("fs.appendFile", {
-    access: "write",
-    description: "Append text data to a file on the host filesystem",
-    inputSchema: {
-      path: { type: "string", required: true, description: "File path" },
-      data: {
-        type: "string",
-        required: true,
-        description: "File contents to append",
-      },
-      encoding: {
-        type: "string",
-        required: false,
-        description: "Text encoding. Defaults to utf8.",
-      },
-    },
-    async execute(input) {
-      const {
-        path,
-        data,
-        encoding = "utf8",
-      } = objectInput<{
-        path: string;
-        data: string;
-        encoding?: BufferEncoding;
-      }>(input);
-      await appendFile(path, data, { encoding });
-      return ok({ path });
-    },
-  }),
-  action("fs.readdir", {
+    });
+
+  rl.registerAction("fs.readdir", {
     access: "read",
-    description: "List a directory",
-    inputSchema: {
-      ...pathInput("Directory path"),
-      withFileTypes: {
-        type: "boolean",
-        required: false,
-        description: "Return typed entries instead of names",
+    description: "List the names in a directory.",
+    inputSchema: t.Object(
+      {
+        path: path(),
+        withFileTypes: t.Optional(
+          t.Boolean({
+            description: "Return each entry with its kind instead of names.",
+          }),
+        ),
       },
-    },
-    async execute(input) {
-      const { path, withFileTypes = false } = objectInput<{
-        path: string;
-        withFileTypes?: boolean;
-      }>(input);
-      if (!withFileTypes) return readdir(path);
-      const entries = await readdir(path, { withFileTypes: true });
+      strict,
+    ),
+    async execute({ path, withFileTypes = false }, ctx) {
+      const directory = at(ctx, path);
+      if (!withFileTypes) return readdir(directory);
+      const entries = await readdir(directory, { withFileTypes: true });
       return entries.map((entry) => ({
         name: entry.name,
         isFile: entry.isFile(),
@@ -186,462 +322,378 @@ const nodeActions: ActionDef[] = [
         isSymbolicLink: entry.isSymbolicLink(),
       }));
     },
-  }),
-  action("fs.stat", {
-    access: "read",
-    description: "Stat a filesystem path",
-    inputSchema: pathInput(),
-    async execute(input) {
-      return serializeStats(
-        await stat(objectInput<{ path: string }>(input).path),
-      );
-    },
-  }),
-  action("fs.lstat", {
-    access: "read",
-    description: "lstat a filesystem path",
-    inputSchema: pathInput(),
-    async execute(input) {
-      return serializeStats(
-        await lstat(objectInput<{ path: string }>(input).path),
-      );
-    },
-  }),
-  action("fs.exists", {
-    access: "read",
-    description: "Check whether a filesystem path exists",
-    inputSchema: pathInput(),
-    execute(input) {
-      return existsSync(objectInput<{ path: string }>(input).path);
-    },
-  }),
-  action("fs.access", {
-    access: "read",
-    description: "Check file access",
-    inputSchema: pathInput(),
-    async execute(input) {
-      await access(objectInput<{ path: string }>(input).path);
-      return ok();
-    },
-  }),
-  action("fs.mkdir", {
-    access: "write",
-    description: "Create a directory",
-    inputSchema: {
-      ...pathInput(),
-      recursive: {
-        type: "boolean",
-        required: false,
-        description: "Create parent directories. Defaults to true.",
-      },
-    },
-    async execute(input) {
-      const { path, recursive = true } = objectInput<{
-        path: string;
-        recursive?: boolean;
-      }>(input);
-      await mkdir(path, { recursive });
-      return ok({ path });
-    },
-  }),
-  action("fs.rm", {
-    access: "write",
-    description: "Remove a file or directory",
-    inputSchema: {
-      ...pathInput(),
-      recursive: {
-        type: "boolean",
-        required: false,
-        description: "Remove directories recursively",
-      },
-      force: {
-        type: "boolean",
-        required: false,
-        description: "Ignore missing paths",
-      },
-    },
-    async execute(input) {
-      const {
-        path,
-        recursive = false,
-        force = false,
-      } = objectInput<{
-        path: string;
-        recursive?: boolean;
-        force?: boolean;
-      }>(input);
-      await rm(path, { recursive, force });
-      return ok({ path });
-    },
-  }),
-  action("fs.unlink", {
-    access: "write",
-    description: "Remove a file",
-    inputSchema: pathInput(),
-    async execute(input) {
-      const { path } = objectInput<{ path: string }>(input);
-      await unlink(path);
-      return ok({ path });
-    },
-  }),
-  action("fs.rename", {
-    access: "write",
-    description: "Rename a file or directory",
-    inputSchema: {
-      from: { type: "string", required: true, description: "Source path" },
-      to: { type: "string", required: true, description: "Destination path" },
-    },
-    async execute(input) {
-      const { from, to } = objectInput<{ from: string; to: string }>(input);
-      await rename(from, to);
-      return ok({ from, to });
-    },
-  }),
-  action("fs.copyFile", {
-    access: "write",
-    description: "Copy a file",
-    inputSchema: {
-      from: { type: "string", required: true, description: "Source path" },
-      to: { type: "string", required: true, description: "Destination path" },
-    },
-    async execute(input) {
-      const { from, to } = objectInput<{ from: string; to: string }>(input);
-      await copyFile(from, to);
-      return ok({ from, to });
-    },
-  }),
+  });
 
-  // path-shaped actions. Most accept either an array or { segments: string[] }.
-  action("path.join", {
+  rl.registerAction("fs.stat", {
     access: "read",
-    description: "Join path segments",
-    inputSchema: {
-      segments: {
-        type: "array",
-        required: true,
-        description: "Path segments",
-      },
-    },
-    execute(input) {
-      return join(...stringArrayInput(input));
-    },
-  }),
-  action("path.resolve", {
-    access: "read",
-    description: "Resolve path segments",
-    inputSchema: {
-      segments: {
-        type: "array",
-        required: true,
-        description: "Path segments",
-      },
-    },
-    execute(input) {
-      return resolve(...stringArrayInput(input));
-    },
-  }),
-  action("path.normalize", {
-    access: "read",
-    description: "Normalize a path",
-    inputSchema: pathInput(),
-    execute(input) {
-      return normalize(objectInput<{ path: string }>(input).path);
-    },
-  }),
-  action("path.dirname", {
-    access: "read",
-    description: "Get a path dirname",
-    inputSchema: pathInput(),
-    execute(input) {
-      return dirname(objectInput<{ path: string }>(input).path);
-    },
-  }),
-  action("path.basename", {
-    access: "read",
-    description: "Get a path basename",
-    inputSchema: {
-      ...pathInput(),
-      suffix: {
-        type: "string",
-        required: false,
-        description: "Optional suffix to remove",
-      },
-    },
-    execute(input) {
-      const { path, suffix } = objectInput<{ path: string; suffix?: string }>(
-        input,
-      );
-      return basename(path, suffix);
-    },
-  }),
-  action("path.extname", {
-    access: "read",
-    description: "Get a path extension",
-    inputSchema: pathInput(),
-    execute(input) {
-      return extname(objectInput<{ path: string }>(input).path);
-    },
-  }),
-  action("path.relative", {
-    access: "read",
-    description: "Get a relative path",
-    inputSchema: {
-      from: { type: "string", required: true, description: "Source path" },
-      to: { type: "string", required: true, description: "Destination path" },
-    },
-    execute(input) {
-      const { from, to } = objectInput<{ from: string; to: string }>(input);
-      return relative(from, to);
-    },
-  }),
-  action("path.isAbsolute", {
-    access: "read",
-    description: "Check whether a path is absolute",
-    inputSchema: pathInput(),
-    execute(input) {
-      return isAbsolute(objectInput<{ path: string }>(input).path);
-    },
-  }),
-  action("path.parse", {
-    access: "read",
-    description: "Parse a path into components",
-    inputSchema: pathInput(),
-    execute(input) {
-      return parse(objectInput<{ path: string }>(input).path);
-    },
-  }),
-  action("path.format", {
-    access: "read",
-    description: "Format a path object into a path string",
-    inputSchema: {
-      pathObject: {
-        type: "object",
-        required: true,
-        description: "Node path object",
-      },
-    },
-    execute(input) {
-      return format(
-        objectInput<{ pathObject: Parameters<typeof format>[0] }>(input)
-          .pathObject,
-      );
-    },
-  }),
-  action("path.constants", {
-    access: "read",
-    description: "Get path separator constants",
-    execute() {
-      return { sep, delimiter };
-    },
-  }),
+    description: "Describe what a path leads to: size, times, mode and kind.",
+    inputSchema: onePath,
+    execute: async ({ path }, ctx) => describeStats(await stat(at(ctx, path))),
+  });
 
-  // os and process actions
-  action("os.info", {
+  rl.registerAction("fs.lstat", {
     access: "read",
-    description: "Get useful host OS information",
-    execute() {
-      return {
-        platform: platform(),
-        arch: arch(),
-        type: type(),
-        release: release(),
-        hostname: hostname(),
-        homedir: homedir(),
-        tmpdir: tmpdir(),
-        uptime: uptime(),
-        totalmem: totalmem(),
-        freemem: freemem(),
-        eol: EOL,
-        cpus: cpus().map((cpu) => ({ model: cpu.model, speed: cpu.speed })),
-      };
+    description: "Describe a path itself, without following a symbolic link.",
+    inputSchema: onePath,
+    execute: async ({ path }, ctx) => describeStats(await lstat(at(ctx, path))),
+  });
+
+  rl.registerAction("fs.exists", {
+    access: "read",
+    description: "Whether a path exists.",
+    inputSchema: onePath,
+    execute: ({ path }, ctx) => existsSync(at(ctx, path)),
+  });
+
+  rl.registerAction("fs.access", {
+    access: "read",
+    description: "Check that a path can be reached. Rejects when it cannot.",
+    inputSchema: onePath,
+    async execute({ path }, ctx) {
+      await access(at(ctx, path));
+      return { ok: true };
     },
-  }),
-  action("os.platform", {
-    access: "read",
-    description: "Get OS platform",
-    execute: () => platform(),
-  }),
-  action("os.arch", {
-    access: "read",
-    description: "Get OS architecture",
-    execute: () => arch(),
-  }),
-  action("os.homedir", {
-    access: "read",
-    description: "Get home directory",
-    execute: () => homedir(),
-  }),
-  action("os.tmpdir", {
-    access: "read",
-    description: "Get temp directory",
-    execute: () => tmpdir(),
-  }),
-  action("os.userInfo", {
-    access: "read",
-    description: "Get current user information",
-    execute() {
-      const info = userInfo();
-      return {
-        username: info.username,
-        uid: info.uid,
-        gid: info.gid,
-        shell: info.shell,
-        homedir: info.homedir,
-      };
-    },
-  }),
-  action("process.cwd", {
-    access: "read",
-    description: "Get the current working directory",
-    execute: () => process.cwd(),
-  }),
-  action("process.env", {
-    access: "read",
-    description: "Read environment variables from the host process",
-    inputSchema: {
-      name: {
-        type: "string",
-        required: false,
-        description: "Optional variable name. Omit to return all env vars.",
+  });
+
+  rl.registerAction("fs.mkdir", {
+    access: "write",
+    description: "Create a directory.",
+    inputSchema: t.Object(
+      {
+        path: path(),
+        recursive: t.Optional(
+          t.Boolean({ description: "Create missing parents. Default: true." }),
+        ),
       },
+      strict,
+    ),
+    async execute({ path, recursive = true }, ctx) {
+      const directory = at(ctx, path);
+      await mkdir(directory, { recursive });
+      return { ok: true, path: directory };
     },
-    execute(input) {
-      const name = (input as { name?: string } | undefined)?.name;
-      return name ? process.env[name] : { ...process.env };
+  });
+
+  rl.registerAction("fs.rm", {
+    access: "write",
+    description: "Remove a file or a directory.",
+    hints: { destructive: true },
+    inputSchema: t.Object(
+      {
+        path: path(),
+        recursive: t.Optional(
+          t.Boolean({
+            description:
+              "Remove a directory and what it holds. Default: false.",
+          }),
+        ),
+        force: t.Optional(
+          t.Boolean({
+            description: "Succeed when the path is missing. Default: false.",
+          }),
+        ),
+      },
+      strict,
+    ),
+    async execute({ path, recursive = false, force = false }, ctx) {
+      const target = at(ctx, path);
+      await rm(target, { recursive, force });
+      return { ok: true, path: target };
     },
-  }),
-  action("crypto.randomUUID", {
+  });
+
+  rl.registerAction("fs.unlink", {
+    access: "write",
+    description: "Remove a file.",
+    hints: { destructive: true },
+    inputSchema: onePath,
+    async execute({ path }, ctx) {
+      const file = at(ctx, path);
+      await unlink(file);
+      return { ok: true, path: file };
+    },
+  });
+
+  for (const [name, move, description] of [
+    ["fs.rename", rename, "Move or rename a file or a directory."],
+    ["fs.copyFile", copyFile, "Copy a file, replacing the destination."],
+  ] as const)
+    rl.registerAction(name, {
+      access: "write",
+      description,
+      hints: { destructive: true },
+      inputSchema: fromTo,
+      async execute(input, ctx) {
+        const from = at(ctx, input.from);
+        const to = at(ctx, input.to);
+        await move(from, to);
+        return { ok: true, from, to };
+      },
+    });
+
+  // Paths
+
+  rl.registerAction("path.join", {
     access: "read",
-    description: "Generate a random UUID using the host crypto runtime",
-    execute() {
-      return randomUUID();
-    },
-  }),
-  action("crypto.randomBytes", {
+    description: "Join path segments.",
+    inputSchema: segments,
+    execute: ({ segments }) => join(...segments),
+  });
+
+  rl.registerAction("path.resolve", {
     access: "read",
     description:
-      "Generate cryptographically strong random bytes as hex or base64",
-    inputSchema: {
-      size: {
-        type: "number",
-        required: true,
-        description: "Number of bytes",
-      },
-      encoding: {
-        type: "string",
-        required: false,
-        description: "hex or base64. Defaults to hex.",
-      },
-    },
-    execute(input) {
-      const { size, encoding = "hex" } = objectInput<{
-        size: number;
-        encoding?: BufferEncoding;
-      }>(input);
-      return randomBytes(size).toString(encoding);
-    },
-  }),
-  action("crypto.hash", {
+      "Resolve path segments to an absolute path, from the connection's `cwd`.",
+    inputSchema: segments,
+    execute: ({ segments }, ctx) => resolve(base(ctx), ...segments),
+  });
+
+  for (const [name, change, description] of [
+    ["path.normalize", normalize, "Normalize a path."],
+    ["path.dirname", dirname, "The directory part of a path."],
+    ["path.extname", extname, "The extension of a path."],
+    ["path.isAbsolute", isAbsolute, "Whether a path is absolute."],
+    ["path.parse", parse, "The parts of a path."],
+  ] as const)
+    rl.registerAction(name, {
+      access: "read",
+      description,
+      inputSchema: t.Object({ path: path("A path.") }, strict),
+      execute: ({ path }) => change(path),
+    });
+
+  rl.registerAction("path.basename", {
     access: "read",
-    description: "Hash text data with a Node crypto digest algorithm",
-    inputSchema: {
-      algorithm: {
-        type: "string",
-        required: false,
-        description: "Digest algorithm. Defaults to sha256.",
+    description: "The last part of a path.",
+    inputSchema: t.Object(
+      {
+        path: path("A path."),
+        suffix: t.Optional(
+          t.String({ description: "An ending to leave off, such as `.txt`." }),
+        ),
       },
-      data: { type: "string", required: true, description: "Data to hash" },
-      encoding: {
-        type: "string",
-        required: false,
-        description: "Digest encoding. Defaults to hex.",
+      strict,
+    ),
+    execute: ({ path, suffix }) => basename(path, suffix),
+  });
+
+  rl.registerAction("path.relative", {
+    access: "read",
+    description: "The path from one path to another.",
+    inputSchema: fromTo,
+    execute: ({ from, to }, ctx) => relative(at(ctx, from), at(ctx, to)),
+  });
+
+  rl.registerAction("path.format", {
+    access: "read",
+    description: "Build a path from its parts, as `path.parse` returns them.",
+    inputSchema: t.Object(
+      {
+        pathObject: t.Object(
+          {
+            root: t.Optional(t.String()),
+            dir: t.Optional(t.String()),
+            base: t.Optional(t.String()),
+            name: t.Optional(t.String()),
+            ext: t.Optional(t.String()),
+          },
+          strict,
+        ),
       },
+      strict,
+    ),
+    execute: ({ pathObject }) => format(pathObject),
+  });
+
+  rl.registerAction("path.constants", {
+    access: "read",
+    description: "The host's path separator and `PATH` delimiter.",
+    execute: () => ({ sep, delimiter }),
+  });
+
+  // The system and the process
+
+  rl.registerAction("os.info", {
+    access: "read",
+    description: "Facts about the host: platform, memory, processors.",
+    execute: () => ({
+      platform: platform(),
+      arch: arch(),
+      type: type(),
+      release: release(),
+      hostname: hostname(),
+      homedir: homedir(),
+      tmpdir: tmpdir(),
+      uptime: uptime(),
+      totalmem: totalmem(),
+      freemem: freemem(),
+      eol: EOL,
+      cpus: cpus().map((cpu) => ({ model: cpu.model, speed: cpu.speed })),
+    }),
+  });
+
+  for (const [name, read, description] of [
+    ["os.platform", platform, "The host's platform, such as `linux`."],
+    ["os.arch", arch, "The host's processor architecture."],
+    ["os.homedir", homedir, "The user's home directory."],
+    ["os.tmpdir", tmpdir, "The directory for temporary files."],
+  ] as const)
+    rl.registerAction(name, {
+      access: "read",
+      description,
+      execute: () => read(),
+    });
+
+  rl.registerAction("os.userInfo", {
+    access: "read",
+    description: "The user codemode runs as.",
+    execute() {
+      const { username, uid, gid, shell, homedir } = userInfo();
+      return { username, uid, gid, shell, homedir };
     },
-    execute(input) {
-      const {
-        algorithm = "sha256",
-        data,
-        encoding = "hex",
-      } = objectInput<{
-        algorithm?: string;
-        data: string;
-        encoding?: Parameters<ReturnType<typeof createHash>["digest"]>[0];
-      }>(input);
-      return createHash(algorithm).update(data).digest(encoding);
-    },
-  }),
-  action("fetch", {
+  });
+
+  rl.registerAction("process.cwd", {
+    access: "read",
+    description:
+      "The directory relative paths resolve from: the connection's `cwd`, else the one codemode runs in.",
+    execute: (_input, ctx) => base(ctx),
+  });
+
+  rl.registerAction("process.env", {
+    access: "read",
+    description:
+      "Read the environment of the codemode process: one variable, or all of them.",
+    inputSchema: t.Object(
+      {
+        name: t.Optional(
+          t.String({
+            minLength: 1,
+            description: "The variable. Default: every variable.",
+          }),
+        ),
+      },
+      strict,
+    ),
+    execute: ({ name }) => (name ? process.env[name] : { ...process.env }),
+  });
+
+  // Hashing and random values
+
+  rl.registerAction("crypto.randomUUID", {
+    access: "read",
+    description: "A random UUID.",
+    execute: () => randomUUID(),
+  });
+
+  rl.registerAction("crypto.randomBytes", {
+    access: "read",
+    description: "Cryptographically strong random bytes, written as text.",
+    inputSchema: t.Object(
+      {
+        size: t.Integer({
+          minimum: 1,
+          maximum: 65_536,
+          description: "How many bytes.",
+        }),
+        encoding: digestEncoding,
+      },
+      strict,
+    ),
+    execute: ({ size, encoding = "hex" }) =>
+      randomBytes(size).toString(encoding),
+  });
+
+  rl.registerAction("crypto.hash", {
+    access: "read",
+    description: "Hash text.",
+    inputSchema: t.Object(
+      {
+        data: t.String({ description: "The text to hash." }),
+        algorithm: t.Optional(
+          t.String({
+            minLength: 1,
+            description:
+              "A digest algorithm the host's OpenSSL has. Default: sha256.",
+          }),
+        ),
+        encoding: digestEncoding,
+      },
+      strict,
+    ),
+    execute: ({ data, algorithm = "sha256", encoding = "hex" }) =>
+      createHash(algorithm).update(data).digest(encoding),
+  });
+
+  // HTTP
+
+  rl.registerAction("fetch", {
     access: "write",
-    description: "Perform an HTTP fetch from the host runtime",
-    inputSchema: {
-      url: { type: "string", required: true, description: "Request URL" },
-      method: { type: "string", required: false, description: "HTTP method" },
-      headers: {
-        type: "object",
-        required: false,
-        description: "Request headers",
+    description:
+      "Make an HTTP request. A text body within `maxBytes` returns as `body`, parsed when it is JSON. Any other body is written whole to a file, named by `bodyPath`.",
+    hints: { openWorld: true },
+    inputSchema: t.Object(
+      {
+        url: t.String({ minLength: 1, description: "The URL." }),
+        method: t.Optional(t.String({ description: "Default: GET." })),
+        headers: t.Optional(t.Record(t.String(), t.String())),
+        body: t.Optional(t.String({ description: "The request's body." })),
+        timeoutMs: t.Optional(
+          t.Integer({
+            minimum: 1,
+            maximum: MAX_TIMEOUT_MS,
+            description:
+              "Give up after this many milliseconds. Default: no limit of its own; the request ends when the run does.",
+          }),
+        ),
+        maxBytes: maxBytes(
+          "the response body",
+          "A larger body is written to a file.",
+        ),
       },
-      body: { type: "string", required: false, description: "Request body" },
+      strict,
+    ),
+    outputSchema: {
+      type: "object",
+      properties: {
+        ok: { type: "boolean" },
+        status: { type: "number" },
+        statusText: { type: "string" },
+        headers: { type: "object" },
+        body: {
+          description: "The body, when it is text within `maxBytes`.",
+        },
+        bodyPath: {
+          type: "string",
+          description: "The file with all of the body, when `body` is absent.",
+        },
+        bytes: { type: "number", description: "The body's size." },
+      },
+      required: ["ok", "status", "statusText", "headers", "bytes"],
     },
-    async execute(input) {
-      const { url, method, headers, body } = objectInput<{
-        url: string;
-        method?: string;
-        headers?: Record<string, string>;
-        body?: string;
-      }>(input);
-      const res = await fetch(url, { method, headers, body });
-      const contentType = res.headers.get("content-type") ?? "";
-      const text = await res.text();
+    async execute({ url, method, headers, body, timeoutMs, maxBytes }, ctx) {
+      const ends = [
+        ctx.signal,
+        timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs),
+      ].filter((signal) => signal !== undefined);
+      const response = await fetch(url, {
+        method,
+        headers,
+        body,
+        signal: AbortSignal.any(ends),
+      });
       return {
-        ok: res.ok,
-        status: res.status,
-        statusText: res.statusText,
-        headers: Object.fromEntries(res.headers.entries()),
-        body: contentType.includes("application/json") ? safeJson(text) : text,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        ...(await readBody(
+          response,
+          url,
+          maxBytes ?? DEFAULT_MAX_BYTES,
+          ctx.outputDir,
+        )),
       };
     },
-  }),
-];
-
-function objectInput<T extends JsonObject>(input: unknown): T {
-  return (input && typeof input === "object" ? input : {}) as T;
-}
-
-function stringArrayInput(input: unknown): string[] {
-  if (Array.isArray(input)) return input.map(String);
-  const { segments } = objectInput<{ segments?: unknown[] }>(input);
-  return Array.isArray(segments) ? segments.map(String) : [];
-}
-
-function ok(extra: JsonObject = {}): JsonObject {
-  return { ok: true, ...extra };
-}
-
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function serializeStats(s: Awaited<ReturnType<typeof stat>>): JsonObject {
-  return {
-    size: s.size,
-    mode: s.mode,
-    uid: s.uid,
-    gid: s.gid,
-    atimeMs: s.atimeMs,
-    mtimeMs: s.mtimeMs,
-    ctimeMs: s.ctimeMs,
-    birthtimeMs: s.birthtimeMs,
-    isFile: s.isFile(),
-    isDirectory: s.isDirectory(),
-    isSymbolicLink: s.isSymbolicLink(),
-    isBlockDevice: s.isBlockDevice(),
-    isCharacterDevice: s.isCharacterDevice(),
-    isFIFO: s.isFIFO(),
-    isSocket: s.isSocket(),
-  };
+  });
 }

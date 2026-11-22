@@ -87,6 +87,8 @@ codemode connection add node --plugin node
 ```
 
 - Add the connection again. A connection made for the bundled plugin belongs to it, and the packaged plugin refuses it.
+- Input is checked. An unknown field is refused, and `node.path.join` takes `{ segments: [...] }` only.
+- `node.fetch` returns a body that is not text, or is larger than `maxBytes`, as a file named by `bodyPath`. `node.fs.readFile` refuses a file over 10 MiB unless `maxBytes` allows it.
 - `node.process.exec` and `node.process.execFile` are gone. Run commands with `bash.run` from [`codemode-bash`](../packages/codemode-bash/README.md) or `powershell.run` from [`codemode-powershell`](../packages/codemode-powershell/README.md), which return an exit code instead of rejecting on one.
 
 ## Understand what did not move
