@@ -26,9 +26,24 @@ const query = (
   config?: Record<string, unknown>,
 ) => harness.call<Result>("query", input, config);
 
-/** Run code that uses `duckdb`, and answer what it returns or how it failed. */
-async function execute(code: string, options?: { timeoutMs?: number }) {
-  return codemode().execute(code, options);
+const ENDLESS = "select count(*) from range(100000000000) a, range(1000) b";
+
+/**
+ * Run code that a one-second run cannot finish, and check that DuckDB is
+ * then idle: its threads would otherwise keep this process's processors
+ * busy.
+ */
+async function quietAfter(code: string): Promise<void> {
+  const { error } = await codemode().execute(code, { timeoutMs: 1_000 });
+  assert.match(error ?? "", /timed out/);
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const before = process.cpuUsage();
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const { user, system } = process.cpuUsage(before);
+  assert.ok(
+    user + system < 500_000,
+    `${Math.round((user + system) / 1000)} ms of processor time in an idle second`,
+  );
 }
 
 describe("duckdb.query", () => {
@@ -59,6 +74,28 @@ describe("duckdb.query", () => {
     ]);
   });
 
+  it("works out a passed table's column types from every row", async () => {
+    // DuckDB samples 20,480 rows by default; the last one here is past that.
+    const mixed = [
+      ...Array.from({ length: 21_000 }, (_, n) => ({ value: n })),
+      { value: "text" },
+    ];
+    const { rows } = await query({
+      sql: "select typeof(value) as type, count(*) as n from mixed group by type",
+      tables: { mixed },
+    });
+    assert.deepEqual(rows, [{ type: "JSON", n: 21_001 }]);
+    assert.deepEqual(
+      (
+        await query({
+          sql: "select count(*) as n from none",
+          tables: { none: [] },
+        })
+      ).rows,
+      [{ n: 0 }],
+    );
+  });
+
   it("binds parameters by position and by name", async () => {
     const hostile = "x'; drop table t; --";
     assert.deepEqual(
@@ -73,6 +110,11 @@ describe("duckdb.query", () => {
     assert.deepEqual(
       (await query({ sql: "select $who as who", params: { who: null } })).rows,
       [{ who: null }],
+    );
+    assert.equal(
+      (await query({ sql: "select * from range(10) limit $1", params: [3] }))
+        .rows.length,
+      3,
     );
   });
 
@@ -137,7 +179,7 @@ describe("duckdb.query", () => {
   });
 
   it("keeps nothing from one call to the next", async () => {
-    const { result, error } = await execute(`
+    const { result, error } = await codemode().execute(`
       await duckdb.query({ sql: "create table kept as select 1 as a" });
       try {
         await duckdb.query({ sql: "select * from kept" });
@@ -150,25 +192,18 @@ describe("duckdb.query", () => {
   });
 
   it("rejects with DuckDB's own error", async () => {
-    const { error } = await execute(
+    const { error } = await codemode().execute(
       `return await duckdb.query({ sql: "selec 1" })`,
     );
     assert.match(error ?? "", /Parser Error: syntax error at or near "selec"/);
-    const none = await execute(
+    const none = await codemode().execute(
       `return await duckdb.query({ sql: "-- nothing" })`,
     );
     assert.match(none.error ?? "", /duckdb: no statement in `sql`/);
   });
 
   it("stops a query when the run ends", async () => {
-    const started = Date.now();
-    const { error } = await execute(
-      `return await duckdb.query({ sql: "select count(*) from range(100000000000) a, range(1000) b" })`,
-      { timeoutMs: 1_000 },
-    );
-    assert.match(error ?? "", /timed out/);
-    // The process can only exit promptly if DuckDB let go of the query.
-    assert.ok(Date.now() - started < 20_000);
+    await quietAfter(`return await duckdb.query({ sql: "${ENDLESS}" })`);
   });
 
   it("refuses input that is not a query", async () => {
@@ -179,7 +214,7 @@ describe("duckdb.query", () => {
       { sql: "select 1", params: [{ nested: true }] },
       { sql: "select 1", table: {} },
     ]) {
-      const { error } = await execute(
+      const { error } = await codemode().execute(
         `return await duckdb.query(${JSON.stringify(input)})`,
       );
       assert.match(error ?? "", /Invalid input for duckdb\.query/);
@@ -189,7 +224,7 @@ describe("duckdb.query", () => {
 
 describe("a database from duckdb.open", () => {
   it("keeps tables between queries until it is closed", async () => {
-    const { result, error } = await execute(`
+    const { result, error } = await codemode().execute(`
       const { db } = await duckdb.open({});
       await duckdb.query({ db, sql: "create table kept as select 42 as answer" });
       await duckdb.query({ db, sql: "select 1", tables: { passed: [{ id: 7 }] } });
@@ -211,7 +246,7 @@ describe("a database from duckdb.open", () => {
   });
 
   it("runs queries made together one after another", async () => {
-    const { result, error } = await execute(`
+    const { result, error } = await codemode().execute(`
       const { db } = await duckdb.open({});
       await duckdb.query({ db, sql: "create table n (i integer)" });
       await Promise.all([1, 2, 3, 4].map((i) =>
@@ -238,14 +273,14 @@ describe("a database from duckdb.open", () => {
 
   it("is a file when given a path, and what it holds stays", async () => {
     const path = join(harness.tmp, "kept.duckdb");
-    const write = await execute(`
+    const write = await codemode().execute(`
       const { db } = await duckdb.open({ path: ${JSON.stringify(path)} });
       await duckdb.query({ db, sql: "create table kept as select 42 as answer" });
     `);
     assert.equal(write.error, undefined);
     assert.equal(existsSync(path), true);
     // The first run's end closed the file, so a second can open it.
-    const read = await execute(`
+    const read = await codemode().execute(`
       const { db } = await duckdb.open({ path: ${JSON.stringify(path)} });
       return (await duckdb.query({ db, sql: "select * from kept" })).rows;
     `);
@@ -253,8 +288,16 @@ describe("a database from duckdb.open", () => {
     assert.deepEqual(read.result, [{ answer: 42 }]);
   });
 
+  it("stops its query, and those waiting, when the run ends", async () => {
+    await quietAfter(`
+      const { db } = await duckdb.open({});
+      return await Promise.all([1, 2, 3].map(() =>
+        duckdb.query({ db, sql: "${ENDLESS}" })));
+    `);
+  });
+
   it("is refused by duckdb.close when it is not open", async () => {
-    const { error } = await execute(
+    const { error } = await codemode().execute(
       `return await duckdb.close({ db: "nothing" })`,
     );
     assert.match(error ?? "", /duckdb: no open database "nothing"/);

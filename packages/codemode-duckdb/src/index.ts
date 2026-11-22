@@ -19,13 +19,15 @@ import {
   type DuckDBConnection,
   DuckDBInstance,
   DuckDBTypeId,
-  type DuckDBValue,
 } from "@duckdb/node-api";
 import type { ActionContext, CodemodePluginAPI } from "@shiftlabs/codemode";
 import { packageVersion } from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
 
 const DEFAULT_MAX_ROWS = 10_000;
+
+/** What DuckDB's client says of SQL with no statement in it. */
+const NO_STATEMENT = "Error in native callback";
 
 /** Integer types wider than a JavaScript number holds exactly. */
 const WIDE_INTEGERS = new Set<DuckDBTypeId>([
@@ -34,200 +36,6 @@ const WIDE_INTEGERS = new Set<DuckDBTypeId>([
   DuckDBTypeId.HUGEINT,
   DuckDBTypeId.UHUGEINT,
 ]);
-
-type Scalar = string | number | boolean | null;
-type Params = Scalar[] | Record<string, Scalar>;
-type Rows = Record<string, unknown>[];
-
-interface QueryInput {
-  sql: string;
-  params?: Params;
-  tables?: Record<string, Rows>;
-  maxRows?: number;
-}
-
-interface QueryResult {
-  columns: { name: string; type: string }[];
-  rows: Rows;
-  truncated: boolean;
-}
-
-function quoted(identifier: string): string {
-  return `"${identifier.replaceAll('"', '""')}"`;
-}
-
-/**
- * One DuckDB database and the one connection to it. A connection runs one
- * statement at a time, so calls wait their turn.
- */
-class Database {
-  private turn: Promise<unknown> = Promise.resolve();
-  /** Set when closing starts, so a call still waiting its turn does not run. */
-  private closing = false;
-
-  private constructor(
-    private readonly instance: DuckDBInstance,
-    private readonly connection: DuckDBConnection,
-  ) {}
-
-  /** Open a database, in memory or on a file, and run the connection's `init` SQL on it. */
-  static async open(
-    path: string | undefined,
-    init?: string,
-  ): Promise<Database> {
-    const instance = await DuckDBInstance.create(path ?? ":memory:");
-    try {
-      const database = new Database(instance, await instance.connect());
-      if (init) await database.connection.run(init);
-      return database;
-    } catch (error) {
-      instance.closeSync();
-      throw error;
-    }
-  }
-
-  query(input: QueryInput): Promise<QueryResult> {
-    const result = this.turn.then(() => {
-      if (this.closing) throw new Error("duckdb: the database is closed");
-      return this.run(input);
-    });
-    this.turn = result.catch(() => {});
-    return result;
-  }
-
-  /** Stop the statement that is running, if one is. */
-  interrupt(): void {
-    if (!this.closing) this.connection.interrupt();
-  }
-
-  /** Stop what is running and close, once it has stopped. */
-  async close(): Promise<void> {
-    if (!this.closing) {
-      this.interrupt();
-      this.closing = true;
-      this.turn = this.turn.then(() => {
-        this.connection.closeSync();
-        this.instance.closeSync();
-      });
-    }
-    await this.turn;
-  }
-
-  private async run(input: QueryInput): Promise<QueryResult> {
-    for (const [name, rows] of Object.entries(input.tables ?? {}))
-      await this.load(name, rows);
-    const statements = await this.statements(input.sql);
-    for (let index = 0; index < statements.count - 1; index++) {
-      const statement = await statements.prepare(index);
-      try {
-        await statement.run();
-      } finally {
-        statement.destroySync();
-      }
-    }
-    const last = await statements.prepare(statements.count - 1);
-    try {
-      if (input.params) last.bind(input.params as Record<string, DuckDBValue>);
-      const maxRows = input.maxRows ?? DEFAULT_MAX_ROWS;
-      // One row past the limit says whether there were more.
-      const reader = await last.streamAndReadUntil(maxRows + 1);
-      try {
-        const names = reader.deduplicatedColumnNames();
-        const types = reader.columnTypes();
-        const wide = types.map((type) => WIDE_INTEGERS.has(type.typeId));
-        const all = reader.getRowsJson();
-        return {
-          columns: names.map((name, index) => ({
-            name,
-            type: String(types[index]),
-          })),
-          rows: all
-            .slice(0, maxRows)
-            .map((row) =>
-              Object.fromEntries(
-                row.map((value, index) => [
-                  names[index],
-                  wide[index] ? exactNumber(value) : value,
-                ]),
-              ),
-            ),
-          truncated: all.length > maxRows,
-        };
-      } finally {
-        reader.closeSync();
-      }
-    } finally {
-      last.destroySync();
-    }
-  }
-
-  /**
-   * The statements in `sql`. DuckDB explains SQL it cannot parse; for SQL
-   * with no statement in it, only comments or spaces, its client fails
-   * without a reason.
-   */
-  private async statements(sql: string) {
-    try {
-      return await this.connection.extractStatements(sql);
-    } catch (error) {
-      if (error instanceof Error && /Parser Error/.test(error.message))
-        throw error;
-      throw new Error("duckdb: no statement in `sql`", { cause: error });
-    }
-  }
-
-  /**
-   * Make `rows` a temporary table. DuckDB reads JSON from files, and works
-   * out each column's type from the values.
-   */
-  private async load(name: string, rows: Rows): Promise<void> {
-    const directory = mkdtempSync(join(tmpdir(), "codemode-duckdb-"));
-    try {
-      const file = join(directory, "rows.json");
-      writeFileSync(file, JSON.stringify(rows), { mode: 0o600 });
-      await this.connection.run(
-        `create or replace temp table ${quoted(name)} as select * from read_json_auto($1)`,
-        [file],
-      );
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  }
-}
-
-/** A wide integer as a number when a number holds it exactly; else the text DuckDB gave. */
-function exactNumber(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  const number = Number(value);
-  return Number.isSafeInteger(number) ? number : value;
-}
-
-/**
- * The databases each run has open. A run is known by its signal, which the
- * engine makes once per run and aborts when the run ends.
- */
-const opened = new WeakMap<AbortSignal, Map<string, Database>>();
-
-/** The signal of the run a call belongs to, while that run is going. */
-function running(ctx: ActionContext): AbortSignal {
-  if (!ctx.signal || ctx.signal.aborted)
-    throw new Error("duckdb: a database is opened by a run, and lasts as long");
-  return ctx.signal;
-}
-
-function openedBy(ctx: ActionContext, id: string): Database {
-  const database = ctx.signal && opened.get(ctx.signal)?.get(id);
-  if (!database)
-    throw new Error(
-      `duckdb: no open database ${JSON.stringify(id)}. A database is open from duckdb.open until duckdb.close or the end of the run that opened it.`,
-    );
-  return database;
-}
-
-function initOf(ctx: ActionContext): string | undefined {
-  const { init } = ctx.connection.config;
-  return typeof init === "string" && init.trim() ? init : undefined;
-}
 
 const scalar = t.Union([t.String(), t.Number(), t.Boolean(), t.Null()]);
 
@@ -266,6 +74,207 @@ const queryInput = t.Object(
   },
   { additionalProperties: false },
 );
+
+type Rows = Record<string, unknown>[];
+type Query = Omit<t.Static<typeof queryInput>, "db">;
+
+interface QueryResult {
+  columns: { name: string; type: string }[];
+  rows: Rows;
+  truncated: boolean;
+}
+
+function quoted(identifier: string): string {
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+/**
+ * One DuckDB database and the one connection to it. A connection runs one
+ * statement at a time, so calls wait their turn.
+ */
+class Database {
+  private turn: Promise<unknown> = Promise.resolve();
+  /** Set when closing starts, so nothing more of what waits or runs is started. */
+  private closing = false;
+
+  private constructor(
+    private readonly instance: DuckDBInstance,
+    private readonly connection: DuckDBConnection,
+  ) {}
+
+  /** Open a database, in memory or on a file, and run the connection's `init` SQL on it. */
+  static async open(
+    path: string | undefined,
+    init?: string,
+  ): Promise<Database> {
+    const instance = await DuckDBInstance.create(path ?? ":memory:");
+    try {
+      const database = new Database(instance, await instance.connect());
+      if (init) await database.connection.run(init);
+      return database;
+    } catch (error) {
+      instance.closeSync();
+      throw error;
+    }
+  }
+
+  query(input: Query): Promise<QueryResult> {
+    const result = this.turn.then(() => this.run(input));
+    this.turn = result.catch(() => {});
+    return result;
+  }
+
+  /**
+   * Stop the statement that is running and close, once it has stopped. An
+   * interrupt ends one statement, so the steps of a query each check that
+   * the database is still open before they start.
+   */
+  async close(): Promise<void> {
+    if (!this.closing) {
+      this.closing = true;
+      this.connection.interrupt();
+      this.turn = this.turn.then(() => {
+        this.connection.closeSync();
+        this.instance.closeSync();
+      });
+    }
+    await this.turn;
+  }
+
+  private stillOpen(): void {
+    if (this.closing) throw new Error("duckdb: the database is closed");
+  }
+
+  private async run(input: Query): Promise<QueryResult> {
+    for (const [name, rows] of Object.entries(input.tables ?? {})) {
+      this.stillOpen();
+      await this.load(name, rows);
+    }
+    this.stillOpen();
+    const statements = await this.statements(input.sql);
+    for (let index = 0; index < statements.count - 1; index++) {
+      this.stillOpen();
+      const statement = await statements.prepare(index);
+      try {
+        await statement.run();
+      } finally {
+        statement.destroySync();
+      }
+    }
+    this.stillOpen();
+    const last = await statements.prepare(statements.count - 1);
+    try {
+      if (input.params) last.bind(input.params);
+      const maxRows = input.maxRows ?? DEFAULT_MAX_ROWS;
+      // One row past the limit says whether there were more.
+      const reader = await last.streamAndReadUntil(maxRows + 1);
+      try {
+        const names = reader.deduplicatedColumnNames();
+        const types = reader.columnTypes();
+        const wide = types.map((type) => WIDE_INTEGERS.has(type.typeId));
+        const all = reader.getRowsJson();
+        return {
+          columns: names.map((name, index) => ({
+            name,
+            type: String(types[index]),
+          })),
+          rows: all
+            .slice(0, maxRows)
+            .map((row) =>
+              Object.fromEntries(
+                row.map((value, index) => [
+                  names[index],
+                  wide[index] ? exactNumber(value) : value,
+                ]),
+              ),
+            ),
+          truncated: all.length > maxRows,
+        };
+      } finally {
+        reader.closeSync();
+      }
+    } finally {
+      last.destroySync();
+    }
+  }
+
+  /**
+   * The statements in `sql`. For SQL with no statement in it, only comments
+   * or spaces, DuckDB's client fails with a message that names no reason.
+   */
+  private async statements(sql: string) {
+    try {
+      return await this.connection.extractStatements(sql);
+    } catch (error) {
+      if (error instanceof Error && error.message === NO_STATEMENT)
+        throw new Error("duckdb: no statement in `sql`", { cause: error });
+      throw error;
+    }
+  }
+
+  /**
+   * Make `rows` a temporary table. DuckDB reads JSON from files, and works
+   * out each column's type from the values: from all of them, so a value
+   * unlike the ones before it widens the column instead of failing the load.
+   */
+  private async load(name: string, rows: Rows): Promise<void> {
+    const directory = mkdtempSync(join(tmpdir(), "codemode-duckdb-"));
+    try {
+      const file = join(directory, "rows.json");
+      writeFileSync(file, JSON.stringify(rows), { mode: 0o600 });
+      await this.connection.run(
+        `create or replace temp table ${quoted(name)} as select * from read_json_auto($1, sample_size = -1)`,
+        [file],
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+}
+
+/** A wide integer as a number when a number holds it exactly; else the text DuckDB gave. */
+function exactNumber(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : value;
+}
+
+/**
+ * The databases each run has open. A run is known by its signal, which the
+ * engine makes once per run and aborts when the run ends.
+ */
+const opened = new WeakMap<AbortSignal, Map<string, Database>>();
+
+/** The databases the run of a call has open. */
+function openedBy(ctx: ActionContext): Map<string, Database> | undefined {
+  return ctx.signal && opened.get(ctx.signal);
+}
+
+function database(ctx: ActionContext, id: string): Database {
+  const found = openedBy(ctx)?.get(id);
+  if (!found)
+    throw new Error(
+      `duckdb: no open database ${JSON.stringify(id)}. A database is open from duckdb.open until duckdb.close or the end of the run that opened it.`,
+    );
+  return found;
+}
+
+/**
+ * Open a database for a call, with the connection's `init` SQL run on it.
+ * The run may end while it opens, and nothing would then close it.
+ */
+async function openFor(ctx: ActionContext, path?: string): Promise<Database> {
+  const { init } = ctx.connection.config;
+  const opening = await Database.open(
+    path,
+    typeof init === "string" && init.trim() ? init : undefined,
+  );
+  if (ctx.signal?.aborted) {
+    await opening.close();
+    throw new Error("duckdb: the run ended");
+  }
+  return opening;
+}
 
 const queryOutput = {
   type: "object",
@@ -318,15 +327,16 @@ export default function duckdb(rl: CodemodePluginAPI): void {
     inputSchema: queryInput,
     outputSchema: queryOutput,
     async execute({ db, ...input }, ctx) {
-      if (db !== undefined) return openedBy(ctx, db).query(input);
-      const database = await Database.open(undefined, initOf(ctx));
-      const stop = () => database.interrupt();
+      if (db !== undefined) return database(ctx, db).query(input);
+      const own = await openFor(ctx);
+      // A close that fails here fails the query's own promise, below.
+      const stop = () => void own.close().catch(() => {});
       ctx.signal?.addEventListener("abort", stop, { once: true });
       try {
-        return await database.query(input);
+        return await own.query(input);
       } finally {
         ctx.signal?.removeEventListener("abort", stop);
-        await database.close();
+        await own.close();
       }
     },
   });
@@ -354,18 +364,15 @@ export default function duckdb(rl: CodemodePluginAPI): void {
       required: ["db"],
     },
     async execute({ path }, ctx) {
-      const signal = running(ctx);
-      const database = await Database.open(
+      const { signal } = ctx;
+      if (!signal)
+        throw new Error(
+          "duckdb: a database is opened by a run, and lasts as long",
+        );
+      const opening = await openFor(
+        ctx,
         path === undefined ? undefined : resolve(path),
-        initOf(ctx),
       );
-      try {
-        // The run may have ended while the database opened.
-        running(ctx);
-      } catch (error) {
-        await database.close();
-        throw error;
-      }
       let mine = opened.get(signal);
       if (!mine) {
         const databases = new Map<string, Database>();
@@ -374,14 +381,16 @@ export default function duckdb(rl: CodemodePluginAPI): void {
         signal.addEventListener(
           "abort",
           () => {
-            for (const each of databases.values()) void each.close();
+            // The run is over, so a close that fails has no one to tell.
+            for (const each of databases.values())
+              void each.close().catch(() => {});
             databases.clear();
           },
           { once: true },
         );
       }
       const db = randomBytes(8).toString("hex");
-      mine.set(db, database);
+      mine.set(db, opening);
       return { db };
     },
   });
@@ -395,9 +404,9 @@ export default function duckdb(rl: CodemodePluginAPI): void {
       { additionalProperties: false },
     ),
     async execute({ db }, ctx) {
-      const database = openedBy(ctx, db);
-      opened.get(running(ctx))?.delete(db);
-      await database.close();
+      const closing = database(ctx, db);
+      openedBy(ctx)?.delete(db);
+      await closing.close();
       return { closed: true };
     },
   });

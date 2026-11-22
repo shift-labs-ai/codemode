@@ -32,7 +32,7 @@ const { rows } = await duckdb.query({
 |---|---|
 | `sql` | DuckDB SQL. Of several statements, all run and the last one's rows return |
 | `params` | Values for the last statement's parameters: a list for `$1`, `$2`, or an object for `$name` |
-| `tables` | Rows to query, by table name. DuckDB works out each column's type from the values |
+| `tables` | Rows to query, by table name. DuckDB works out each column's type from all of the values |
 | `db` | A database from `duckdb.open`. The default is a new in-memory database |
 | `maxRows` | Return at most this many rows. The default is 10,000 |
 
@@ -108,5 +108,6 @@ What is written to a file database stays after the run. A relative `path` resolv
 - A database belongs to the run that opened it. Another run cannot use its id.
 - Rows in `tables` cross from the calling code as JSON. Pass thousands of rows this way, not millions; read larger data from a file or an attached database.
 - A table passed with no rows has no columns.
+- `init` keeps credentials out of the code, not away from it: SQL reads any file the codemode process can, and DuckDB's errors can quote what `init` attached.
 - A list or object inside a row keeps wide integers as strings.
 - Extensions download from DuckDB's repository on first use, so a host without outbound network cannot load one it has not loaded before.
