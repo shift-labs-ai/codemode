@@ -280,15 +280,21 @@ describe("output past what a command may hold in memory", () => {
         /codemode-shell-test-[0-9a-f]{16}\.log$/,
       );
       const total = 6 + 400 * 41 + 4;
-      const closing = `[Showing lines 382-402 of 402 (${(total / 1024).toFixed(1)}KB in all). Full output: ${result.fullOutputPath}]`;
-      // Twenty lines of 41 bytes and `END` fit beside the closing line.
-      assert.equal(
-        result.output,
-        `${[...Array(20).fill(LINE), "END"].join("\n")}\n\n${closing}`,
-      );
-      assert.ok(Buffer.byteLength(result.output) <= 1_024);
       const full = readFileSync(result.fullOutputPath, "utf8");
       assert.equal(full.length, total);
+      // The path is part of the closing line, so how many lines fit beside
+      // it depends on where the temporary directory is.
+      const closing = new RegExp(
+        `\\nEND\\n\\n\\[Showing lines (\\d+)-402 of 402 \\(${(total / 1024).toFixed(1)}KB in all\\)\\. Full output: [^\\n]+\\]$`,
+      ).exec(result.output);
+      assert.ok(closing, result.output.slice(-200));
+      assert.ok(
+        result.output.endsWith(`Full output: ${result.fullOutputPath}]`),
+      );
+      assertCutOf(full, result.output, "a command's last lines");
+      const bytes = Buffer.byteLength(result.output);
+      assert.ok(bytes <= 1_024);
+      assert.ok(bytes + LINE.length + 1 > 1_024, "another line fits");
       assert.ok(full.startsWith("START\n") && full.endsWith("END\n"));
       assert.equal(statSync(result.fullOutputPath).mode & 0o777, 0o600);
     },
