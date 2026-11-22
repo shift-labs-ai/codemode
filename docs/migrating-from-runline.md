@@ -89,6 +89,20 @@ codemode install npm:@shiftlabs/codemode-node
 - The actions that each wrapped one function, such as `node.fs.readFile`, `node.path.join`, and `node.fetch`, are gone. Run a script that calls the function instead: `node.run({ command: 'console.log(require("node:fs").readFileSync("notes.txt", "utf8"))' })`.
 - `node.process.exec` and `node.process.execFile` are gone. Run commands with `bash.run` from [`codemode-bash`](../packages/codemode-bash/README.md) or `powershell.run` from [`codemode-powershell`](../packages/codemode-powershell/README.md).
 
+## Install web search
+
+After 0.46.0 the bundled `parallel` plugin is gone. Web search is a package that searches through Parallel and eleven other providers:
+
+```bash
+codemode install npm:@shiftlabs/codemode-websearch
+```
+
+- `PARALLEL_API_KEY` keeps working. A `parallel` connection belongs to the removed plugin: add the key again with `codemode connection add websearch --plugin websearch --set parallelApiKey=$PARALLEL_API_KEY`.
+- `parallel.search({ objective, search_queries })` becomes `websearch.query({ query })`, which takes one query and answers `{ provider, results }`. Each result has `title`, `url`, and `content`, where `parallel.search` answered `excerpts`.
+- `processor` and `max_chars_per_result` have no counterpart. `max_results` is `numResults`.
+
+See [`codemode-websearch`](../packages/codemode-websearch/README.md).
+
 ## Understand what did not move
 
 `pi-runline`, the Pi extension, keeps its name and lives at [Michaelliv/pi-runline](https://github.com/Michaelliv/pi-runline). It runs runline 0.45 and reads only `.runline` folders, so keep a project's folder named `.runline` while you use the project from Pi.

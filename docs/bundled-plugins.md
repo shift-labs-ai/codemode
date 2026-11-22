@@ -2,7 +2,7 @@
 
 Codemode ships with plugins for SaaS, DevOps, productivity, and image-generation APIs. They are part of the `codemode` package and need no installation.
 
-Host capabilities are separate packages to install: [`codemode-node`](../packages/codemode-node/README.md) for Node.js scripts, [`codemode-bash`](../packages/codemode-bash/README.md) and [`codemode-powershell`](../packages/codemode-powershell/README.md) for commands, and [`codemode-duckdb`](../packages/codemode-duckdb/README.md) for SQL. Web search across providers is the [`codemode-websearch`](../packages/codemode-websearch/README.md) package, and the bundled `parallel` plugin is deprecated in its favor.
+Host capabilities are separate packages to install: [`codemode-node`](../packages/codemode-node/README.md) for Node.js scripts, [`codemode-bash`](../packages/codemode-bash/README.md) and [`codemode-powershell`](../packages/codemode-powershell/README.md) for commands, and [`codemode-duckdb`](../packages/codemode-duckdb/README.md) for SQL. Web search across providers is the [`codemode-websearch`](../packages/codemode-websearch/README.md) package.
 
 A bundled plugin becomes available to `codemode exec` once it has a connection. The last column lists each required connection field and, in parentheses, the environment variable that can supply it:
 
@@ -159,7 +159,6 @@ A plugin that uses OAuth shows the `codemode auth` command that connects it. See
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/oura.svg" width="16" height="16" style="vertical-align: middle"> **oura** | 4 | profile, summary | `accessToken` (`OURA_ACCESS_TOKEN`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/paddle.svg" width="16" height="16" style="vertical-align: middle"> **paddle** | 9 | coupon, payment, plan, product, user | `vendorId` (`PADDLE_VENDOR_ID`), `vendorAuthCode` (`PADDLE_VENDOR_AUTH_CODE`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/pagerduty.svg" width="16" height="16" style="vertical-align: middle"> **pagerduty** | 9 | incident, incidentNote, logEntry, user | `apiToken` (`PAGERDUTY_API_TOKEN`) |
-| <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/parallel.svg" width="16" height="16" style="vertical-align: middle"> **parallel** | 1 | search | `apiKey` (`PARALLEL_API_KEY`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/paypal.svg" width="16" height="16" style="vertical-align: middle"> **paypal** | 4 | payout, payoutItem | `clientId` (`PAYPAL_CLIENT_ID`), `secret` (`PAYPAL_SECRET`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/peekalink.png" width="16" height="16" style="vertical-align: middle"> **peekalink** | 2 | link | `apiKey` (`PEEKALINK_API_KEY`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/phantombuster.png" width="16" height="16" style="vertical-align: middle"> **phantombuster** | 5 | agent | `apiKey` (`PHANTOMBUSTER_API_KEY`) |

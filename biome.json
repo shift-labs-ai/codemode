@@ -134,7 +134,6 @@
       "!packages/codemode-plugins/oura",
       "!packages/codemode-plugins/paddle",
       "!packages/codemode-plugins/pagerduty",
-      "!packages/codemode-plugins/parallel",
       "!packages/codemode-plugins/paypal",
       "!packages/codemode-plugins/peekalink",
       "!packages/codemode-plugins/phantombuster",
