@@ -1,7 +1,7 @@
 /**
- * Web search for codemode: one action that searches the web through
- * whichever provider the connection has a key for, and answers results in
- * one shape whichever provider that was.
+ * Web search for codemode: one action that searches the web through the
+ * provider the connection chooses, and answers results in one shape
+ * whichever provider that was. Code never names a provider.
  *
  *   const { results } = await websearch.query({ query: "duckdb 1.4 release notes" })
  *
@@ -110,34 +110,66 @@ function credentialOf(providers: SearchProvider[]): CredentialDeclaration {
 }
 
 /**
- * The provider a search goes to: the one the call names, else the
- * connection's `provider`, else the first with a key in the connection.
- * A host that signs requests keeps the keys, so only a connection that
- * signs for itself (`signsItself`) is asked to hold the key of a provider
- * that is named.
+ * The filters of a search that a provider does not apply: those whose
+ * removal leaves the request the provider would send unchanged.
+ */
+function unapplied(provider: SearchProvider, search: SearchRequest): string[] {
+  const sent = JSON.stringify(provider.params(search));
+  return FILTERS.filter(
+    (filter) =>
+      search[filter] !== undefined &&
+      sent ===
+        JSON.stringify(
+          provider.params({
+            ...search,
+            [filter]: undefined,
+            ...(filter === "freshness" ? { publishedAfter: undefined } : {}),
+          }),
+        ),
+  );
+}
+
+/**
+ * The provider a search goes to. The connection decides, never the call:
+ * its `provider` when it names one, else the first provider it has a key
+ * for that applies the search's filters. A host that signs requests keeps
+ * the keys, so only a connection that signs for itself (`signsItself`) is
+ * asked to hold the key of the provider it names.
  */
 function chosen(
   providers: SearchProvider[],
   config: Readonly<Record<string, unknown>>,
-  named: string | undefined,
   signsItself: boolean,
+  search: SearchRequest,
 ): SearchProvider {
-  const name = named ?? config.provider;
+  const name = config.provider;
   if (name === undefined) {
-    const first = providers.find((candidate) => hasKey(candidate, config));
-    if (first) return first;
+    const keyed = providers.filter((candidate) => hasKey(candidate, config));
+    if (!keyed.length)
+      throw new Error(
+        `${NAME}: no search provider has a key. Set one of ${providers.map((candidate) => candidate.env).join(", ")}, or the connection's "provider" when the host keeps the keys.`,
+      );
+    const able = keyed.find(
+      (candidate) => !unapplied(candidate, search).length,
+    );
+    if (able) return able;
     throw new Error(
-      `${NAME}: no search provider has a key. Set one of ${providers.map((candidate) => candidate.env).join(", ")}, or the connection's "provider" when the host keeps the keys.`,
+      `${NAME}: no provider with a key can filter by ${unapplied(keyed[0], search).join(" or ")}. Search without it.`,
     );
   }
   const provider = providers.find((candidate) => candidate.name === name);
   if (!provider)
     throw new Error(
-      `${NAME}: no provider named ${JSON.stringify(name)}. The providers are ${providers.map((candidate) => candidate.name).join(", ")}.`,
+      `${NAME}: the connection names the provider ${JSON.stringify(name)}. The providers are ${providers.map((candidate) => candidate.name).join(", ")}.`,
     );
   if (signsItself && !hasKey(provider, config))
     throw new Error(
-      `${NAME}: no key for ${provider.name}. Set ${provider.env}, or search with a provider that has one.`,
+      `${NAME}: no key for ${provider.name}, the connection's provider. Set ${provider.env}.`,
+    );
+  const refused = unapplied(provider, search);
+  if (refused.length)
+    throw new Error(
+      `${NAME}: ${provider.name}, the connection's provider, cannot filter by ${refused.join(" or ")}. Search without it.`,
     );
   return provider;
 }
@@ -175,26 +207,6 @@ function dayBefore(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
-/**
- * The filters of a search that a provider does not apply: those whose
- * removal leaves the request the provider would send unchanged.
- */
-function unapplied(provider: SearchProvider, search: SearchRequest): string[] {
-  const sent = JSON.stringify(provider.params(search));
-  return FILTERS.filter(
-    (filter) =>
-      search[filter] !== undefined &&
-      sent ===
-        JSON.stringify(
-          provider.params({
-            ...search,
-            [filter]: undefined,
-            ...(filter === "freshness" ? { publishedAfter: undefined } : {}),
-          }),
-        ),
-  );
-}
-
 /** `params` without the entries that have no value. */
 function defined(params: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
@@ -226,7 +238,7 @@ export function websearch(
           t.String({
             enum: names,
             description:
-              "The provider a search uses when it names none. The default is the first provider with a key",
+              "The provider every search goes to. The default is the first provider with a key that can apply the search's filters",
           }),
         ),
         ...Object.fromEntries(
@@ -275,13 +287,6 @@ export function websearch(
               pattern: "^[A-Za-z]{2}$",
               description:
                 "Language to prefer results in: an ISO 639-1 code, such as en, es, fr",
-            }),
-          ),
-          provider: t.Optional(
-            t.String({
-              enum: names,
-              description:
-                "The provider to search with. The default is the connection's",
             }),
           ),
           includeDomains: t.Optional(
@@ -333,12 +338,6 @@ export function websearch(
         required: ["provider", "results"],
       },
       async execute(input, ctx) {
-        const provider = chosen(
-          providers,
-          ctx.connection.config,
-          input.provider,
-          !ctx.credentials,
-        );
         if (input.includeDomains && input.excludeDomains)
           throw new Error(
             `${NAME}: set includeDomains or excludeDomains, not both.`,
@@ -361,15 +360,12 @@ export function websearch(
           freshness,
           publishedAfter: freshness && dayBefore(FRESHNESS_DAYS[freshness]),
         };
-        const refused = unapplied(provider, search);
-        if (refused.length) {
-          const able = providers
-            .filter((candidate) => !unapplied(candidate, search).length)
-            .map((candidate) => candidate.name);
-          throw new Error(
-            `${NAME}: ${provider.name} cannot filter by ${refused.join(" or ")}. Search without it, or with one of: ${able.join(", ")}.`,
-          );
-        }
+        const provider = chosen(
+          providers,
+          ctx.connection.config,
+          !ctx.credentials,
+          search,
+        );
         const params = defined(provider.params(search));
         const answer = await credentialJson(
           ctx,

@@ -75,6 +75,14 @@ async function refused(
   return error;
 }
 
+/** A connection with a key for every provider. */
+const ALL_KEYS = Object.fromEntries(
+  PROVIDERS.map(({ name }) => [`${name}ApiKey`, `KEY-${name}`]),
+);
+
+/** A connection with a key for every provider, whose provider is `name`. */
+const through = (name: string) => ({ ...ALL_KEYS, provider: name });
+
 const SEARCH = {
   query: "duckdb release",
   numResults: 3,
@@ -435,11 +443,6 @@ const CASES: Record<
   },
 };
 
-/** A connection with a key for every provider. */
-const ALL_KEYS = Object.fromEntries(
-  PROVIDERS.map(({ name }) => [`${name}ApiKey`, `KEY-${name}`]),
-);
-
 describe("websearch.query through each provider", () => {
   it("has a case for every provider", () => {
     assert.deepEqual(
@@ -451,7 +454,7 @@ describe("websearch.query through each provider", () => {
   for (const [name, { request, answer, results }] of Object.entries(CASES)) {
     it(`${name}: sends its API's request with its own key alone, and reads its answer`, async () => {
       const sent = provider(answer);
-      const found = await search({ ...SEARCH, provider: name }, ALL_KEYS);
+      const found = await search(SEARCH, through(name));
       assert.deepEqual(found, { provider: name, results });
       assert.equal(sent.length, 1);
       const [{ method, url, headers, body }] = sent;
@@ -494,8 +497,8 @@ describe("websearch.query through each provider", () => {
       })),
     });
     const found = await search(
-      { query: "q", numResults: 2, provider: "serpapi" },
-      ALL_KEYS,
+      { query: "q", numResults: 2 },
+      through("serpapi"),
     );
     assert.deepEqual(
       found.results.map(({ title }) => title),
@@ -520,18 +523,22 @@ describe("the provider a search uses", () => {
     assert.equal(found.provider, "exa");
   });
 
-  it("is the connection's, and then the call's", async () => {
+  it("is the connection's, when it names one", async () => {
     const sent = provider({ results: [] });
-    const config = { ...ALL_KEYS, provider: "tavily" };
-    assert.equal((await search({ query: "q" }, config)).provider, "tavily");
     assert.equal(
-      (await search({ query: "q", provider: "exa" }, config)).provider,
-      "exa",
+      (await search({ query: "q" }, through("tavily"))).provider,
+      "tavily",
     );
-    assert.deepEqual(
-      sent.map(({ url }) => new URL(url).host),
-      ["api.tavily.com", "api.exa.ai"],
+    assert.equal(new URL(sent[0].url).host, "api.tavily.com");
+  });
+
+  it("is never the call's: a search has no input that names one", async () => {
+    const sent = provider({ results: [] });
+    assert.match(
+      await refused({ query: "q", provider: "exa" }, ALL_KEYS),
+      /Invalid input for websearch\.query/,
     );
+    assert.equal(sent.length, 0);
   });
 
   it("says which keys to set when there is none", async () => {
@@ -545,28 +552,24 @@ describe("the provider a search uses", () => {
     assert.equal(sent.length, 0);
   });
 
-  it("refuses a provider whose key the connection lacks, before any request", async () => {
+  it("is refused before any request when the connection names one it has no key for", async () => {
     const sent = provider({});
     const error = await refused(
-      { query: "q", provider: "brave" },
-      { exaApiKey: "e" },
+      { query: "q" },
+      { exaApiKey: "e", provider: "brave" },
     );
     assert.equal(
       error.split("\n")[0],
-      "Error: websearch: no key for brave. Set BRAVE_API_KEY, or search with a provider that has one.",
+      "Error: websearch: no key for brave, the connection's provider. Set BRAVE_API_KEY.",
     );
     assert.equal(sent.length, 0);
   });
 
-  it("refuses a provider it does not know", async () => {
+  it("is refused when the connection names one that does not exist", async () => {
     const sent = provider({});
     assert.match(
-      await refused({ query: "q", provider: "altavista" }, ALL_KEYS),
-      /Invalid input for websearch\.query.*\/provider must be equal to one of the allowed values/,
-    );
-    assert.match(
-      await refused({ query: "q" }, { ...ALL_KEYS, provider: "altavista" }),
-      /websearch: no provider named "altavista"\. The providers are parallel, brave, /,
+      await refused({ query: "q" }, through("altavista")),
+      /websearch: the connection names the provider "altavista"\. The providers are parallel, brave, /,
     );
     assert.equal(sent.length, 0);
   });
@@ -671,19 +674,18 @@ describe("the filters of a search", () => {
     it(`${name}: sends sites and freshness as its API names them`, async () => {
       const sent = provider({});
       const before = dayBefore(7);
-      await search({ query: "q", provider: name }, ALL_KEYS);
+      await search({ query: "q" }, through(name));
       await search(
         {
           query: "q",
-          provider: name,
           includeDomains: ["a.example", "b.example"],
           freshness: "week",
         },
-        ALL_KEYS,
+        through(name),
       );
       await search(
-        { query: "q", provider: name, excludeDomains: ["c.example"] },
-        ALL_KEYS,
+        { query: "q", excludeDomains: ["c.example"] },
+        through(name),
       );
       const [plain, narrowed, excluded] = sent.map(parameters);
       // The day a week back is the one before the search, or the one after
@@ -703,8 +705,8 @@ describe("the filters of a search", () => {
   it("writes one site without brackets", async () => {
     const sent = provider({});
     await search(
-      { query: "q", provider: "brave", includeDomains: ["a.example"] },
-      ALL_KEYS,
+      { query: "q", includeDomains: ["a.example"] },
+      through("brave"),
     );
     assert.equal(
       new URL(sent[0].url).searchParams.get("q"),
@@ -712,28 +714,41 @@ describe("the filters of a search", () => {
     );
   });
 
-  it("refuses a filter the provider cannot apply, and names those that can", async () => {
+  it("go to the first provider with a key that applies them, when the connection names none", async () => {
+    const sent = provider({});
+    const keys = { jinaApiKey: "j", serperApiKey: "s" };
+    assert.equal((await search({ query: "q" }, keys)).provider, "jina");
+    assert.equal(
+      (await search({ query: "q", freshness: "day" }, keys)).provider,
+      "serper",
+    );
+    assert.deepEqual(
+      sent.map(({ url }) => new URL(url).host),
+      ["s.jina.ai", "google.serper.dev"],
+    );
+  });
+
+  it("are refused when no provider with a key applies them", async () => {
     const sent = provider({});
     assert.equal(
       (
         await refused(
-          { query: "q", provider: "jina", freshness: "day" },
-          ALL_KEYS,
+          { query: "q", includeDomains: ["a.example"], freshness: "day" },
+          { jinaApiKey: "j" },
         )
       ).split("\n")[0],
-      "Error: websearch: jina cannot filter by freshness. Search without it, or with one of: parallel, brave, exa, you, tavily, firecrawl, linkup, valyu, perplexity, serper, serpapi.",
+      "Error: websearch: no provider with a key can filter by includeDomains or freshness. Search without it.",
     );
-    assert.match(
-      await refused(
-        {
-          query: "q",
-          provider: "jina",
-          includeDomains: ["a.example"],
-          freshness: "day",
-        },
-        ALL_KEYS,
-      ),
-      /jina cannot filter by includeDomains or freshness\./,
+    assert.equal(sent.length, 0);
+  });
+
+  it("are refused when the connection's provider does not apply them", async () => {
+    const sent = provider({});
+    assert.equal(
+      (await refused({ query: "q", freshness: "day" }, through("jina"))).split(
+        "\n",
+      )[0],
+      "Error: websearch: jina, the connection's provider, cannot filter by freshness. Search without it.",
     );
     assert.equal(sent.length, 0);
   });
@@ -762,7 +777,7 @@ describe("a country and a language", () => {
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>> => {
     const sent = provider({});
-    await search({ query: "q", provider: name, ...input }, ALL_KEYS);
+    await search({ query: "q", ...input }, through(name));
     return parameters(sent[0]);
   };
 
@@ -894,7 +909,7 @@ describe("what a search accepts", () => {
 describe("a provider that fails", () => {
   it("is reported by provider and status, without what it answered", async () => {
     provider({ error: "the key KEY-brave is not valid" }, 401);
-    const error = await refused({ query: "q", provider: "brave" }, ALL_KEYS);
+    const error = await refused({ query: "q" }, through("brave"));
     assert.match(error, /websearch\.brave: request failed \(HTTP 401\)/);
     assert.ok(!error.includes("KEY-brave"));
   });
@@ -902,7 +917,7 @@ describe("a provider that fails", () => {
   it("reads an answer without results as none", async () => {
     provider({ unexpected: true });
     for (const { name } of PROVIDERS)
-      assert.deepEqual(await search({ query: "q", provider: name }, ALL_KEYS), {
+      assert.deepEqual(await search({ query: "q" }, through(name)), {
         provider: name,
         results: [],
       });

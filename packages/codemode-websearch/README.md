@@ -2,7 +2,7 @@
 
 A [codemode](../../README.md) package with one plugin, `websearch`, whose one action searches the web through the search provider you have a key for.
 
-Code calls `websearch.query` the same way whichever provider answers, and gets results in one shape. Changing provider changes a key, not the code.
+Code calls `websearch.query` the same way whichever provider answers, and gets results in one shape. Code never names a provider: the connection chooses it, so changing provider changes a key or a setting, not the code.
 
 ## Install
 
@@ -46,7 +46,6 @@ codemode exec 'return await websearch.query({ query: "duckdb 1.4 release notes",
 | `includeDomains` | Return results from these sites only |
 | `excludeDomains` | Leave results from these sites out |
 | `freshness` | Return only pages published this recently |
-| `provider` | The provider to search with. The default is the connection's |
 
 Each input has one form, and a value in another form is refused before any request:
 
@@ -69,7 +68,13 @@ A code or a hostname means the same in upper and lower case. Codemode turns each
 
 ## Choose a provider
 
-A search uses the provider it names, else the connection's `provider`, else the first provider in this table that has a key:
+The connection chooses the provider, and a search has no input for it. A search goes to the connection's `provider` when it names one:
+
+```bash
+codemode connection add websearch --plugin websearch --set provider=tavily
+```
+
+Without one, a search goes to the first provider in this table that has a key and can apply the search's filters:
 
 | Provider | Key | `country` | `language` | Filters |
 |---|---|---|---|---|
@@ -86,15 +91,11 @@ A search uses the provider it names, else the connection's `provider`, else the 
 | `serper` | `SERPER_API_KEY` | Yes | Yes | Yes |
 | `serpapi` | `SERPAPI_API_KEY` | Yes | Yes | Yes |
 
-Name a provider to search with it for one call:
-
-```js
-const { results } = await websearch.query({ query: "duckdb", provider: "exa" });
-```
+The result's `provider` says which one answered.
 
 ## Narrow a search
 
-`includeDomains`, `excludeDomains`, and `freshness` are filters. Every result meets them, or the call is refused:
+`includeDomains`, `excludeDomains`, and `freshness` are filters. Every result meets them, or the call is refused. A connection that names no provider sends a filtered search to a provider that applies the filter:
 
 ```js
 await websearch.query({
@@ -120,7 +121,7 @@ codemode connection add websearch --plugin websearch --set exaApiKey=$EXA_API_KE
 
 | Field | Meaning |
 |---|---|
-| `provider` | The provider a search uses when it names none |
+| `provider` | The provider every search goes to. The default is the first with a key that can apply the search's filters |
 | `<provider>ApiKey` | The provider's key, such as `braveApiKey`. The default is its environment variable |
 | `firecrawlUrl` | A Firecrawl of your own, by its HTTPS address. The default is `FIRECRAWL_URL`, then `https://api.firecrawl.dev` |
 
@@ -158,8 +159,8 @@ The list's order is the order a provider is chosen in. Parameters go in the quer
 | Outcome | Result |
 |---|---|
 | No provider has a key | The call rejects and names the environment variables |
-| The provider named has no key | The call rejects and names its environment variable |
-| The provider cannot apply a filter | The call rejects and names the providers that can |
+| The connection's provider has no key | The call rejects and names its environment variable |
+| The connection's provider, or every provider with a key, cannot apply a filter | The call rejects and says to search without it |
 | The provider refuses the request | The call rejects with `websearch.<provider>: request failed (HTTP <status>)` |
 | The provider answers without results | Returns `results: []` |
 
@@ -168,7 +169,7 @@ A provider's error text is not included in the message, because it can repeat th
 ## Understand the limits
 
 - Results are what the provider returns. Their length and freshness differ from provider to provider.
-- Jina applies no filter, so a search through it with `includeDomains`, `excludeDomains`, or `freshness` is refused.
+- Jina applies no filter. A filtered search goes to another provider with a key, and is refused when Jina is the connection's provider or holds the only key.
 - Brave, Serper, and SerpAPI filter by site with `site:` operators added to the query. Brave takes a query of 600 characters, so a long query with many long hostnames can pass it and be refused.
 - `freshness` reaches back 1, 7, 31, or 365 days, by the date a provider holds for a page.
 - Serper and SerpAPI can return a first result with an empty `url`: what Google's results page says about the thing searched for.

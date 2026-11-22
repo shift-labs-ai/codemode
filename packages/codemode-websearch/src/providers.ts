@@ -55,7 +55,7 @@ export interface SearchResult {
 
 /** A search API: where it is, where its key goes, and how a search reads to and from it. */
 export interface SearchProvider {
-  /** The name code passes as `provider`, and the stem of the key's connection field. */
+  /** The name a connection gives as its `provider`, and the stem of the key's connection field. */
   name: string;
   /** The environment variable that fills the key. */
   env: string;
