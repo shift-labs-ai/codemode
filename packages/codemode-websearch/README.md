@@ -41,10 +41,12 @@ codemode exec 'return await web.search({ query: "duckdb 1.4 release notes", numR
 |---|---|
 | `query` | What to search for |
 | `numResults` | The most results to return, from 1 to 20. The default is 5 |
-| `country` | Two-letter country code to localize results, such as `de` |
-| `language` | Two-letter language code of the results, such as `de` |
+| `country` | Two-letter country code to prefer results from, such as `de` |
+| `language` | Two-letter language code to prefer results in, such as `de` |
+| `includeDomains` | Return results from these sites only, such as `["duckdb.org"]` |
+| `excludeDomains` | Leave results from these sites out |
+| `freshness` | Return only pages published within the last `day`, `week`, `month`, or `year` |
 | `provider` | The provider to search with. The default is the connection's |
-| `options` | Parameters of the provider's own search API |
 
 | Result field | Contents |
 |---|---|
@@ -52,26 +54,26 @@ codemode exec 'return await web.search({ query: "duckdb 1.4 release notes", numR
 | `content` | The text the provider returned for the page: a snippet, excerpts, or the page itself |
 | `publishedDate`, `author`, `sourceType` | Present when the provider gives them |
 
-A provider that does not take a country or a language searches without it.
+The inputs are the same for every provider, and a search names no parameter of a provider's own.
 
 ## Choose a provider
 
 A search uses the provider it names, else the connection's `provider`, else the first provider in this table that has a key:
 
-| Provider | Key | Sends `country` | Sends `language` |
-|---|---|---|---|
-| `parallel` | `PARALLEL_API_KEY` | Yes | No |
-| `brave` | `BRAVE_API_KEY` | Yes | Yes |
-| `exa` | `EXA_API_KEY` | Yes | No |
-| `you` | `YOU_API_KEY` | Yes | Yes |
-| `tavily` | `TAVILY_API_KEY` | No | Yes |
-| `firecrawl` | `FIRECRAWL_API_KEY` | Yes | No |
-| `jina` | `JINA_API_KEY` | Yes | Yes |
-| `linkup` | `LINKUP_API_KEY` | No | No |
-| `valyu` | `VALYU_API_KEY` | Yes | No |
-| `perplexity` | `PERPLEXITY_API_KEY` | Yes | Yes |
-| `serper` | `SERPER_API_KEY` | Yes | Yes |
-| `serpapi` | `SERPAPI_API_KEY` | Yes | Yes |
+| Provider | Key | `country` | `language` | Filters |
+|---|---|---|---|---|
+| `parallel` | `PARALLEL_API_KEY` | Yes | No | Yes |
+| `brave` | `BRAVE_API_KEY` | Yes | Yes | Yes |
+| `exa` | `EXA_API_KEY` | Yes | No | Yes |
+| `you` | `YOU_API_KEY` | Yes | Yes | Yes |
+| `tavily` | `TAVILY_API_KEY` | No | Yes | Yes |
+| `firecrawl` | `FIRECRAWL_API_KEY` | Yes | No | Yes |
+| `jina` | `JINA_API_KEY` | Yes | Yes | No |
+| `linkup` | `LINKUP_API_KEY` | No | No | Yes |
+| `valyu` | `VALYU_API_KEY` | Yes | No | Yes |
+| `perplexity` | `PERPLEXITY_API_KEY` | Yes | Yes | Yes |
+| `serper` | `SERPER_API_KEY` | Yes | Yes | Yes |
+| `serpapi` | `SERPAPI_API_KEY` | Yes | Yes | Yes |
 
 Name a provider to search with it for one call:
 
@@ -79,25 +81,23 @@ Name a provider to search with it for one call:
 const { results } = await web.search({ query: "duckdb", provider: "exa" });
 ```
 
-## Pass a provider's own parameters
+## Narrow a search
 
-`options` holds parameters of the provider's search API, under the names that API gives them. They are added to the request, and replace what the search would send under the same name:
+`includeDomains`, `excludeDomains`, and `freshness` are filters. Every result meets them, or the call is refused:
 
 ```js
 await web.search({
-  query: "duckdb extensions",
-  provider: "exa",
-  options: { type: "deep", includeDomains: ["duckdb.org"] },
+  query: "window functions",
+  includeDomains: ["duckdb.org", "postgresql.org"],
+  freshness: "year",
 });
 
-await web.search({
-  query: "duckdb",
-  provider: "brave",
-  options: { freshness: "pw" },
-});
+await web.search({ query: "duckdb benchmarks", excludeDomains: ["medium.com"] });
 ```
 
-Name the provider in a call that passes `options`, because another provider gives its parameters other names. A search still returns at most `numResults` results, whatever `options` asks the provider for.
+A site is a hostname, without `https://` or a path, and a search takes up to 20. Set sites to search or sites to leave out, not both.
+
+`country` and `language` are preferences. A provider that cannot localize searches without them, as the table above shows.
 
 ## Configure the connection
 
@@ -148,6 +148,7 @@ The list's order is the order a provider is chosen in. Parameters go in the quer
 |---|---|
 | No provider has a key | The call rejects and names the environment variables |
 | The provider named has no key | The call rejects and names its environment variable |
+| The provider cannot apply a filter | The call rejects and names the providers that can |
 | The provider refuses the request | The call rejects with `web.<provider>: request failed (HTTP <status>)` |
 | The provider answers without results | Returns `results: []` |
 
@@ -156,6 +157,9 @@ A provider's error text is not included in the message, because it can repeat th
 ## Understand the limits
 
 - Results are what the provider returns. Their length and freshness differ from provider to provider.
+- Jina applies no filter, so a search through it with `includeDomains`, `excludeDomains`, or `freshness` is refused.
+- Brave, Serper, and SerpAPI filter by site with `site:` operators added to the query.
+- `freshness` reaches back 1, 7, 31, or 365 days, by the date a provider holds for a page.
 - Serper and SerpAPI can return a first result with an empty `url`: what Google's results page says about the thing searched for.
 - SerpAPI takes no number of results. It answers one page of Google's results, of which the first `numResults` are returned.
 - A request to a provider is not ended when the run ends. It ends by itself within 60 seconds.

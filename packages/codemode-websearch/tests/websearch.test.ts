@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { Codemode } from "@shiftlabs/codemode";
 import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
@@ -567,50 +568,191 @@ describe("the provider a search uses", () => {
   });
 });
 
-describe("a provider's own parameters", () => {
-  it("are sent under its names, over what the search would send", async () => {
-    const sent = provider({ results: [] });
-    await search(
-      {
-        query: "q",
-        provider: "exa",
-        options: { type: "deep", includeDomains: ["duckdb.org"] },
+/** The day `days` before today, as the plugin writes it. */
+const dayBefore = (days: number) =>
+  new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * For each provider that filters: what a search for the last week on two
+ * sites adds to its request, and what leaving one site out adds instead.
+ * `WEEK_AGO` stands for the day a week back.
+ */
+const FILTERED: Record<string, { only: object; without: object }> = {
+  parallel: {
+    only: {
+      advanced_settings: {
+        max_results: 5,
+        source_policy: {
+          include_domains: ["a.example", "b.example"],
+          after_date: "WEEK_AGO",
+        },
       },
-      ALL_KEYS,
+    },
+    without: {
+      advanced_settings: {
+        max_results: 5,
+        source_policy: { exclude_domains: ["c.example"] },
+      },
+    },
+  },
+  brave: {
+    only: { q: "q (site:a.example OR site:b.example)", freshness: "pw" },
+    without: { q: "q -site:c.example" },
+  },
+  exa: {
+    only: {
+      includeDomains: ["a.example", "b.example"],
+      startPublishedDate: "WEEK_AGOT00:00:00.000Z",
+    },
+    without: { excludeDomains: ["c.example"] },
+  },
+  you: {
+    only: { include_domains: ["a.example", "b.example"], freshness: "week" },
+    without: { exclude_domains: ["c.example"] },
+  },
+  tavily: {
+    only: { include_domains: ["a.example", "b.example"], time_range: "week" },
+    without: { exclude_domains: ["c.example"] },
+  },
+  firecrawl: {
+    only: { includeDomains: ["a.example", "b.example"], tbs: "qdr:w" },
+    without: { excludeDomains: ["c.example"] },
+  },
+  linkup: {
+    only: { includeDomains: ["a.example", "b.example"], fromDate: "WEEK_AGO" },
+    without: { excludeDomains: ["c.example"] },
+  },
+  valyu: {
+    only: {
+      included_sources: ["a.example", "b.example"],
+      start_date: "WEEK_AGO",
+    },
+    without: { excluded_sources: ["c.example"] },
+  },
+  perplexity: {
+    only: {
+      search_domain_filter: ["a.example", "b.example"],
+      search_recency_filter: "week",
+    },
+    without: { search_domain_filter: ["-c.example"] },
+  },
+  serper: {
+    only: { q: "q (site:a.example OR site:b.example)", tbs: "qdr:w" },
+    without: { q: "q -site:c.example" },
+  },
+  serpapi: {
+    only: { q: "q (site:a.example OR site:b.example)", tbs: "qdr:w" },
+    without: { q: "q -site:c.example" },
+  },
+};
+
+/** What was sent as parameters: the query of a GET, the body of a POST. */
+function parameters({ method, url, body }: Sent): Record<string, unknown> {
+  if (method !== "GET") return body as Record<string, unknown>;
+  const { api_key: _, ...query } = Object.fromEntries(
+    new URL(url).searchParams,
+  );
+  return query;
+}
+
+describe("the filters of a search", () => {
+  it("has a case for every provider but jina, which has no filters", () => {
+    assert.deepEqual(
+      Object.keys(FILTERED),
+      PROVIDERS.map(({ name }) => name).filter((name) => name !== "jina"),
     );
-    assert.deepEqual(sent[0].body, {
-      query: "q",
-      numResults: 5,
-      type: "deep",
-      contents: { text: { maxCharacters: 3000 }, highlights: true },
-      includeDomains: ["duckdb.org"],
+  });
+
+  for (const [name, { only, without }] of Object.entries(FILTERED)) {
+    it(`${name}: sends sites and freshness as its API names them`, async () => {
+      const sent = provider({});
+      const before = dayBefore(7);
+      await search({ query: "q", provider: name }, ALL_KEYS);
+      await search(
+        {
+          query: "q",
+          provider: name,
+          includeDomains: ["a.example", "b.example"],
+          freshness: "week",
+        },
+        ALL_KEYS,
+      );
+      await search(
+        { query: "q", provider: name, excludeDomains: ["c.example"] },
+        ALL_KEYS,
+      );
+      const [plain, narrowed, excluded] = sent.map(parameters);
+      // The day a week back is the one before the search, or the one after
+      // it when midnight fell between.
+      const expected = [before, dayBefore(7)].map((weekAgo) => ({
+        ...plain,
+        ...JSON.parse(JSON.stringify(only).replaceAll("WEEK_AGO", weekAgo)),
+      }));
+      assert.ok(
+        expected.some((one) => isDeepStrictEqual(narrowed, one)),
+        JSON.stringify(narrowed),
+      );
+      assert.deepEqual(excluded, { ...plain, ...without });
     });
-  });
+  }
 
-  it("go in the query of a provider that is searched with GET", async () => {
-    const sent = provider({ web: { results: [] } });
+  it("writes one site without brackets", async () => {
+    const sent = provider({});
     await search(
-      { query: "q", provider: "brave", options: { freshness: "pw" } },
+      { query: "q", provider: "brave", includeDomains: ["a.example"] },
       ALL_KEYS,
     );
-    assert.equal(new URL(sent[0].url).searchParams.get("freshness"), "pw");
+    assert.equal(
+      new URL(sent[0].url).searchParams.get("q"),
+      "q site:a.example",
+    );
   });
 
-  it("cannot name the parameter that carries the key", async () => {
+  it("refuses a filter the provider cannot apply, and names those that can", async () => {
+    const sent = provider({});
+    assert.equal(
+      (
+        await refused(
+          { query: "q", provider: "jina", freshness: "day" },
+          ALL_KEYS,
+        )
+      ).split("\n")[0],
+      "Error: web: jina cannot filter by freshness. Search without it, or with one of: parallel, brave, exa, you, tavily, firecrawl, linkup, valyu, perplexity, serper, serpapi.",
+    );
+    assert.match(
+      await refused(
+        {
+          query: "q",
+          provider: "jina",
+          includeDomains: ["a.example"],
+          freshness: "day",
+        },
+        ALL_KEYS,
+      ),
+      /jina cannot filter by includeDomains or freshness\./,
+    );
+    assert.equal(sent.length, 0);
+  });
+
+  it("takes sites to search or sites to leave out, not both", async () => {
     const sent = provider({});
     assert.match(
       await refused(
-        { query: "q", provider: "serpapi", options: { api_key: "mine" } },
+        {
+          query: "q",
+          includeDomains: ["a.example"],
+          excludeDomains: ["b.example"],
+        },
         ALL_KEYS,
       ),
-      /outside the approved policy/,
+      /web: set includeDomains or excludeDomains, not both\./,
     );
     assert.equal(sent.length, 0);
   });
 });
 
 describe("what a search accepts", () => {
-  it("refuses a number of results outside 1 to 20, and a country that is not a code", async () => {
+  it("refuses what is not a search: a number of results outside 1 to 20, a country that is not a code, a site that is not a hostname, an input it does not have", async () => {
     const sent = provider({});
     for (const input of [
       { query: "q", numResults: 0 },
@@ -619,6 +761,11 @@ describe("what a search accepts", () => {
       { query: "q", country: "germany" },
       { query: "" },
       { query: "q", depth: "deep" },
+      { query: "q", options: { freshness: "pw" } },
+      { query: "q", freshness: "fortnight" },
+      { query: "q", includeDomains: [] },
+      { query: "q", includeDomains: ["https://a.example/docs"] },
+      { query: "q", excludeDomains: ["a example"] },
     ])
       assert.match(
         await refused(input, ALL_KEYS),
@@ -758,24 +905,33 @@ describe("a host that keeps the keys", () => {
 });
 
 describe("the README", () => {
-  it("lists the providers in their order, with each key and what a search sends it", () => {
+  it("lists the providers in their order, with each key, what a search sends it and whether it filters", () => {
     const readme = readFileSync(join(PACKAGE, "README.md"), "utf8");
     const rows = [
       ...readme.matchAll(
-        /^\| `(\w+)` \| `(\w+)` \| (Yes|No) \| (Yes|No) \|$/gm,
+        /^\| `(\w+)` \| `(\w+)` \| (Yes|No) \| (Yes|No) \| (Yes|No) \|$/gm,
       ),
-    ].map(([, name, env, country, language]) => [name, env, country, language]);
+    ].map(([, ...row]) => row);
     assert.deepEqual(
       rows,
       PROVIDERS.map(({ name, env, params }) => {
         const sent = JSON.stringify(
-          params({ query: "q", numResults: 5, country: "zz", language: "yy" }),
+          params({
+            query: "q",
+            numResults: 5,
+            country: "zz",
+            language: "yy",
+            includeDomains: ["xx.example"],
+            freshness: "week",
+            publishedAfter: "2026-01-01",
+          }),
         ).toLowerCase();
         return [
           name,
           env,
           sent.includes('"zz"') ? "Yes" : "No",
           sent.includes('"yy"') ? "Yes" : "No",
+          sent.includes("xx.example") ? "Yes" : "No",
         ];
       }),
     );

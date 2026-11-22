@@ -20,15 +20,32 @@ import {
 } from "@shiftlabs/codemode";
 import { packageVersion } from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
-import { PROVIDERS, type SearchProvider } from "./providers.js";
+import {
+  type Freshness,
+  PROVIDERS,
+  type SearchProvider,
+  type SearchRequest,
+} from "./providers.js";
 
 export * from "./providers.js";
 
 const NAME = "web";
 const DEFAULT_RESULTS = 5;
 const MAX_RESULTS = 20;
+const MAX_DOMAINS = 20;
 /** A search that reads pages can take longer than the transport waits by default. */
 const TIMEOUT_MS = 60_000;
+/** How many days back each freshness reaches. */
+const FRESHNESS_DAYS: Record<Freshness, number> = {
+  day: 1,
+  week: 7,
+  month: 31,
+  year: 365,
+};
+/** The inputs that narrow a search. A provider applies one or the search is refused. */
+const FILTERS = ["includeDomains", "excludeDomains", "freshness"] as const;
+/** A hostname, such as `duckdb.org`: no scheme, path or spaces. */
+const DOMAIN = "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$";
 
 /** The connection field that holds a provider's key. */
 function keyField(provider: SearchProvider): string {
@@ -123,6 +140,31 @@ function chosen(
   return provider;
 }
 
+/** The day `days` before today, as `YYYY-MM-DD`. */
+function dayBefore(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The filters of a search that a provider does not apply: those whose
+ * removal leaves the request the provider would send unchanged.
+ */
+function unapplied(provider: SearchProvider, search: SearchRequest): string[] {
+  const sent = JSON.stringify(provider.params(search));
+  return FILTERS.filter(
+    (filter) =>
+      search[filter] !== undefined &&
+      sent ===
+        JSON.stringify(
+          provider.params({
+            ...search,
+            [filter]: undefined,
+            ...(filter === "freshness" ? { publishedAfter: undefined } : {}),
+          }),
+        ),
+  );
+}
+
 /** `params` without the entries that have no value. */
 function defined(params: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
@@ -194,14 +236,14 @@ export function webSearch(
             t.String({
               pattern: "^[A-Za-z]{2}$",
               description:
-                "Two-letter country code to localize results, such as us, gb, de",
+                "Two-letter country code to prefer results from, such as us, gb, de. A provider that cannot localize searches without it",
             }),
           ),
           language: t.Optional(
             t.String({
               pattern: "^[A-Za-z]{2}$",
               description:
-                "Two-letter language code of the results, such as en, es, fr",
+                "Two-letter language code to prefer results in, such as en, es, fr. A provider that cannot searches without it",
             }),
           ),
           provider: t.Optional(
@@ -211,10 +253,27 @@ export function webSearch(
                 "The provider to search with. The default is the connection's",
             }),
           ),
-          options: t.Optional(
-            t.Record(t.String(), t.Unknown(), {
+          includeDomains: t.Optional(
+            t.Array(t.String({ pattern: DOMAIN }), {
+              minItems: 1,
+              maxItems: MAX_DOMAINS,
               description:
-                "Parameters of the provider's own search API, under the names it gives them. They replace what the search would send under the same name",
+                'Return results from these sites only, such as ["duckdb.org", "github.com"]. Not together with excludeDomains',
+            }),
+          ),
+          excludeDomains: t.Optional(
+            t.Array(t.String({ pattern: DOMAIN }), {
+              minItems: 1,
+              maxItems: MAX_DOMAINS,
+              description:
+                'Leave results from these sites out, such as ["pinterest.com"]. Not together with includeDomains',
+            }),
+          ),
+          freshness: t.Optional(
+            t.String({
+              enum: Object.keys(FRESHNESS_DAYS),
+              description:
+                "Return only pages published within the last day, week, month or year",
             }),
           ),
         },
@@ -249,16 +308,32 @@ export function webSearch(
           input.provider,
           !ctx.credentials,
         );
+        if (input.includeDomains && input.excludeDomains)
+          throw new Error(
+            `${NAME}: set includeDomains or excludeDomains, not both.`,
+          );
         const numResults = input.numResults ?? DEFAULT_RESULTS;
-        const params = defined({
-          ...provider.params({
-            query: input.query,
-            numResults,
-            country: input.country?.toLowerCase(),
-            language: input.language?.toLowerCase(),
-          }),
-          ...input.options,
-        });
+        const freshness = input.freshness as Freshness | undefined;
+        const search: SearchRequest = {
+          query: input.query,
+          numResults,
+          country: input.country?.toLowerCase(),
+          language: input.language?.toLowerCase(),
+          includeDomains: input.includeDomains,
+          excludeDomains: input.excludeDomains,
+          freshness,
+          publishedAfter: freshness && dayBefore(FRESHNESS_DAYS[freshness]),
+        };
+        const refused = unapplied(provider, search);
+        if (refused.length) {
+          const able = providers
+            .filter((candidate) => !unapplied(candidate, search).length)
+            .map((candidate) => candidate.name);
+          throw new Error(
+            `${NAME}: ${provider.name} cannot filter by ${refused.join(" or ")}. Search without it, or with one of: ${able.join(", ")}.`,
+          );
+        }
+        const params = defined(provider.params(search));
         const answer = await credentialJson(
           ctx,
           credential,

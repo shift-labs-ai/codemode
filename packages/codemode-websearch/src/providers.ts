@@ -7,15 +7,26 @@
 import { httpsBase } from "@shiftlabs/codemode";
 import * as t from "typebox";
 
+/** How recently a page was published: within the last day, week, month or year. */
+export type Freshness = "day" | "week" | "month" | "year";
+
 /** A search as every provider receives it. */
 export interface SearchRequest {
   query: string;
   /** The most results wanted. The plugin returns no more, whatever a provider answers. */
   numResults: number;
-  /** Two-letter country code, lower case. */
+  /** Two-letter country code, lower case. A preference: a provider without one searches without it. */
   country?: string;
-  /** Two-letter language code, lower case. */
+  /** Two-letter language code, lower case. A preference, like `country`. */
   language?: string;
+  /** Hostnames to return results from, and no other. Never set with `excludeDomains`. */
+  includeDomains?: string[];
+  /** Hostnames to leave out of the results. Never set with `includeDomains`. */
+  excludeDomains?: string[];
+  /** Return only pages published this recently. */
+  freshness?: Freshness;
+  /** The day `freshness` reaches back to, as `YYYY-MM-DD`, for a provider that takes a date. */
+  publishedAfter?: string;
 }
 
 /** One result, in the shape every provider's answer is read into. */
@@ -50,7 +61,11 @@ export interface SearchProvider {
   path: string;
   /** Headers every request carries. */
   headers?: Record<string, string>;
-  /** The provider's parameters for a search, under the names its API gives them. */
+  /**
+   * The provider's parameters for a search, under the names its API gives
+   * them. A domain or freshness filter that changes nothing here is one the
+   * provider cannot apply, and the plugin refuses a search that sets it.
+   */
   params(search: SearchRequest): Record<string, unknown>;
   /** The results in the provider's answer. */
   results(answer: unknown): SearchResult[];
@@ -112,6 +127,38 @@ function knowledgeGraph(graph: unknown): SearchResult[] {
 
 const upper = (code?: string) => code?.toUpperCase();
 
+/** `fields` when one of them has a value, so an empty object is never sent. */
+function some<T extends Json>(fields: T): T | undefined {
+  return Object.values(fields).some((value) => value !== undefined)
+    ? fields
+    : undefined;
+}
+
+/**
+ * The query with its domain filter written as `site:` operators, for a
+ * provider that filters by domain in the query itself.
+ */
+function withSites({
+  query,
+  includeDomains,
+  excludeDomains,
+}: SearchRequest): string {
+  const only = includeDomains?.map((domain) => `site:${domain}`).join(" OR ");
+  const without = excludeDomains?.map((domain) => `-site:${domain}`).join(" ");
+  return [
+    query,
+    only && includeDomains?.length !== 1 ? `(${only})` : only,
+    without,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** Google's `tbs` value for a freshness, which the providers that search Google take. */
+function googleRecency(freshness?: Freshness): string | undefined {
+  return freshness && `qdr:${freshness[0]}`;
+}
+
 export const parallel: SearchProvider = {
   name: "parallel",
   env: "PARALLEL_API_KEY",
@@ -119,11 +166,19 @@ export const parallel: SearchProvider = {
   baseUrl: "https://api.parallel.ai/v1/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults, country }) => ({
-    objective: query,
-    search_queries: [query],
+  params: (search) => ({
+    objective: search.query,
+    search_queries: [search.query],
     mode: "fast",
-    advanced_settings: { max_results: numResults, location: country },
+    advanced_settings: {
+      max_results: search.numResults,
+      location: search.country,
+      source_policy: some({
+        include_domains: search.includeDomains,
+        exclude_domains: search.excludeDomains,
+        after_date: search.publishedAfter,
+      }),
+    },
   }),
   results: (answer) =>
     list(object(answer).results).map((r) =>
@@ -143,11 +198,12 @@ export const brave: SearchProvider = {
   baseUrl: "https://api.search.brave.com/res/v1/",
   method: "GET",
   path: "web/search",
-  params: ({ query, numResults, country, language }) => ({
-    q: query,
-    count: numResults,
-    country: upper(country),
-    search_lang: language,
+  params: (search) => ({
+    q: withSites(search),
+    count: search.numResults,
+    country: upper(search.country),
+    search_lang: search.language,
+    freshness: search.freshness && `p${search.freshness[0]}`,
   }),
   results: (answer) =>
     list(object(object(answer).web).results).map((r) =>
@@ -167,12 +223,16 @@ export const exa: SearchProvider = {
   baseUrl: "https://api.exa.ai/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults, country }) => ({
-    query,
-    numResults,
+  params: (search) => ({
+    query: search.query,
+    numResults: search.numResults,
     type: "auto",
     contents: { text: { maxCharacters: 3000 }, highlights: true },
-    userLocation: upper(country),
+    userLocation: upper(search.country),
+    includeDomains: search.includeDomains,
+    excludeDomains: search.excludeDomains,
+    startPublishedDate:
+      search.publishedAfter && `${search.publishedAfter}T00:00:00.000Z`,
   }),
   results: (answer) =>
     list(object(answer).results).map((r) =>
@@ -193,11 +253,14 @@ export const you: SearchProvider = {
   baseUrl: "https://ydc-index.io/v1/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults, country, language }) => ({
-    query,
-    count: numResults,
-    country: upper(country),
-    language: upper(language),
+  params: (search) => ({
+    query: search.query,
+    count: search.numResults,
+    country: upper(search.country),
+    language: upper(search.language),
+    include_domains: search.includeDomains,
+    exclude_domains: search.excludeDomains,
+    freshness: search.freshness,
   }),
   results: (answer) =>
     list(object(object(answer).results).web).map((r) =>
@@ -221,11 +284,14 @@ export const tavily: SearchProvider = {
   method: "POST",
   path: "search",
   // Tavily takes a country by its English name, so a country code is not sent.
-  params: ({ query, numResults, language }) => ({
-    query,
-    max_results: numResults,
+  params: (search) => ({
+    query: search.query,
+    max_results: search.numResults,
     search_depth: "basic",
-    language,
+    language: search.language,
+    include_domains: search.includeDomains,
+    exclude_domains: search.excludeDomains,
+    time_range: search.freshness,
   }),
   results: (answer) =>
     list(object(answer).results).map((r) =>
@@ -255,10 +321,13 @@ export const firecrawl: SearchProvider = {
     ),
   },
   path: "search",
-  params: ({ query, numResults, country }) => ({
-    query,
-    limit: numResults,
-    country: upper(country),
+  params: (search) => ({
+    query: search.query,
+    limit: search.numResults,
+    country: upper(search.country),
+    includeDomains: search.includeDomains,
+    excludeDomains: search.excludeDomains,
+    tbs: googleRecency(search.freshness),
   }),
   results: (answer) =>
     list(object(object(answer).data).web).map((r) =>
@@ -278,6 +347,7 @@ export const jina: SearchProvider = {
   method: "POST",
   path: "",
   headers: { "X-Retain-Images": "none" },
+  // Jina's search takes no list of domains and no date, so neither filter is applied.
   params: ({ query, numResults, country, language }) => ({
     q: query,
     num: numResults,
@@ -301,12 +371,15 @@ export const linkup: SearchProvider = {
   baseUrl: "https://api.linkup.so/v1/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults }) => ({
-    q: query,
+  params: (search) => ({
+    q: search.query,
     depth: "standard",
     outputType: "searchResults",
     includeImages: false,
-    maxResults: numResults,
+    maxResults: search.numResults,
+    includeDomains: search.includeDomains,
+    excludeDomains: search.excludeDomains,
+    fromDate: search.publishedAfter,
   }),
   results: (answer) =>
     list(object(answer).results).map((r) =>
@@ -325,11 +398,14 @@ export const valyu: SearchProvider = {
   baseUrl: "https://api.valyu.ai/v1/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults, country }) => ({
-    query,
+  params: (search) => ({
+    query: search.query,
     search_type: "all",
-    max_num_results: numResults,
-    country_code: upper(country),
+    max_num_results: search.numResults,
+    country_code: upper(search.country),
+    included_sources: search.includeDomains,
+    excluded_sources: search.excludeDomains,
+    start_date: search.publishedAfter,
   }),
   results: (answer) =>
     list(object(answer).results).map((r) =>
@@ -350,11 +426,16 @@ export const perplexity: SearchProvider = {
   baseUrl: "https://api.perplexity.ai/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults, country, language }) => ({
-    query,
-    max_results: numResults,
-    country: upper(country),
-    search_language_filter: language ? [language] : undefined,
+  params: (search) => ({
+    query: search.query,
+    max_results: search.numResults,
+    country: upper(search.country),
+    search_language_filter: search.language && [search.language],
+    // One list holds both: a domain to leave out carries a `-` before it.
+    search_domain_filter:
+      search.includeDomains ??
+      search.excludeDomains?.map((domain) => `-${domain}`),
+    search_recency_filter: search.freshness,
   }),
   results: (answer) =>
     list(object(answer).results).map((r) =>
@@ -374,11 +455,12 @@ export const serper: SearchProvider = {
   baseUrl: "https://google.serper.dev/",
   method: "POST",
   path: "search",
-  params: ({ query, numResults, country, language }) => ({
-    q: query,
-    num: numResults,
-    gl: country,
-    hl: language,
+  params: (search) => ({
+    q: withSites(search),
+    num: search.numResults,
+    gl: search.country,
+    hl: search.language,
+    tbs: googleRecency(search.freshness),
   }),
   results: (answer) => [
     ...knowledgeGraph(object(answer).knowledgeGraph),
@@ -401,11 +483,12 @@ export const serpapi: SearchProvider = {
   method: "GET",
   path: "search.json",
   // SerpAPI's Google search takes no number of results: it answers a page.
-  params: ({ query, country, language }) => ({
-    q: query,
+  params: (search) => ({
+    q: withSites(search),
     engine: "google",
-    gl: country,
-    hl: language,
+    gl: search.country,
+    hl: search.language,
+    tbs: googleRecency(search.freshness),
   }),
   results: (answer) => [
     ...knowledgeGraph(object(answer).knowledge_graph),
