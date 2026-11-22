@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { commandExists, commandPath } from "../utils/cli.js";
 import { isShellError, runShell, type ShellProgram } from "../utils/shell.js";
 import { ends, pidIn } from "./helpers/processes.js";
 
@@ -35,6 +36,15 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
   for (const path of spilled.splice(0)) rmSync(path, { force: true });
+});
+
+describe("finding a command", () => {
+  posix("answers where it is on PATH, or that it is not there", () => {
+    assert.match(commandPath("sh") ?? "", /\/sh$/);
+    assert.equal(commandExists("sh"), true);
+    assert.equal(commandPath("codemode-no-such-command"), undefined);
+    assert.equal(commandExists("codemode-no-such-command"), false);
+  });
 });
 
 describe("running a script through a shell", () => {

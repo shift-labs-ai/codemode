@@ -1,0 +1,45 @@
+{
+  "name": "@shiftlabs/codemode-bash",
+  "version": "0.1.0",
+  "description": "Run bash commands from codemode",
+  "type": "module",
+  "keywords": [
+    "codemode-plugin",
+    "bash",
+    "shell"
+  ],
+  "codemode": {
+    "plugins": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shift-labs-ai/codemode.git",
+    "directory": "packages/codemode-bash"
+  },
+  "homepage": "https://github.com/shift-labs-ai/codemode/tree/main/packages/codemode-bash#readme",
+  "bugs": {
+    "url": "https://github.com/shift-labs-ai/codemode/issues"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@shiftlabs/codemode": ">0.46.0",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@shiftlabs/codemode": "workspace:*",
+    "@types/bun": "^1.2.17",
+    "@types/node": "^25.5.0",
+    "typebox": "^1.1.35",
+    "typescript": "^5.8.0"
+  }
+}

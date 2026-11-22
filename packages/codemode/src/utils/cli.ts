@@ -43,15 +43,22 @@ export function syncExec(
   return { stdout, rows };
 }
 
-export function commandExists(name: string): boolean {
+/** Where a command is on `PATH`, when it is there. */
+export function commandPath(name: string): string | undefined {
   try {
-    execFileSync(process.platform === "win32" ? "where" : "which", [name], {
-      stdio: "pipe",
-    });
-    return true;
+    const found = execFileSync(
+      process.platform === "win32" ? "where" : "which",
+      [name],
+      { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8" },
+    );
+    return found.split(/\r?\n/)[0].trim() || undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+export function commandExists(name: string): boolean {
+  return commandPath(name) !== undefined;
 }
 
 export {

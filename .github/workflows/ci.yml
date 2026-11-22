@@ -22,5 +22,7 @@ jobs:
       # The plugins and the runline package resolve codemode through its built types.
       - run: bun run typecheck
       - run: bun --filter @shiftlabs/codemode test
+      # The packages published beside codemode, each against the built codemode.
+      - run: bun run --filter '@shiftlabs/codemode-*' test
       # Lint and format across the whole monorepo, codemode-plugins included.
       - run: bun run check
