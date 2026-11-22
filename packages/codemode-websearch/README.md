@@ -54,12 +54,12 @@ Each input has one form, and a value in another form is refused before any reque
 |---|---|---|
 | `query` | Text of 1 to 400 characters | `"duckdb window functions"` |
 | `numResults` | A whole number from 1 to 20 | `10` |
-| `country` | An ISO 3166-1 alpha-2 code in upper case | `"DE"` |
-| `language` | An ISO 639-1 code in lower case | `"de"` |
-| `includeDomains`, `excludeDomains` | 1 to 20 hostnames in lower case, without `https://` or a path | `["duckdb.org"]` |
+| `country` | An ISO 3166-1 alpha-2 code | `"DE"` |
+| `language` | An ISO 639-1 code | `"de"` |
+| `includeDomains`, `excludeDomains` | 1 to 20 hostnames, without `https://` or a path | `["duckdb.org"]` |
 | `freshness` | `"day"`, `"week"`, `"month"`, or `"year"` | `"week"` |
 
-Codemode turns each value into what the provider's API takes: `"DE"` reaches Parallel as `de`, Tavily as `germany`, and Brave as `DE`. The inputs are the same for every provider, and a search names no parameter of a provider's own.
+A code or a hostname means the same in upper and lower case. Codemode turns each value into what the provider's API takes: `"DE"` reaches Parallel as `de`, Tavily as `germany`, and Brave as `DE`. The inputs are the same for every provider, and a search names no parameter of a provider's own.
 
 | Result field | Contents |
 |---|---|

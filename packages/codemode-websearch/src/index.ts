@@ -46,8 +46,8 @@ const FRESHNESS_DAYS: Record<Freshness, number> = {
 };
 /** The inputs that narrow a search. A provider applies one or the search is refused. */
 const FILTERS = ["includeDomains", "excludeDomains", "freshness"] as const;
-/** A hostname in lower case, such as `duckdb.org`: no scheme, path or spaces. */
-const DOMAIN = "^[a-z0-9-]+(\\.[a-z0-9-]+)+$";
+/** A hostname, such as `duckdb.org`: no scheme, path or spaces. */
+const DOMAIN = "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$";
 
 /** The connection field that holds a provider's key. */
 function keyField(provider: SearchProvider): string {
@@ -168,6 +168,8 @@ function checkCode(kind: keyof typeof CODES, code: string | undefined): void {
     );
 }
 
+const lowerCase = (value: string) => value.toLowerCase();
+
 /** The day `days` before today, as `YYYY-MM-DD`. */
 function dayBefore(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
@@ -263,16 +265,16 @@ export function websearch(
           ),
           country: t.Optional(
             t.String({
-              pattern: "^[A-Z]{2}$",
+              pattern: "^[A-Za-z]{2}$",
               description:
-                "Country to prefer results from: an ISO 3166-1 alpha-2 code in upper case, such as US, GB, DE",
+                "Country to prefer results from: an ISO 3166-1 alpha-2 code, such as US, GB, DE",
             }),
           ),
           language: t.Optional(
             t.String({
-              pattern: "^[a-z]{2}$",
+              pattern: "^[A-Za-z]{2}$",
               description:
-                "Language to prefer results in: an ISO 639-1 code in lower case, such as en, es, fr",
+                "Language to prefer results in: an ISO 639-1 code, such as en, es, fr",
             }),
           ),
           provider: t.Optional(
@@ -287,7 +289,7 @@ export function websearch(
               minItems: 1,
               maxItems: MAX_DOMAINS,
               description:
-                'Return results from these sites only: hostnames in lower case, without https:// or a path, such as ["duckdb.org", "github.com"]. Not together with excludeDomains',
+                'Return results from these sites only: hostnames without https:// or a path, such as ["duckdb.org", "github.com"]. Not together with excludeDomains',
             }),
           ),
           excludeDomains: t.Optional(
@@ -341,17 +343,21 @@ export function websearch(
           throw new Error(
             `${NAME}: set includeDomains or excludeDomains, not both.`,
           );
-        checkCode("country", input.country);
-        checkCode("language", input.language);
+        // A code or a hostname means the same in either case, so each is put
+        // in the one case the providers are written against.
+        const country = input.country?.toUpperCase();
+        const language = input.language?.toLowerCase();
+        checkCode("country", country);
+        checkCode("language", language);
         const numResults = input.numResults ?? DEFAULT_RESULTS;
         const freshness = input.freshness as Freshness | undefined;
         const search: SearchRequest = {
           query: input.query,
           numResults,
-          country: input.country,
-          language: input.language,
-          includeDomains: input.includeDomains,
-          excludeDomains: input.excludeDomains,
+          country,
+          language,
+          includeDomains: input.includeDomains?.map(lowerCase),
+          excludeDomains: input.excludeDomains?.map(lowerCase),
           freshness,
           publishedAfter: freshness && dayBefore(FRESHNESS_DAYS[freshness]),
         };

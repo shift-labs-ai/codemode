@@ -32,7 +32,7 @@ export interface SearchRequest {
   country?: string;
   /** ISO 639-1 language code, lower case, such as `en`. A preference, like `country`. */
   language?: string;
-  /** Hostnames to return results from, and no other. Never set with `excludeDomains`. */
+  /** Hostnames in lower case to return results from, and no other. Never set with `excludeDomains`. */
   includeDomains?: string[];
   /** Hostnames to leave out of the results. Never set with `includeDomains`. */
   excludeDomains?: string[];

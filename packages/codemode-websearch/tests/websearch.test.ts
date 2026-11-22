@@ -829,6 +829,27 @@ describe("a country and a language", () => {
     });
   });
 
+  it("mean the same in either case, as a hostname does", async () => {
+    assert.deepEqual(
+      await sentFor("perplexity", {
+        country: "gb",
+        language: "PT",
+        includeDomains: ["DuckDB.org"],
+      }),
+      {
+        query: "q",
+        max_results: 10,
+        country: "GB",
+        search_language_filter: ["pt"],
+        search_domain_filter: ["duckdb.org"],
+      },
+    );
+    assert.deepEqual(
+      await sentFor("brave", { excludeDomains: ["Medium.COM"] }),
+      { q: "q -site:medium.com", count: "10" },
+    );
+  });
+
   it("are refused when they name no country or language", async () => {
     const sent = provider({});
     assert.match(
@@ -851,11 +872,8 @@ describe("what a search accepts", () => {
       { query: "q", numResults: 21 },
       { query: "q", numResults: 2.5 },
       { query: "q", country: "germany" },
-      { query: "q", country: "us" },
-      { query: "q", language: "EN" },
       { query: "q", language: "eng" },
       { query: "x".repeat(401) },
-      { query: "q", includeDomains: ["DuckDB.org"] },
       { query: "" },
       { query: "q", depth: "deep" },
       { query: "q", options: { freshness: "pw" } },
