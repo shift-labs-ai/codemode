@@ -1,6 +1,9 @@
 /**
  * Parallel.ai web search/research plugin for codemode.
  *
+ * Deprecated: `websearch.query` from the codemode-websearch package searches
+ * through Parallel and eleven other providers with one input.
+ *
  * Wraps the Parallel Search API (https://api.parallel.ai/v1beta/search): give it
  * an objective and/or explicit queries and it returns ranked, freshly-fetched
  * web results with extracted excerpts — built for agents that need to ground an
@@ -16,6 +19,8 @@ import { credentialJson, type CodemodePluginAPI } from "@shiftlabs/codemode";
 import { DEFAULT_BASE, parallelCredential } from "./credentials.js";
 
 const NAME = "parallel";
+const DEPRECATED =
+  "Deprecated: where the codemode-websearch package is installed, search with websearch.query instead.";
 
 interface SearchResult {
   url?: string;
@@ -32,6 +37,7 @@ interface SearchAnswer {
 export default function parallel(rl: CodemodePluginAPI): void {
   rl.setName(NAME);
   rl.setVersion("0.1.0");
+  rl.setDescription(DEPRECATED);
   rl.setCredential(parallelCredential);
 
   rl.setConnectionSchema({
@@ -54,6 +60,7 @@ export default function parallel(rl: CodemodePluginAPI): void {
   rl.registerAction("search", {
     access: "read",
     description:
+      `${DEPRECATED} ` +
       "Search the live web with Parallel.ai and get ranked results with extracted excerpts. Use this to ground answers in current web content (news, prices, regulations, company info) instead of stale knowledge. Provide an `objective` (natural-language goal) and/or explicit `search_queries`.",
     inputSchema: {
       objective: {
