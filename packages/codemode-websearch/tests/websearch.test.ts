@@ -1,0 +1,681 @@
+/**
+ * The web search package: its one action through a real engine with the
+ * providers' hosts stood in for, and the package as codemode's package
+ * manager loads it.
+ */
+
+import assert from "node:assert/strict";
+import { afterEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
+import { describePackage, pluginHarness } from "../../package-tests/harness.js";
+import web, {
+  PROVIDERS,
+  type SearchProvider,
+  type SearchResult,
+  webSearch,
+} from "../src/index.js";
+
+const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
+
+interface Sent {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+/** Answer every request with `answer`, and collect what was sent. */
+function provider(answer: unknown, status = 200): Sent[] {
+  const sent: Sent[] = [];
+  stubFetch(async (url, init) => {
+    const body = init?.body;
+    sent.push({
+      method: init?.method ?? "GET",
+      url: String(url),
+      headers: Object.fromEntries(new Headers(init?.headers)),
+      body: body
+        ? JSON.parse(Buffer.from(body as Uint8Array).toString())
+        : null,
+    });
+    return Response.json(answer, { status });
+  });
+  return sent;
+}
+
+interface Found {
+  provider: string;
+  results: SearchResult[];
+}
+
+const harness = pluginHarness(web, "web");
+const search = (
+  input: Record<string, unknown>,
+  config: Record<string, unknown>,
+) => harness.call<Found>("search", input, config);
+
+/** A failed search's error text. */
+async function refused(
+  input: Record<string, unknown>,
+  config: Record<string, unknown>,
+): Promise<string> {
+  const { error } = await harness
+    .codemode(config)
+    .execute(`return await web.search(${JSON.stringify(input)})`);
+  assert.ok(error, "the search should fail");
+  return error;
+}
+
+const SEARCH = {
+  query: "duckdb release",
+  numResults: 3,
+  country: "DE",
+  language: "de",
+};
+
+/**
+ * For each provider: the request a search becomes, an answer in the shape
+ * its reference documents, and the results that answer reads as.
+ */
+const CASES: Record<
+  string,
+  {
+    request: Omit<Sent, "headers"> & { key: [string, string] | "query" };
+    answer: unknown;
+    results: SearchResult[];
+  }
+> = {
+  parallel: {
+    request: {
+      method: "POST",
+      url: "https://api.parallel.ai/v1/search",
+      key: ["x-api-key", "KEY-parallel"],
+      body: {
+        objective: "duckdb release",
+        search_queries: ["duckdb release"],
+        mode: "fast",
+        advanced_settings: { max_results: 3, location: "de" },
+      },
+    },
+    answer: {
+      search_id: "search_1",
+      results: [
+        {
+          url: "https://a.example/1",
+          title: "One",
+          publish_date: "2026-01-15",
+          excerpts: ["first", "second"],
+        },
+        { url: "https://a.example/2", title: null, excerpts: [] },
+      ],
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "first\n\nsecond",
+        publishedDate: "2026-01-15",
+      },
+      { title: "https://a.example/2", url: "https://a.example/2", content: "" },
+    ],
+  },
+  brave: {
+    request: {
+      method: "GET",
+      url: "https://api.search.brave.com/res/v1/web/search?q=duckdb+release&count=3&country=DE&search_lang=de",
+      key: ["x-subscription-token", "KEY-brave"],
+      body: null,
+    },
+    answer: {
+      web: {
+        results: [
+          {
+            title: "One",
+            url: "https://a.example/1",
+            description: "about",
+            extra_snippets: ["more"],
+            page_age: "2026-02-01T00:00:00",
+          },
+        ],
+      },
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "about\n\nmore",
+        publishedDate: "2026-02-01T00:00:00",
+      },
+    ],
+  },
+  exa: {
+    request: {
+      method: "POST",
+      url: "https://api.exa.ai/search",
+      key: ["x-api-key", "KEY-exa"],
+      body: {
+        query: "duckdb release",
+        numResults: 3,
+        type: "auto",
+        contents: { text: { maxCharacters: 3000 }, highlights: true },
+        userLocation: "DE",
+      },
+    },
+    answer: {
+      results: [
+        {
+          title: "One",
+          url: "https://a.example/1",
+          text: "body",
+          highlights: ["key line"],
+          publishedDate: "2026-03-01",
+          author: "Ada",
+        },
+      ],
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "body\n\nkey line",
+        publishedDate: "2026-03-01",
+        author: "Ada",
+      },
+    ],
+  },
+  you: {
+    request: {
+      method: "POST",
+      url: "https://ydc-index.io/v1/search",
+      key: ["x-api-key", "KEY-you"],
+      body: {
+        query: "duckdb release",
+        count: 3,
+        country: "DE",
+        language: "DE",
+      },
+    },
+    answer: {
+      results: {
+        web: [
+          {
+            url: "https://a.example/1",
+            title: "One",
+            description: "about",
+            page_age: "2026-02-16T21:26:51",
+            contents: { highlights: ["h1", "h2"] },
+          },
+          { url: "https://a.example/2", title: "Two", snippets: ["s1"] },
+          { url: "https://a.example/3", title: "Three", description: "d3" },
+        ],
+      },
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "h1\n\nh2",
+        publishedDate: "2026-02-16T21:26:51",
+      },
+      { title: "Two", url: "https://a.example/2", content: "s1" },
+      { title: "Three", url: "https://a.example/3", content: "d3" },
+    ],
+  },
+  tavily: {
+    request: {
+      method: "POST",
+      url: "https://api.tavily.com/search",
+      key: ["authorization", "Bearer KEY-tavily"],
+      body: {
+        query: "duckdb release",
+        max_results: 3,
+        search_depth: "basic",
+        language: "de",
+      },
+    },
+    answer: {
+      results: [
+        {
+          title: "One",
+          url: "https://a.example/1",
+          content: "about",
+          score: 0.9,
+        },
+      ],
+    },
+    results: [{ title: "One", url: "https://a.example/1", content: "about" }],
+  },
+  firecrawl: {
+    request: {
+      method: "POST",
+      url: "https://api.firecrawl.dev/v2/search",
+      key: ["authorization", "Bearer KEY-firecrawl"],
+      body: { query: "duckdb release", limit: 3, country: "DE" },
+    },
+    answer: {
+      success: true,
+      data: {
+        web: [
+          { title: "One", url: "https://a.example/1", description: "about" },
+          { url: "https://a.example/2", markdown: "# Two" },
+        ],
+      },
+    },
+    results: [
+      { title: "One", url: "https://a.example/1", content: "about" },
+      {
+        title: "https://a.example/2",
+        url: "https://a.example/2",
+        content: "# Two",
+      },
+    ],
+  },
+  jina: {
+    request: {
+      method: "POST",
+      url: "https://s.jina.ai/",
+      key: ["authorization", "Bearer KEY-jina"],
+      body: { q: "duckdb release", num: 3, gl: "de", hl: "de" },
+    },
+    answer: {
+      data: [
+        { title: "One", url: "https://a.example/1", content: "page" },
+        { title: "Two", url: "https://a.example/2", description: "about" },
+      ],
+    },
+    results: [
+      { title: "One", url: "https://a.example/1", content: "page" },
+      { title: "Two", url: "https://a.example/2", content: "about" },
+    ],
+  },
+  linkup: {
+    request: {
+      method: "POST",
+      url: "https://api.linkup.so/v1/search",
+      key: ["authorization", "Bearer KEY-linkup"],
+      body: {
+        q: "duckdb release",
+        depth: "standard",
+        outputType: "searchResults",
+        includeImages: false,
+        maxResults: 3,
+      },
+    },
+    answer: {
+      results: [
+        {
+          type: "text",
+          name: "One",
+          url: "https://a.example/1",
+          content: "about",
+        },
+      ],
+    },
+    results: [{ title: "One", url: "https://a.example/1", content: "about" }],
+  },
+  valyu: {
+    request: {
+      method: "POST",
+      url: "https://api.valyu.ai/v1/search",
+      key: ["x-api-key", "KEY-valyu"],
+      body: {
+        query: "duckdb release",
+        search_type: "all",
+        max_num_results: 3,
+        country_code: "DE",
+      },
+    },
+    answer: {
+      success: true,
+      results: [
+        {
+          title: "One",
+          url: "https://a.example/1",
+          content: "about",
+          source_type: "paper",
+          publication_date: "",
+        },
+      ],
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "about",
+        sourceType: "paper",
+      },
+    ],
+  },
+  perplexity: {
+    request: {
+      method: "POST",
+      url: "https://api.perplexity.ai/search",
+      key: ["authorization", "Bearer KEY-perplexity"],
+      body: {
+        query: "duckdb release",
+        max_results: 3,
+        country: "DE",
+        search_language_filter: ["de"],
+      },
+    },
+    answer: {
+      id: "r1",
+      results: [
+        {
+          title: "One",
+          url: "https://a.example/1",
+          snippet: "about",
+          date: "2026-06-10",
+          last_updated: "2026-11-18",
+        },
+      ],
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "about",
+        publishedDate: "2026-06-10",
+      },
+    ],
+  },
+  serper: {
+    request: {
+      method: "POST",
+      url: "https://google.serper.dev/search",
+      key: ["x-api-key", "KEY-serper"],
+      body: { q: "duckdb release", num: 3, gl: "de", hl: "de" },
+    },
+    answer: {
+      knowledgeGraph: { title: "DuckDB", description: "A database" },
+      organic: [
+        { title: "One", link: "https://a.example/1", snippet: "about" },
+      ],
+    },
+    results: [
+      { title: "Knowledge Graph: DuckDB", url: "", content: "A database" },
+      { title: "One", url: "https://a.example/1", content: "about" },
+    ],
+  },
+  serpapi: {
+    request: {
+      method: "GET",
+      url: "https://serpapi.com/search.json?q=duckdb+release&engine=google&num=3&gl=de&hl=de&api_key=KEY-serpapi",
+      key: "query",
+      body: null,
+    },
+    answer: {
+      organic_results: [
+        {
+          title: "One",
+          link: "https://a.example/1",
+          snippet: "about",
+          date: "Mar 1, 2026",
+        },
+      ],
+    },
+    results: [
+      {
+        title: "One",
+        url: "https://a.example/1",
+        content: "about",
+        publishedDate: "Mar 1, 2026",
+      },
+    ],
+  },
+};
+
+/** A connection with a key for every provider. */
+const ALL_KEYS = Object.fromEntries(
+  PROVIDERS.map(({ name }) => [`${name}ApiKey`, `KEY-${name}`]),
+);
+
+describe("web.search through each provider", () => {
+  it("has a case for every provider", () => {
+    assert.deepEqual(
+      Object.keys(CASES),
+      PROVIDERS.map(({ name }) => name),
+    );
+  });
+
+  for (const [name, { request, answer, results }] of Object.entries(CASES)) {
+    it(`${name}: sends its API's request with its own key alone, and reads its answer`, async () => {
+      const sent = provider(answer);
+      const found = await search({ ...SEARCH, provider: name }, ALL_KEYS);
+      assert.deepEqual(found, { provider: name, results });
+      assert.equal(sent.length, 1);
+      const [{ method, url, headers, body }] = sent;
+      assert.deepEqual(
+        { method, url, body },
+        {
+          method: request.method,
+          url: request.url,
+          body: request.body,
+        },
+      );
+      if (request.key !== "query")
+        assert.equal(headers[request.key[0]], request.key[1]);
+      const everything = JSON.stringify(sent);
+      for (const other of PROVIDERS)
+        assert.equal(
+          everything.includes(`KEY-${other.name}`),
+          other.name === name,
+          `${other.name}'s key in a request to ${name}`,
+        );
+    });
+  }
+
+  it("sends only what a search sets", async () => {
+    const sent = provider({ web: { results: [] } });
+    const found = await search({ query: "plain" }, { braveApiKey: "k" });
+    assert.deepEqual(found, { provider: "brave", results: [] });
+    assert.equal(
+      sent[0].url,
+      "https://api.search.brave.com/res/v1/web/search?q=plain&count=5",
+    );
+  });
+
+  it("carries the headers a provider always sends", async () => {
+    const sent = provider({ data: [] });
+    await search({ query: "plain" }, { jinaApiKey: "k" });
+    assert.equal(sent[0].headers["x-retain-images"], "none");
+  });
+});
+
+describe("the provider a search uses", () => {
+  it("is the first with a key, in the providers' order", async () => {
+    provider({ results: [] });
+    const found = await search(
+      { query: "q" },
+      { tavilyApiKey: "t", exaApiKey: "e", serperApiKey: "s" },
+    );
+    assert.equal(found.provider, "exa");
+  });
+
+  it("is the connection's, and then the call's", async () => {
+    const sent = provider({ results: [] });
+    const config = { ...ALL_KEYS, provider: "tavily" };
+    assert.equal((await search({ query: "q" }, config)).provider, "tavily");
+    assert.equal(
+      (await search({ query: "q", provider: "exa" }, config)).provider,
+      "exa",
+    );
+    assert.deepEqual(
+      sent.map(({ url }) => new URL(url).host),
+      ["api.tavily.com", "api.exa.ai"],
+    );
+  });
+
+  it("says which keys to set when there is none", async () => {
+    const sent = provider({});
+    const error = await refused({ query: "q" }, {});
+    assert.match(error, /web: no search provider has a key\. Set one of /);
+    for (const { env } of PROVIDERS) assert.ok(error.includes(env), env);
+    assert.equal(sent.length, 0);
+  });
+
+  it("refuses a provider whose key the connection lacks, before any request", async () => {
+    const sent = provider({});
+    const error = await refused(
+      { query: "q", provider: "brave" },
+      { exaApiKey: "e" },
+    );
+    assert.equal(
+      error.split("\n")[0],
+      "Error: web: no key for brave. Set BRAVE_API_KEY, or search with a provider that has one.",
+    );
+    assert.equal(sent.length, 0);
+  });
+
+  it("refuses a provider it does not know", async () => {
+    const sent = provider({});
+    assert.match(
+      await refused({ query: "q", provider: "altavista" }, ALL_KEYS),
+      /provider/,
+    );
+    assert.match(
+      await refused({ query: "q" }, { ...ALL_KEYS, provider: "altavista" }),
+      /web: no provider named "altavista"\. The providers are parallel, brave, /,
+    );
+    assert.equal(sent.length, 0);
+  });
+});
+
+describe("a provider's own parameters", () => {
+  it("are sent under its names, over what the search would send", async () => {
+    const sent = provider({ results: [] });
+    await search(
+      {
+        query: "q",
+        provider: "exa",
+        options: { type: "deep", includeDomains: ["duckdb.org"] },
+      },
+      ALL_KEYS,
+    );
+    assert.deepEqual(sent[0].body, {
+      query: "q",
+      numResults: 5,
+      type: "deep",
+      contents: { text: { maxCharacters: 3000 }, highlights: true },
+      includeDomains: ["duckdb.org"],
+    });
+  });
+
+  it("go in the query of a provider that is searched with GET", async () => {
+    const sent = provider({ web: { results: [] } });
+    await search(
+      { query: "q", provider: "brave", options: { freshness: "pw" } },
+      ALL_KEYS,
+    );
+    assert.equal(new URL(sent[0].url).searchParams.get("freshness"), "pw");
+  });
+
+  it("cannot name the parameter that carries the key", async () => {
+    const sent = provider({});
+    await refused(
+      { query: "q", provider: "serpapi", options: { api_key: "mine" } },
+      ALL_KEYS,
+    );
+    assert.equal(sent.length, 0);
+  });
+});
+
+describe("what a search accepts", () => {
+  it("refuses a number of results outside 1 to 20, and a country that is not a code", async () => {
+    const sent = provider({});
+    for (const input of [
+      { query: "q", numResults: 0 },
+      { query: "q", numResults: 21 },
+      { query: "q", numResults: 2.5 },
+      { query: "q", country: "germany" },
+      { query: "" },
+      { query: "q", depth: "deep" },
+    ])
+      await refused(input, ALL_KEYS);
+    assert.equal(sent.length, 0);
+  });
+});
+
+describe("a provider that fails", () => {
+  it("is reported by provider and status, without what it answered", async () => {
+    provider({ error: "the key KEY-brave is not valid" }, 401);
+    const error = await refused({ query: "q", provider: "brave" }, ALL_KEYS);
+    assert.match(error, /web\.brave: request failed \(HTTP 401\)/);
+    assert.ok(!error.includes("KEY-brave"));
+  });
+
+  it("reads an answer without results as none", async () => {
+    provider({ unexpected: true });
+    for (const { name } of PROVIDERS)
+      assert.deepEqual(await search({ query: "q", provider: name }, ALL_KEYS), {
+        provider: name,
+        results: [],
+      });
+  });
+});
+
+describe("a Firecrawl of the host's own", () => {
+  it("is searched at its address", async () => {
+    const sent = provider({ data: { web: [] } });
+    await search(
+      { query: "q" },
+      { firecrawlApiKey: "k", firecrawlUrl: "https://crawl.acme.example" },
+    );
+    assert.equal(sent[0].url, "https://crawl.acme.example/v2/search");
+  });
+
+  it("is refused over plain HTTP, where the key would travel in the clear", async () => {
+    const sent = provider({});
+    await refused(
+      { query: "q" },
+      { firecrawlApiKey: "k", firecrawlUrl: "http://crawl.acme.example" },
+    );
+    assert.equal(sent.length, 0);
+  });
+});
+
+describe("a provider a host adds", () => {
+  const acme: SearchProvider = {
+    name: "acme",
+    env: "ACME_SEARCH_KEY",
+    key: { header: "X-Acme-Key" },
+    target: { baseUrl: "https://search.acme.example/api/", methods: ["GET"] },
+    path: "find",
+    params: ({ query, numResults }) => ({ q: query, n: numResults }),
+    results: (answer) =>
+      (answer as { hits: Array<{ name: string; href: string }> }).hits.map(
+        ({ name, href }) => ({ title: name, url: href, content: "" }),
+      ),
+  };
+  const extended = pluginHarness(webSearch([acme, ...PROVIDERS]), "web");
+
+  it("is searched like the others, with a key of its own", async () => {
+    const sent = provider({
+      hits: [{ name: "One", href: "https://a.example" }],
+    });
+    const found = await extended.call<Found>(
+      "search",
+      { query: "q" },
+      { ...ALL_KEYS, acmeApiKey: "KEY-acme" },
+    );
+    assert.deepEqual(found, {
+      provider: "acme",
+      results: [{ title: "One", url: "https://a.example", content: "" }],
+    });
+    assert.equal(sent[0].url, "https://search.acme.example/api/find?q=q&n=5");
+    assert.equal(sent[0].headers["x-acme-key"], "KEY-acme");
+    assert.ok(!JSON.stringify(sent).includes("KEY-parallel"));
+  });
+});
+
+describePackage(PACKAGE, {
+  package: "@shiftlabs/codemode-websearch",
+  plugin: "web",
+  actions: 1,
+  write: 0,
+});

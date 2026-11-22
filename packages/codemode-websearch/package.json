@@ -1,0 +1,51 @@
+{
+  "name": "@shiftlabs/codemode-websearch",
+  "version": "0.1.0",
+  "description": "Search the web from codemode through one action, whichever search provider you have a key for",
+  "type": "module",
+  "keywords": [
+    "codemode-plugin",
+    "web-search",
+    "search",
+    "brave",
+    "exa",
+    "tavily",
+    "parallel",
+    "perplexity"
+  ],
+  "codemode": {
+    "plugins": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shift-labs-ai/codemode.git",
+    "directory": "packages/codemode-websearch"
+  },
+  "homepage": "https://github.com/shift-labs-ai/codemode/tree/main/packages/codemode-websearch#readme",
+  "bugs": {
+    "url": "https://github.com/shift-labs-ai/codemode/issues"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@shiftlabs/codemode": ">0.46.0",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@shiftlabs/codemode": "workspace:*",
+    "@types/bun": "^1.2.17",
+    "@types/node": "^25.5.0",
+    "typebox": "^1.1.35",
+    "typescript": "^5.8.0"
+  },
+  "exports": "./src/index.ts"
+}
