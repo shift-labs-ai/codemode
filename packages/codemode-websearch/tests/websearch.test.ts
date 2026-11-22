@@ -239,6 +239,7 @@ const CASES: Record<
         query: "duckdb release",
         max_results: 3,
         search_depth: "basic",
+        country: "germany",
         language: "de",
       },
     },
@@ -751,14 +752,94 @@ describe("the filters of a search", () => {
   });
 });
 
+describe("a country and a language", () => {
+  /** What each of these providers is sent for a search with these codes. */
+  const sentFor = async (
+    name: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => {
+    const sent = provider({});
+    await search({ query: "q", provider: name, ...input }, ALL_KEYS);
+    return parameters(sent[0]);
+  };
+
+  it("reach each provider in the form its API documents", async () => {
+    const codes = { country: "GB", language: "pt" };
+    assert.deepEqual(
+      {
+        parallel: (await sentFor("parallel", codes)).advanced_settings,
+        brave: await sentFor("brave", codes),
+        you: await sentFor("you", codes),
+        tavily: await sentFor("tavily", codes),
+        serper: await sentFor("serper", codes),
+      },
+      {
+        parallel: { max_results: 5, location: "gb" },
+        brave: { q: "q", count: "5", country: "GB", search_lang: "pt-br" },
+        you: { query: "q", count: 5, country: "GB", language: "PT-BR" },
+        tavily: {
+          query: "q",
+          max_results: 5,
+          search_depth: "basic",
+          country: "united kingdom",
+          language: "pt",
+        },
+        serper: { q: "q", num: 5, gl: "gb", hl: "pt" },
+      },
+    );
+  });
+
+  it("are left out for a provider whose list does not have them", async () => {
+    // Israel and Tibetan: real codes that Brave, You.com, Valyu and Google's
+    // language list do not carry.
+    const codes = { country: "IL", language: "bo" };
+    assert.deepEqual(await sentFor("brave", codes), { q: "q", count: "5" });
+    assert.deepEqual(await sentFor("you", codes), { query: "q", count: 5 });
+    assert.deepEqual(await sentFor("valyu", codes), {
+      query: "q",
+      search_type: "all",
+      max_num_results: 5,
+    });
+    assert.deepEqual(await sentFor("serpapi", codes), {
+      q: "q",
+      engine: "google",
+      gl: "il",
+    });
+    assert.deepEqual(await sentFor("perplexity", codes), {
+      query: "q",
+      max_results: 5,
+      country: "IL",
+      search_language_filter: ["bo"],
+    });
+  });
+
+  it("are refused when they name no country or language", async () => {
+    const sent = provider({});
+    assert.match(
+      await refused({ query: "q", country: "XX" }, ALL_KEYS),
+      /web: XX is not a country\. Pass an ISO 3166-1 alpha-2 code, such as US\./,
+    );
+    assert.match(
+      await refused({ query: "q", language: "xx" }, ALL_KEYS),
+      /web: xx is not a language\. Pass an ISO 639-1 code, such as en\./,
+    );
+    assert.equal(sent.length, 0);
+  });
+});
+
 describe("what a search accepts", () => {
-  it("refuses what is not a search: a number of results outside 1 to 20, a country that is not a code, a site that is not a hostname, an input it does not have", async () => {
+  it("refuses a value in another form than the one each input has, and an input it does not have", async () => {
     const sent = provider({});
     for (const input of [
       { query: "q", numResults: 0 },
       { query: "q", numResults: 21 },
       { query: "q", numResults: 2.5 },
       { query: "q", country: "germany" },
+      { query: "q", country: "us" },
+      { query: "q", language: "EN" },
+      { query: "q", language: "eng" },
+      { query: "x".repeat(401) },
+      { query: "q", includeDomains: ["DuckDB.org"] },
       { query: "" },
       { query: "q", depth: "deep" },
       { query: "q", options: { freshness: "pw" } },
@@ -915,23 +996,18 @@ describe("the README", () => {
     assert.deepEqual(
       rows,
       PROVIDERS.map(({ name, env, params }) => {
-        const sent = JSON.stringify(
-          params({
-            query: "q",
-            numResults: 5,
-            country: "zz",
-            language: "yy",
-            includeDomains: ["xx.example"],
-            freshness: "week",
-            publishedAfter: "2026-01-01",
-          }),
-        ).toLowerCase();
+        const plain = { query: "q", numResults: 5 };
+        const changes = (more: object) =>
+          JSON.stringify(params({ ...plain, ...more })) ===
+          JSON.stringify(params(plain))
+            ? "No"
+            : "Yes";
         return [
           name,
           env,
-          sent.includes('"zz"') ? "Yes" : "No",
-          sent.includes('"yy"') ? "Yes" : "No",
-          sent.includes("xx.example") ? "Yes" : "No",
+          changes({ country: "DE" }),
+          changes({ language: "de" }),
+          changes({ includeDomains: ["a.example"] }),
         ];
       }),
     );

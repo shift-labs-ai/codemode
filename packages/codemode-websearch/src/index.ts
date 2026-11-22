@@ -33,6 +33,8 @@ const NAME = "web";
 const DEFAULT_RESULTS = 5;
 const MAX_RESULTS = 20;
 const MAX_DOMAINS = 20;
+/** The longest query every provider takes, with room for the sites a filter adds to it. */
+const MAX_QUERY = 400;
 /** A search that reads pages can take longer than the transport waits by default. */
 const TIMEOUT_MS = 60_000;
 /** How many days back each freshness reaches. */
@@ -44,8 +46,8 @@ const FRESHNESS_DAYS: Record<Freshness, number> = {
 };
 /** The inputs that narrow a search. A provider applies one or the search is refused. */
 const FILTERS = ["includeDomains", "excludeDomains", "freshness"] as const;
-/** A hostname, such as `duckdb.org`: no scheme, path or spaces. */
-const DOMAIN = "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$";
+/** A hostname in lower case, such as `duckdb.org`: no scheme, path or spaces. */
+const DOMAIN = "^[a-z0-9-]+(\\.[a-z0-9-]+)+$";
 
 /** The connection field that holds a provider's key. */
 function keyField(provider: SearchProvider): string {
@@ -140,6 +142,31 @@ function chosen(
   return provider;
 }
 
+const REGION_NAMES = new Intl.DisplayNames(["en"], {
+  type: "region",
+  fallback: "none",
+});
+const LANGUAGE_NAMES = new Intl.DisplayNames(["en"], {
+  type: "language",
+  fallback: "none",
+});
+
+/** Refuse a code in the right form that names no country. */
+function checkCountry(code: string): void {
+  if (!REGION_NAMES.of(code))
+    throw new Error(
+      `${NAME}: ${code} is not a country. Pass an ISO 3166-1 alpha-2 code, such as US.`,
+    );
+}
+
+/** Refuse a code in the right form that names no language. */
+function checkLanguage(code: string): void {
+  if (!LANGUAGE_NAMES.of(code))
+    throw new Error(
+      `${NAME}: ${code} is not a language. Pass an ISO 639-1 code, such as en.`,
+    );
+}
+
 /** The day `days` before today, as `YYYY-MM-DD`. */
 function dayBefore(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
@@ -223,7 +250,8 @@ export function webSearch(
         {
           query: t.String({
             minLength: 1,
-            description: "What to search for. Be specific and descriptive",
+            maxLength: MAX_QUERY,
+            description: `What to search for, in up to ${MAX_QUERY} characters. Be specific and descriptive`,
           }),
           numResults: t.Optional(
             t.Integer({
@@ -234,16 +262,16 @@ export function webSearch(
           ),
           country: t.Optional(
             t.String({
-              pattern: "^[A-Za-z]{2}$",
+              pattern: "^[A-Z]{2}$",
               description:
-                "Two-letter country code to prefer results from, such as us, gb, de. A provider that cannot localize searches without it",
+                "Country to prefer results from: an ISO 3166-1 alpha-2 code in upper case, such as US, GB, DE",
             }),
           ),
           language: t.Optional(
             t.String({
-              pattern: "^[A-Za-z]{2}$",
+              pattern: "^[a-z]{2}$",
               description:
-                "Two-letter language code to prefer results in, such as en, es, fr. A provider that cannot searches without it",
+                "Language to prefer results in: an ISO 639-1 code in lower case, such as en, es, fr",
             }),
           ),
           provider: t.Optional(
@@ -258,7 +286,7 @@ export function webSearch(
               minItems: 1,
               maxItems: MAX_DOMAINS,
               description:
-                'Return results from these sites only, such as ["duckdb.org", "github.com"]. Not together with excludeDomains',
+                'Return results from these sites only: hostnames in lower case, without https:// or a path, such as ["duckdb.org", "github.com"]. Not together with excludeDomains',
             }),
           ),
           excludeDomains: t.Optional(
@@ -266,7 +294,7 @@ export function webSearch(
               minItems: 1,
               maxItems: MAX_DOMAINS,
               description:
-                'Leave results from these sites out, such as ["pinterest.com"]. Not together with includeDomains',
+                'Leave results from these sites out: hostnames in the same form, such as ["pinterest.com"]. Not together with includeDomains',
             }),
           ),
           freshness: t.Optional(
@@ -312,13 +340,15 @@ export function webSearch(
           throw new Error(
             `${NAME}: set includeDomains or excludeDomains, not both.`,
           );
+        if (input.country) checkCountry(input.country);
+        if (input.language) checkLanguage(input.language);
         const numResults = input.numResults ?? DEFAULT_RESULTS;
         const freshness = input.freshness as Freshness | undefined;
         const search: SearchRequest = {
           query: input.query,
           numResults,
-          country: input.country?.toLowerCase(),
-          language: input.language?.toLowerCase(),
+          country: input.country,
+          language: input.language,
           includeDomains: input.includeDomains,
           excludeDomains: input.excludeDomains,
           freshness,

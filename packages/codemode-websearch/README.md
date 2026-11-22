@@ -40,13 +40,26 @@ codemode exec 'return await web.search({ query: "duckdb 1.4 release notes", numR
 | Input | Meaning |
 |---|---|
 | `query` | What to search for |
-| `numResults` | The most results to return, from 1 to 20. The default is 5 |
-| `country` | Two-letter country code to prefer results from, such as `de` |
-| `language` | Two-letter language code to prefer results in, such as `de` |
-| `includeDomains` | Return results from these sites only, such as `["duckdb.org"]` |
+| `numResults` | The most results to return. The default is 5 |
+| `country` | A country to prefer results from |
+| `language` | A language to prefer results in |
+| `includeDomains` | Return results from these sites only |
 | `excludeDomains` | Leave results from these sites out |
-| `freshness` | Return only pages published within the last `day`, `week`, `month`, or `year` |
+| `freshness` | Return only pages published this recently |
 | `provider` | The provider to search with. The default is the connection's |
+
+Each input has one form, and a value in another form is refused before any request:
+
+| Input | Form | Example |
+|---|---|---|
+| `query` | Text of 1 to 400 characters | `"duckdb window functions"` |
+| `numResults` | A whole number from 1 to 20 | `10` |
+| `country` | An ISO 3166-1 alpha-2 code in upper case | `"DE"` |
+| `language` | An ISO 639-1 code in lower case | `"de"` |
+| `includeDomains`, `excludeDomains` | 1 to 20 hostnames in lower case, without `https://` or a path | `["duckdb.org"]` |
+| `freshness` | `"day"`, `"week"`, `"month"`, or `"year"` | `"week"` |
+
+Codemode turns each value into what the provider's API takes: `"DE"` reaches Parallel as `de`, Tavily as `germany`, and Brave as `DE`.
 
 | Result field | Contents |
 |---|---|
@@ -66,7 +79,7 @@ A search uses the provider it names, else the connection's `provider`, else the 
 | `brave` | `BRAVE_API_KEY` | Yes | Yes | Yes |
 | `exa` | `EXA_API_KEY` | Yes | No | Yes |
 | `you` | `YOU_API_KEY` | Yes | Yes | Yes |
-| `tavily` | `TAVILY_API_KEY` | No | Yes | Yes |
+| `tavily` | `TAVILY_API_KEY` | Yes | Yes | Yes |
 | `firecrawl` | `FIRECRAWL_API_KEY` | Yes | No | Yes |
 | `jina` | `JINA_API_KEY` | Yes | Yes | No |
 | `linkup` | `LINKUP_API_KEY` | No | No | Yes |
@@ -95,9 +108,9 @@ await web.search({
 await web.search({ query: "duckdb benchmarks", excludeDomains: ["medium.com"] });
 ```
 
-A site is a hostname, without `https://` or a path, and a search takes up to 20. Set sites to search or sites to leave out, not both.
+Set sites to search or sites to leave out, not both.
 
-`country` and `language` are preferences. A provider that cannot localize searches without them, as the table above shows.
+`country` and `language` are preferences. A provider that cannot localize searches without them, as the table above shows. Brave, You.com, and Valyu localize for 36 or 37 countries, and a search for another country reaches them without one.
 
 ## Configure the connection
 

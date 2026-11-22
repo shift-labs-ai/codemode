@@ -6,6 +6,16 @@
 
 import { httpsBase } from "@shiftlabs/codemode";
 import * as t from "typebox";
+import {
+  BRAVE_COUNTRIES,
+  BRAVE_LANGUAGE_VARIANTS,
+  BRAVE_LANGUAGES,
+  GOOGLE_COUNTRIES,
+  GOOGLE_LANGUAGE_VARIANTS,
+  GOOGLE_LANGUAGES,
+  TAVILY_COUNTRIES,
+  YOU_COUNTRIES,
+} from "./codes.js";
 
 /** How recently a page was published: within the last day, week, month or year. */
 export type Freshness = "day" | "week" | "month" | "year";
@@ -15,9 +25,12 @@ export interface SearchRequest {
   query: string;
   /** The most results wanted. The plugin returns no more, whatever a provider answers. */
   numResults: number;
-  /** Two-letter country code, lower case. A preference: a provider without one searches without it. */
+  /**
+   * ISO 3166-1 alpha-2 country code, upper case, such as `US`. A preference:
+   * a provider that does not localize for it searches without it.
+   */
   country?: string;
-  /** Two-letter language code, lower case. A preference, like `country`. */
+  /** ISO 639-1 language code, lower case, such as `en`. A preference, like `country`. */
   language?: string;
   /** Hostnames to return results from, and no other. Never set with `excludeDomains`. */
   includeDomains?: string[];
@@ -125,7 +138,31 @@ function knowledgeGraph(graph: unknown): SearchResult[] {
     : [];
 }
 
-const upper = (code?: string) => code?.toUpperCase();
+/** `code` when the provider's list has it. */
+function listed(list: ReadonlySet<string>, code?: string): string | undefined {
+  return code !== undefined && list.has(code) ? code : undefined;
+}
+
+/** A language as Brave and You.com name it, when they take it. */
+function braveLanguage(language?: string): string | undefined {
+  return (
+    language &&
+    (BRAVE_LANGUAGE_VARIANTS[language] ?? listed(BRAVE_LANGUAGES, language))
+  );
+}
+
+/** A country as Google names it (`gl`), when it searches for it. */
+function googleCountry(country?: string): string | undefined {
+  return listed(GOOGLE_COUNTRIES, country)?.toLowerCase();
+}
+
+/** A language as Google names it (`hl`), when it takes it. */
+function googleLanguage(language?: string): string | undefined {
+  return (
+    language &&
+    (GOOGLE_LANGUAGE_VARIANTS[language] ?? listed(GOOGLE_LANGUAGES, language))
+  );
+}
 
 /** `fields` when one of them has a value, so an empty object is never sent. */
 function some<T extends Json>(fields: T): T | undefined {
@@ -172,7 +209,7 @@ export const parallel: SearchProvider = {
     mode: "fast",
     advanced_settings: {
       max_results: search.numResults,
-      location: search.country,
+      location: search.country?.toLowerCase(),
       source_policy: some({
         include_domains: search.includeDomains,
         exclude_domains: search.excludeDomains,
@@ -201,8 +238,8 @@ export const brave: SearchProvider = {
   params: (search) => ({
     q: withSites(search),
     count: search.numResults,
-    country: upper(search.country),
-    search_lang: search.language,
+    country: listed(BRAVE_COUNTRIES, search.country),
+    search_lang: braveLanguage(search.language),
     freshness: search.freshness && `p${search.freshness[0]}`,
   }),
   results: (answer) =>
@@ -228,7 +265,7 @@ export const exa: SearchProvider = {
     numResults: search.numResults,
     type: "auto",
     contents: { text: { maxCharacters: 3000 }, highlights: true },
-    userLocation: upper(search.country),
+    userLocation: search.country,
     includeDomains: search.includeDomains,
     excludeDomains: search.excludeDomains,
     startPublishedDate:
@@ -256,8 +293,8 @@ export const you: SearchProvider = {
   params: (search) => ({
     query: search.query,
     count: search.numResults,
-    country: upper(search.country),
-    language: upper(search.language),
+    country: listed(YOU_COUNTRIES, search.country),
+    language: braveLanguage(search.language)?.toUpperCase(),
     include_domains: search.includeDomains,
     exclude_domains: search.excludeDomains,
     freshness: search.freshness,
@@ -283,11 +320,11 @@ export const tavily: SearchProvider = {
   baseUrl: "https://api.tavily.com/",
   method: "POST",
   path: "search",
-  // Tavily takes a country by its English name, so a country code is not sent.
   params: (search) => ({
     query: search.query,
     max_results: search.numResults,
     search_depth: "basic",
+    country: search.country && TAVILY_COUNTRIES[search.country],
     language: search.language,
     include_domains: search.includeDomains,
     exclude_domains: search.excludeDomains,
@@ -324,7 +361,7 @@ export const firecrawl: SearchProvider = {
   params: (search) => ({
     query: search.query,
     limit: search.numResults,
-    country: upper(search.country),
+    country: search.country,
     includeDomains: search.includeDomains,
     excludeDomains: search.excludeDomains,
     tbs: googleRecency(search.freshness),
@@ -351,8 +388,8 @@ export const jina: SearchProvider = {
   params: ({ query, numResults, country, language }) => ({
     q: query,
     num: numResults,
-    gl: country,
-    hl: language,
+    gl: googleCountry(country),
+    hl: googleLanguage(language),
   }),
   results: (answer) =>
     list(object(answer).data).map((r) =>
@@ -402,7 +439,7 @@ export const valyu: SearchProvider = {
     query: search.query,
     search_type: "all",
     max_num_results: search.numResults,
-    country_code: upper(search.country),
+    country_code: listed(YOU_COUNTRIES, search.country),
     included_sources: search.includeDomains,
     excluded_sources: search.excludeDomains,
     start_date: search.publishedAfter,
@@ -429,7 +466,7 @@ export const perplexity: SearchProvider = {
   params: (search) => ({
     query: search.query,
     max_results: search.numResults,
-    country: upper(search.country),
+    country: search.country,
     search_language_filter: search.language && [search.language],
     // One list holds both: a domain to leave out carries a `-` before it.
     search_domain_filter:
@@ -458,8 +495,8 @@ export const serper: SearchProvider = {
   params: (search) => ({
     q: withSites(search),
     num: search.numResults,
-    gl: search.country,
-    hl: search.language,
+    gl: googleCountry(search.country),
+    hl: googleLanguage(search.language),
     tbs: googleRecency(search.freshness),
   }),
   results: (answer) => [
@@ -486,8 +523,8 @@ export const serpapi: SearchProvider = {
   params: (search) => ({
     q: withSites(search),
     engine: "google",
-    gl: search.country,
-    hl: search.language,
+    gl: googleCountry(search.country),
+    hl: googleLanguage(search.language),
     tbs: googleRecency(search.freshness),
   }),
   results: (answer) => [
