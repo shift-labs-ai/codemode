@@ -10,6 +10,7 @@ import * as t from "typebox";
 /** A search as every provider receives it. */
 export interface SearchRequest {
   query: string;
+  /** The most results wanted. The plugin returns no more, whatever a provider answers. */
   numResults: number;
   /** Two-letter country code, lower case. */
   country?: string;

@@ -97,7 +97,7 @@ await web.search({
 });
 ```
 
-Name the provider in a call that passes `options`, because another provider gives its parameters other names.
+Name the provider in a call that passes `options`, because another provider gives its parameters other names. A search still returns at most `numResults` results, whatever `options` asks the provider for.
 
 ## Configure the connection
 
@@ -157,4 +157,5 @@ A provider's error text is not included in the message, because it can repeat th
 
 - Results are what the provider returns. Their length and freshness differ from provider to provider.
 - Serper and SerpAPI can return a first result with an empty `url`: what Google's results page says about the thing searched for.
+- SerpAPI takes no number of results. It answers one page of Google's results, of which the first `numResults` are returned.
 - A request to a provider is not ended when the run ends. It ends by itself within 60 seconds.

@@ -187,7 +187,7 @@ export function webSearch(
             t.Integer({
               minimum: 1,
               maximum: MAX_RESULTS,
-              description: `How many results to return, from 1 to ${MAX_RESULTS}. The default is ${DEFAULT_RESULTS}`,
+              description: `The most results to return, from 1 to ${MAX_RESULTS}. The default is ${DEFAULT_RESULTS}`,
             }),
           ),
           country: t.Optional(
