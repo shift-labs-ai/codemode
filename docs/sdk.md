@@ -93,7 +93,7 @@ const codemode = Codemode.create({
 const { result, truncated, fullResultPath } = await codemode.execute(code);
 ```
 
-Either number can be set alone, and `outputLimit: false` sets no limit.
+Either number can be set alone, down to 3 lines and 1,024 bytes, and `outputLimit: false` sets no limit.
 
 The limit applies to what a run returns, not to what happens inside it. Code works with whole values: an action that returns 400 KB of rows gives the code all of them, and only what the code returns is measured.
 
@@ -102,10 +102,12 @@ A result within the limit is returned as it is. A larger one is written whole to
 | Result | What is returned |
 |---|---|
 | A string | Its last lines |
-| A value that one string makes too large, such as a command's output beside its exit code | The same value, with that string cut to its last lines |
+| A value that fits once strings in it are cut, such as a command's output beside its exit code | The same value, with those strings cut to their last lines |
 | Any other value | Text: the first lines of its JSON |
 
-The cut text ends with a line that says which lines it shows and names the file, such as `[Showing lines 1883-3120 of 3120 (212.4KB in all). Full output: /data/workspace/outbox/codemode-result-3f9c2a1b7d4e5f60.txt]`.
+A value's JSON is measured as `JSON.stringify(value, null, 2)`, and a string inside it is held to the line limit by itself.
+
+Cut text ends with a line that says which lines it shows and names the file, such as `[Showing lines 1883-3120 of 3120 (212.4KB in all). Full output: /data/workspace/outbox/codemode-result-3f9c2a1b7d4e5f60.txt]`.
 
 | Field | Contents |
 |---|---|

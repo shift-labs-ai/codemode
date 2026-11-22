@@ -30,33 +30,26 @@ import type {
   TypedInputSchema,
 } from "../plugin/types.js";
 import { notifyObserver } from "../utils/observer.js";
-import { MAX_TIMEOUT_MS } from "../utils/timers.js";
 import {
-  boundError,
-  boundLogs,
-  boundResult,
   type OutputLimitSetting,
   resolveOutputLimit,
-} from "./run-output.js";
+} from "../utils/output-limit.js";
+import { MAX_TIMEOUT_MS } from "../utils/timers.js";
+import { boundRun, type RunOutput } from "./run-output.js";
 
 export { MAX_TIMEOUT_MS };
 
-export interface ExecuteResult {
-  /**
-   * What the code returned, within the output limit. A larger string is its
-   * last lines. A larger value keeps its shape when one string in it is cut
-   * to its last lines, and is otherwise text: the first lines of its JSON.
-   */
-  result: unknown;
-  /** Why the run failed, within the output limit: its last lines. */
-  error?: string;
-  /** What the code logged, within the output limit: the last of it. */
-  logs: string[];
-  /** Present when `result` is cut from a larger one. */
-  truncated?: true;
-  /** The file holding the whole result, when `result` does not. */
-  fullResultPath?: string;
-}
+/**
+ * How a run ended. With an output limit, which a run has unless its host
+ * sets none, `result`, `error` and `logs` are each within it:
+ *
+ * - a larger string result is its last lines;
+ * - a larger value keeps its shape when cutting one string in it to its
+ *   last lines is enough, and is otherwise text, the first lines of its
+ *   JSON;
+ * - a larger error, or longer logs, keep their last lines.
+ */
+export type ExecuteResult = RunOutput;
 
 export interface EngineOptions {
   timeoutMs?: number;
@@ -432,17 +425,7 @@ export class ExecutionEngine {
         worker.off("exit", onExit);
         this.release(entry, pooled, retire);
         // Every way a run ends passes here, so all of them are bounded.
-        resolve(
-          outputLimit
-            ? {
-                ...r,
-                ...(r.error === undefined
-                  ? boundResult(r.result, outputLimit, outputDir)
-                  : { error: boundError(r.error, outputLimit, outputDir) }),
-                logs: boundLogs(r.logs, outputLimit, outputDir),
-              }
-            : r,
-        );
+        resolve(outputLimit ? boundRun(r, outputLimit, outputDir) : r);
       };
 
       // The acquire-time unref must not let the host exit mid-run: hold

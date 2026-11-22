@@ -2,13 +2,8 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
-import {
-  ACTION_MEMORY_BYTES,
-  clippedNote,
-  clipTail,
-  OutputFileWriter,
-  type OutputLimit,
-} from "./output-files.js";
+import { ACTION_MEMORY_BYTES, OutputFileWriter } from "./output-files.js";
+import { cutText, MIN_OUTPUT_LIMIT } from "./output-limit.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 
 /** How a shell program takes a script. */
@@ -32,9 +27,11 @@ export interface RunShellOptions {
   timeoutMs?: number;
   /** Aborting kills the command's process group and rejects the call. */
   signal?: AbortSignal;
-  /** How many of its last lines the result carries. Default: all of them. */
-  maxOutputLines?: number;
-  /** How many bytes of its last lines the result carries. Default: `ACTION_MEMORY_BYTES`, 8 MiB. */
+  /**
+   * How much output is held in memory and returned. Past it the result
+   * carries the output's last lines, and all of it is in a file. Default:
+   * `ACTION_MEMORY_BYTES`, 8 MiB.
+   */
   maxOutputBytes?: number;
   /** The start of the name of the file that keeps output past the limit. Default: `codemode-shell`. */
   outputFilePrefix?: string;
@@ -98,7 +95,7 @@ const EXIT_STDIO_GRACE_MS = 100;
  * end in memory and the whole of it in a file.
  */
 class ShellOutput {
-  /** The end of the output: all of it until it passes twice the byte limit. */
+  /** The end of the output: all of it until it passes twice the bound. */
   private kept: Buffer[] = [];
   private keptBytes = 0;
   /** Whether `kept` starts where a line starts. */
@@ -106,11 +103,11 @@ class ShellOutput {
   private total = 0;
   private lineBreaks = 0;
   private lastByte: number | undefined;
-  /** Everything written, from the moment it passes the limit. */
+  /** Everything written, from the moment it passes the bound. */
   private file: OutputFileWriter | undefined;
 
   constructor(
-    private readonly limit: OutputLimit,
+    private readonly maxBytes: number,
     private readonly prefix: string,
     private readonly dir: string | undefined,
   ) {}
@@ -120,10 +117,6 @@ class ShellOutput {
       this.lineBreaks +
       (this.lastByte === undefined || this.lastByte === 0x0a ? 0 : 1)
     );
-  }
-
-  private get over(): boolean {
-    return this.total > this.limit.bytes || this.lines > this.limit.lines;
   }
 
   /**
@@ -141,7 +134,7 @@ class ShellOutput {
     )
       this.lineBreaks++;
     this.lastByte = chunk[chunk.length - 1];
-    if (!this.file && this.over) {
+    if (!this.file && this.total > this.maxBytes) {
       this.file = new OutputFileWriter(this.prefix, ".log", this.dir);
       for (const earlier of this.kept) this.file.write(earlier);
     }
@@ -150,10 +143,10 @@ class ShellOutput {
     this.keptBytes += chunk.length;
     // Whole chunks are dropped while what stays is still twice what is
     // handed back, which leaves room to cut at a line. The file starts at
-    // the limit, so it holds everything before a chunk is dropped.
+    // the bound, so it holds everything before a chunk is dropped.
     while (
       this.kept.length > 1 &&
-      this.keptBytes - this.kept[0].length >= this.limit.bytes * 2
+      this.keptBytes - this.kept[0].length >= this.maxBytes * 2
     ) {
       const dropped = this.kept.shift() as Buffer;
       this.keptBytes -= dropped.length;
@@ -171,9 +164,10 @@ class ShellOutput {
   async finish(): Promise<{ text: string; truncated: boolean; path?: string }> {
     const path = await this.file?.close();
     let end = Buffer.concat(this.kept);
-    if (!this.over) return { text: end.toString("utf8"), truncated: false };
-    // Cut between characters, then at a line, unless that leaves nothing:
-    // the output is then the end of one long line.
+    if (this.total <= this.maxBytes)
+      return { text: end.toString("utf8"), truncated: false };
+    // What is kept starts between characters and then at a line, unless
+    // that leaves nothing: the output is then the end of one long line.
     let start = 0;
     while (start < end.length && (end[start] & 0xc0) === 0x80) start++;
     end = end.subarray(start);
@@ -181,11 +175,16 @@ class ShellOutput {
     const fromLine = this.keptFromLineStart
       ? whole
       : whole.slice(whole.indexOf("\n") + 1);
-    const clipped = clipTail(fromLine.trim() ? fromLine : whole, this.limit);
-    // What is kept may be whole, and then ends with its line break.
-    const shownText = clipped.text.replace(/\n$/, "");
     return {
-      text: `${shownText}\n\n${clippedNote(clipped, "last", { lines: this.lines, bytes: this.total }, path)}`,
+      text: cutText(
+        fromLine.trim() ? fromLine : whole,
+        { lines: Number.POSITIVE_INFINITY, bytes: this.maxBytes },
+        {
+          keep: "last",
+          path,
+          total: { lines: this.lines, bytes: this.total },
+        },
+      ).text,
       truncated: true,
       ...(path ? { path } : {}),
     };
@@ -381,13 +380,10 @@ export async function runShell(
     throw new RangeError(
       `Invalid timeout: a number of milliseconds above 0 and at most ${MAX_TIMEOUT_MS}`,
     );
-  const limit = {
-    lines: options.maxOutputLines ?? Number.POSITIVE_INFINITY,
-    bytes: options.maxOutputBytes ?? ACTION_MEMORY_BYTES,
-  };
-  if (!(limit.lines >= 1 && limit.bytes >= 1))
+  const maxOutputBytes = options.maxOutputBytes ?? ACTION_MEMORY_BYTES;
+  if (!(maxOutputBytes >= MIN_OUTPUT_LIMIT.bytes))
     throw new RangeError(
-      "Invalid output limit: at least 1 line and at least 1 byte",
+      `Invalid maxOutputBytes: at least ${MIN_OUTPUT_LIMIT.bytes}`,
     );
   if (signal?.aborted) throw new ShellError("aborted", "Command aborted");
   if (options.cwd !== undefined && !existsSync(options.cwd))
@@ -397,7 +393,7 @@ export async function runShell(
     );
 
   const output = new ShellOutput(
-    limit,
+    maxOutputBytes,
     options.outputFilePrefix ?? "codemode-shell",
     options.outputDir,
   );

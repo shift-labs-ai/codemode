@@ -19,13 +19,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { createPluginAPI } from "../plugin/api.js";
 import { Codemode } from "../sdk.js";
-import {
-  clipHead,
-  clipTail,
-  OUTPUT_LIMIT,
-  OutputFileWriter,
-  writeOutputFile,
-} from "../utils/output-files.js";
+import { OutputFileWriter, writeOutputFile } from "../utils/output-files.js";
 
 let tmp: string;
 const instances: Codemode[] = [];
@@ -128,87 +122,6 @@ describe("an output file", () => {
   });
 });
 
-describe("the last lines of a text within the output limit", () => {
-  const limit = { lines: 3, bytes: 20 };
-
-  it("are the text itself while it fits both limits", () => {
-    assert.deepEqual(clipTail("a\nb\nc\n", limit), {
-      text: "a\nb\nc\n",
-      truncated: false,
-      lines: 3,
-      partialLine: false,
-    });
-  });
-
-  it("are whole lines, as many as the line limit and the byte limit allow", () => {
-    assert.deepEqual(clipTail("a\nb\nc\nd\ne\n", limit), {
-      text: "c\nd\ne",
-      truncated: true,
-      lines: 3,
-      partialLine: false,
-    });
-    // `0123456789` and `tail` with their joint are 15 bytes; a third line is not.
-    assert.deepEqual(clipTail("first line\n0123456789\ntail", limit), {
-      text: "0123456789\ntail",
-      truncated: true,
-      lines: 2,
-      partialLine: false,
-    });
-  });
-
-  it("are the end of a last line too long to keep whole, cut between characters", () => {
-    const clipped = clipTail(`short\n${"é".repeat(30)}`, limit);
-    assert.deepEqual(clipped, {
-      text: "é".repeat(10),
-      truncated: true,
-      lines: 1,
-      partialLine: true,
-    });
-  });
-
-  it("use the limit every action shares when given none", () => {
-    assert.deepEqual(OUTPUT_LIMIT, { lines: 2000, bytes: 51_200 });
-    const lines = Array.from({ length: 2_500 }, (_, n) => `line ${n}`);
-    const clipped = clipTail(lines.join("\n"));
-    assert.equal(clipped.lines, 2_000);
-    assert.ok(clipped.text.startsWith("line 500\n"));
-  });
-});
-
-describe("the first lines of a text within the output limit", () => {
-  const limit = { lines: 3, bytes: 20 };
-
-  it("are whole lines, as many as the line limit and the byte limit allow", () => {
-    assert.deepEqual(clipHead("a\nb\nc\n", limit), {
-      text: "a\nb\nc\n",
-      truncated: false,
-      lines: 3,
-      partialLine: false,
-    });
-    assert.deepEqual(clipHead("a\nb\nc\nd\ne\n", limit), {
-      text: "a\nb\nc",
-      truncated: true,
-      lines: 3,
-      partialLine: false,
-    });
-    assert.deepEqual(clipHead("head\n0123456789\nlast line", limit), {
-      text: "head\n0123456789",
-      truncated: true,
-      lines: 2,
-      partialLine: false,
-    });
-  });
-
-  it("are the start of a first line too long to keep whole, cut between characters", () => {
-    assert.deepEqual(clipHead(`${"é".repeat(30)}\nshort`, limit), {
-      text: "é".repeat(10),
-      truncated: true,
-      lines: 1,
-      partialLine: true,
-    });
-  });
-});
-
 describe("the directory a host names for output", () => {
   it("reaches every action as ctx.outputDir, for the instance or for one run", async () => {
     const run = "return await probe.outputDir()";
@@ -238,7 +151,7 @@ describe("the directory a host names for output", () => {
       JSON.stringify({
         connections: [],
         outputDir: "outbox",
-        outputLimit: { bytes: 1000 },
+        outputLimit: { bytes: 1024 },
       }),
     );
     const loaded = await Codemode.fromProject(project, {

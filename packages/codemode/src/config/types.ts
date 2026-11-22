@@ -1,7 +1,7 @@
-import type { OutputLimitSetting } from "../core/run-output.js";
 import type { PackageManagerName } from "../packages/manager.js";
 import type { PackageEntry } from "../packages/store.js";
 import type { ConnectionConfig } from "../plugin/types.js";
+import type { OutputLimitSetting } from "../utils/output-limit.js";
 
 export interface CodemodeConfig {
   connections: ConnectionConfig[];

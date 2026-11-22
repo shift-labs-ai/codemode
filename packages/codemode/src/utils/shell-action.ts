@@ -9,7 +9,8 @@ import { accessSync, constants } from "node:fs";
 import { resolve } from "node:path";
 import * as t from "typebox";
 import type { ActionDefinition } from "../plugin/api.js";
-import { ACTION_MEMORY_BYTES, formatSize } from "./output-files.js";
+import { ACTION_MEMORY_BYTES } from "./output-files.js";
+import { formatSize } from "./output-limit.js";
 import { runShell, type ShellProgram } from "./shell.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 

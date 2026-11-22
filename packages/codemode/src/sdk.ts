@@ -15,7 +15,6 @@ import {
   type ExecuteResult,
   ExecutionEngine,
 } from "./core/engine.js";
-import type { OutputLimitSetting } from "./core/run-output.js";
 import { McpManager } from "./mcp/manager.js";
 import { PackageManager } from "./packages/manager.js";
 import type { PluginFunction } from "./plugin/api.js";
@@ -28,6 +27,7 @@ import type {
   InputSchema,
   PluginDef,
 } from "./plugin/types.js";
+import type { OutputLimitSetting } from "./utils/output-limit.js";
 
 export interface CodemodeOptions {
   plugins?: Array<PluginDef | PluginFunction>;

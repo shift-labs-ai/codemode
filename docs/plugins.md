@@ -75,7 +75,7 @@ Name each input as the provider's own reference names that parameter, in camelCa
 
 Return plain data. Results are converted to JSON before they reach the caller. Throw an `Error` to fail the call; the caller receives its message.
 
-Return a file's path instead of large or binary content. `writeOutputFile(prefix, extension, data, ctx.outputDir)` from `@shiftlabs/codemode` writes a new file that only the user can read and answers its path. An action does not shorten its result for a reader's sake: codemode cuts what a run returns to the host's [output limit](sdk.md#limit-a-runs-result), and code inside the run works with whole values.
+Return a file's path instead of large or binary content. `writeOutputFile(prefix, extension, data, ctx.outputDir)` from `@shiftlabs/codemode` writes a new file that only the user can read and answers its path. An action does not shorten its result for a reader's sake: codemode cuts what a run returns to the host's [output limit](sdk.md#limit-a-runs-result), and code inside the run works with whole values. An action that must hold less than it produces writes the whole with `OutputFileWriter` and cuts what it keeps with `cutText(text, limit, { keep, path })`, the function codemode itself cuts with.
 
 `execute` receives a context as its second argument:
 
@@ -174,7 +174,7 @@ Pass `ctx.signal` so that a command ends with the run that started it, and `ctx.
 | The script outlives `timeoutMs` | Rejects with `code` `timed_out`. `output` holds what it wrote |
 | `signal` aborts | Rejects with `code` `aborted` |
 
-`output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output is returned whole up to 8 MiB, which guards the process's memory. Past that, or past `maxOutputLines` or `maxOutputBytes` when set, it is its last lines, followed by a line that says which lines they are, and the whole of it is written to a file named by `fullOutputPath` that only your account can read. The file is in `outputDir`, or in the system's temporary directory.
+`output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output is returned whole up to `maxOutputBytes`, 8 MiB by default, which guards the process's memory. Past that it is its last lines, closed by a line that says which lines they are, and the whole of it is written to a file named by `fullOutputPath` that only your account can read. The file is in `outputDir`, or in the system's temporary directory.
 
 The command inherits the environment of the codemode process, with `env` added to it. It runs in a process group of its own, and codemode ends that group when its own process exits or is interrupted. Check a failure with `isShellError()`.
 

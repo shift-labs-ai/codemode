@@ -1,221 +1,207 @@
 /**
  * What a run hands back, within the output limit. A run's result, its
  * error and its logs go to whoever asked for the run, usually a model, and
- * each is cut to the limit there. What is cut is written whole to an output
- * file first, and the cut text ends with a line that names the file.
+ * each is cut to the limit here. What is cut is written whole to an output
+ * file first.
  */
 
+import { writeOutputFile } from "../utils/output-files.js";
 import {
-  type Clipped,
-  clipHead,
-  clippedNote,
-  clipTail,
   countLines,
-  OUTPUT_LIMIT,
+  cutText,
+  MIN_OUTPUT_LIMIT,
   type OutputLimit,
   withinLimit,
-  writeOutputFile,
-} from "../utils/output-files.js";
+} from "../utils/output-limit.js";
 
-/** A limit as a host sets it: either number alone, or `false` for none. */
-export type OutputLimitSetting = Partial<OutputLimit> | false;
-
-/**
- * The limit a setting stands for, `undefined` for none. Throws for a
- * setting that is not one.
- */
-export function resolveOutputLimit(
-  setting: OutputLimitSetting | undefined,
-): OutputLimit | undefined {
-  if (setting === false) return undefined;
-  const limit = { ...OUTPUT_LIMIT, ...setting };
-  for (const size of [limit.lines, limit.bytes])
-    if (!(Number.isSafeInteger(size) && size > 0))
-      throw new Error(
-        `Invalid outputLimit: ${JSON.stringify(setting)}. Pass { lines, bytes } as whole numbers above 0, or false for no limit.`,
-      );
-  return limit;
+/** What a run produced, before or after it is cut. */
+export interface RunOutput {
+  result: unknown;
+  error?: string;
+  logs: string[];
+  /** Present when `result` is cut from a larger one. */
+  truncated?: true;
+  /** The file holding the whole result, when `result` does not. */
+  fullResultPath?: string;
 }
-
-/** Room a note takes at the end of a clipped text: two lines, and its words with a path. */
-const NOTE = { lines: 2, bytes: 512 };
 
 function bytesOf(text: string): number {
   return Buffer.byteLength(text, "utf8");
 }
 
 /** Write `text` to an output file. A file that cannot be written is gone without. */
-function kept(
-  prefix: string,
+function keep(
+  name: string,
   extension: string,
   text: string,
-  dir: string | undefined,
+  outputDir: string | undefined,
 ): string | undefined {
   try {
-    return writeOutputFile(prefix, extension, text, dir);
+    return writeOutputFile(`codemode-${name}`, extension, text, outputDir);
   } catch {
     return undefined;
   }
 }
 
-/** `text` cut to `limit` with its note inside the limit. */
-function clipped(
-  text: string,
-  limit: OutputLimit,
-  keeps: "first" | "last",
-  path: string | undefined,
-): { shown: Clipped; note: string } {
-  const room = {
-    lines: Math.max(1, limit.lines - NOTE.lines),
-    bytes: Math.max(1, limit.bytes - NOTE.bytes),
-  };
-  const shown = (keeps === "first" ? clipHead : clipTail)(text, room);
-  return {
-    shown,
-    note: clippedNote(
-      shown,
-      keeps,
-      { lines: countLines(text), bytes: bytesOf(text) },
-      path,
-    ),
-  };
-}
-
-function clippedText(
-  text: string,
-  limit: OutputLimit,
-  keeps: "first" | "last",
-  path: string | undefined,
-): string {
-  const { shown, note } = clipped(text, limit, keeps, path);
-  return `${shown.text.replace(/\n$/, "")}\n\n${note}`;
-}
-
+/** A string somewhere in a value, and how to put another in its place. */
 interface StringLeaf {
-  path: (string | number)[];
   value: string;
+  replace(value: string): void;
 }
 
-function stringLeaves(
-  value: unknown,
-  path: (string | number)[] = [],
-): StringLeaf[] {
-  if (typeof value === "string") return [{ path, value }];
-  if (Array.isArray(value))
-    return value.flatMap((item, index) => stringLeaves(item, [...path, index]));
+function stringLeaves(value: unknown): StringLeaf[] {
+  const found: StringLeaf[] = [];
+  const visit = (holder: Record<string | number, unknown>) => {
+    for (const [key, item] of Object.entries(holder))
+      if (typeof item === "string")
+        found.push({
+          value: item,
+          replace: (other) => {
+            holder[key] = other;
+          },
+        });
+      else if (item && typeof item === "object")
+        visit(item as Record<string | number, unknown>);
+  };
   if (value && typeof value === "object")
-    return Object.entries(value).flatMap(([key, item]) =>
-      stringLeaves(item, [...path, key]),
-    );
-  return [];
-}
-
-/** The lines a string adds to a result beyond the one its JSON takes. */
-function innerLines(text: string): number {
-  return Math.max(0, countLines(text) - 1);
-}
-
-export interface BoundedResult {
-  result: unknown;
-  truncated?: true;
-  fullResultPath?: string;
+    visit(value as Record<string | number, unknown>);
+  return found;
 }
 
 /**
- * A run's result within `limit`. A result that fits is itself. Of one that
- * does not:
- *
- * - a string is its last lines;
- * - a value made too large by one string in it, such as a command's output
- *   beside its exit code, keeps its shape with that string cut to its last
- *   lines;
- * - any other value is the first lines of its JSON, and so is text.
+ * A value within `limit` with its shape kept, by cutting strings in it to
+ * their last lines, or nothing when that is not enough. A string is held
+ * to the line limit by itself, and the largest one gives up what the value
+ * is over in bytes. This is what keeps a command's output beside its exit
+ * code, instead of turning both into text.
  */
-export function boundResult(
+function withStringsCut(
+  json: string,
+  limit: OutputLimit,
+  path: string | undefined,
+): unknown {
+  const copy = JSON.parse(json);
+  const leaves = stringLeaves(copy);
+  for (const leaf of leaves)
+    if (countLines(leaf.value) > limit.lines)
+      leaf.replace(cutText(leaf.value, limit, { keep: "last", path }).text);
+  const size = () => bytesOf(JSON.stringify(copy, null, 2));
+  // Cutting strings takes no lines from a value's JSON.
+  if (countLines(json) > limit.lines) return undefined;
+  if (size() <= limit.bytes) return copy;
+
+  const [largest] = [...leaves].sort(
+    (a, b) => bytesOf(b.value) - bytesOf(a.value),
+  );
+  if (!largest) return undefined;
+  // What the rest of the value takes is what the string may not. A string
+  // takes more as JSON than as itself, by its escapes, so its room is
+  // narrowed until the value fits.
+  largest.replace("");
+  let room = limit.bytes - size();
+  for (let tries = 0; tries < 8 && room >= MIN_OUTPUT_LIMIT.bytes; tries++) {
+    largest.replace(
+      cutText(
+        largest.value,
+        { lines: limit.lines, bytes: room },
+        { keep: "last", path },
+      ).text,
+    );
+    const over = size() - limit.bytes;
+    if (over <= 0) return copy;
+    room -= over;
+  }
+  return undefined;
+}
+
+/** Whether a value is within `limit`: its JSON, and each string in it by its own lines. */
+function valueFits(json: string, value: unknown, limit: OutputLimit): boolean {
+  return (
+    withinLimit(json, limit) &&
+    stringLeaves(value).every((leaf) => countLines(leaf.value) <= limit.lines)
+  );
+}
+
+function boundResult(
   result: unknown,
   limit: OutputLimit,
   outputDir: string | undefined,
-): BoundedResult {
+): Pick<RunOutput, "result" | "truncated" | "fullResultPath"> {
   if (result === undefined || result === null) return { result };
   const isText = typeof result === "string";
   const text = isText ? result : JSON.stringify(result, null, 2);
-  const leaves = isText ? [] : stringLeaves(result);
-  const lines =
-    countLines(text) +
-    leaves.reduce((sum, leaf) => sum + innerLines(leaf.value), 0);
-  if (bytesOf(text) <= limit.bytes && lines <= limit.lines) return { result };
+  if (isText ? withinLimit(text, limit) : valueFits(text, result, limit))
+    return { result };
 
-  const path = kept(
-    "codemode-result",
-    isText ? ".txt" : ".json",
-    text,
-    outputDir,
-  );
-  const cut = (shown: unknown): BoundedResult => ({
-    result: shown,
+  const path = keep("result", isText ? ".txt" : ".json", text, outputDir);
+  return {
+    result: isText
+      ? cutText(text, limit, { keep: "last", path }).text
+      : (withStringsCut(text, limit, path) ??
+        cutText(text, limit, {
+          keep: "first",
+          path,
+          // Cut whether or not the JSON fits: it is here because the value does not.
+          total: { lines: countLines(text), bytes: bytesOf(text) },
+        }).text),
     truncated: true,
     ...(path ? { fullResultPath: path } : {}),
-  });
-  if (isText) return cut(clippedText(text, limit, "last", path));
-
-  const [largest] = leaves.sort((a, b) => bytesOf(b.value) - bytesOf(a.value));
-  if (largest) {
-    // What the rest of the result takes is what the string may not.
-    let room = {
-      lines: limit.lines - (lines - innerLines(largest.value)) + 1,
-      bytes:
-        limit.bytes - (bytesOf(text) - bytesOf(JSON.stringify(largest.value))),
-    };
-    // A string takes more as JSON than as itself, by its escapes, so the
-    // room is narrowed until the cut string fits as JSON.
-    for (
-      let tries = 0;
-      tries < 8 && room.lines > NOTE.lines && room.bytes > NOTE.bytes * 2;
-      tries++
-    ) {
-      const shown = clippedText(largest.value, room, "last", path);
-      const over = bytesOf(JSON.stringify(shown)) - room.bytes;
-      if (over <= 0) {
-        const copy = JSON.parse(text);
-        let holder = copy;
-        for (const key of largest.path.slice(0, -1)) holder = holder[key];
-        holder[largest.path.at(-1) as string | number] = shown;
-        return cut(copy);
-      }
-      room = { ...room, bytes: room.bytes - over };
-    }
-  }
-  return cut(clippedText(text, limit, "first", path));
+  };
 }
 
-/** A run's error within `limit`: its last lines, where what went wrong is. */
-export function boundError(
-  error: string,
+/** A text's last lines within `limit`, with all of it in a file. */
+function boundText(
+  text: string,
   limit: OutputLimit,
+  file: { name: string; extension: string },
   outputDir: string | undefined,
 ): string {
-  if (withinLimit(error, limit)) return error;
-  return clippedText(
-    error,
-    limit,
-    "last",
-    kept("codemode-error", ".txt", error, outputDir),
-  );
+  // The file is written only for a text that is cut.
+  if (!cutText(text, limit, { keep: "last" }).truncated) return text;
+  return cutText(text, limit, {
+    keep: "last",
+    path: keep(file.name, file.extension, text, outputDir),
+  }).text;
 }
 
-/** A run's logs within `limit`: the last of them, and then a line that says so. */
-export function boundLogs(
-  logs: string[],
+/**
+ * What a run produced, within `limit`.
+ *
+ * A result that fits is itself. Of one that does not:
+ *
+ * - a string is its last lines;
+ * - a value made too large by one string in it keeps its shape, with that
+ *   string cut to its last lines;
+ * - any other value is the first lines of its JSON, and so is text.
+ *
+ * An error and the logs each keep their last lines. Whatever is cut is
+ * written whole to a file in `outputDir`, and closes with a line that names
+ * the file.
+ */
+export function boundRun(
+  run: RunOutput,
   limit: OutputLimit,
   outputDir: string | undefined,
-): string[] {
-  const text = logs.join("\n");
-  if (withinLimit(text, limit)) return logs;
-  const { shown, note } = clipped(
-    text,
+): RunOutput {
+  const logs = run.logs.join("\n");
+  const boundLogs = boundText(
+    logs,
     limit,
-    "last",
-    kept("codemode-logs", ".log", text, outputDir),
+    { name: "logs", extension: ".log" },
+    outputDir,
   );
-  return [...shown.text.split("\n"), note];
+  return {
+    ...run,
+    ...(run.error === undefined
+      ? boundResult(run.result, limit, outputDir)
+      : {
+          error: boundText(
+            run.error,
+            limit,
+            { name: "error", extension: ".txt" },
+            outputDir,
+          ),
+        }),
+    logs: boundLogs === logs ? run.logs : boundLogs.split("\n"),
+  };
 }
