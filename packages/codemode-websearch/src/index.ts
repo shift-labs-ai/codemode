@@ -44,7 +44,7 @@ const FRESHNESS_DAYS: Record<Freshness, number> = {
   month: 31,
   year: 365,
 };
-/** The inputs that narrow a search. A provider applies one or the search is refused. */
+/** The inputs that narrow a search. A search goes only to a provider that applies those it sets. */
 const FILTERS = ["includeDomains", "excludeDomains", "freshness"] as const;
 /** A hostname, such as `duckdb.org`: no scheme, path or spaces. */
 const DOMAIN = "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$";
@@ -153,8 +153,9 @@ function chosen(
       (candidate) => !unapplied(candidate, search).length,
     );
     if (able) return able;
+    const set = FILTERS.filter((filter) => search[filter] !== undefined);
     throw new Error(
-      `${NAME}: no provider with a key can filter by ${unapplied(keyed[0], search).join(" or ")}. Search without it.`,
+      `${NAME}: no provider with a key can filter by ${set.join(" and ")}. Search without one of them.`,
     );
   }
   const provider = providers.find((candidate) => candidate.name === name);
@@ -215,9 +216,9 @@ function defined(params: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * The `websearch` plugin over `providers`, in the order one is chosen when a
- * search names none. A host adds a provider of its own by passing a list
- * that includes it.
+ * The `websearch` plugin over `providers`, in the order one is chosen when
+ * the connection names none. A host adds a provider of its own by passing a
+ * list that includes it.
  */
 export function websearch(
   providers: SearchProvider[] = PROVIDERS,
@@ -229,7 +230,7 @@ export function websearch(
     rl.setName(NAME);
     rl.setVersion(packageVersion(import.meta.url));
     rl.setDescription(
-      "Search the web through the search provider the connection has a key for.",
+      "Search the web through the search provider the connection chooses.",
     );
     rl.setCredential(credential);
     rl.setConnectionSchema(

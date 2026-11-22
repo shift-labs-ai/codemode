@@ -113,7 +113,7 @@ Set sites to search or sites to leave out, not both.
 
 ## Configure the connection
 
-Add a connection to keep keys in codemode, or to set the default provider. Every field is optional:
+Add a connection to keep keys in codemode, or to choose the provider. Every field is optional:
 
 ```bash
 codemode connection add websearch --plugin websearch --set exaApiKey=$EXA_API_KEY --set tavilyApiKey=$TAVILY_API_KEY --set provider=tavily
@@ -160,7 +160,7 @@ The list's order is the order a provider is chosen in. Parameters go in the quer
 |---|---|
 | No provider has a key | The call rejects and names the environment variables |
 | The connection's provider has no key | The call rejects and names its environment variable |
-| The connection's provider, or every provider with a key, cannot apply a filter | The call rejects and says to search without it |
+| The connection's provider, or every provider with a key, cannot apply a filter | The call rejects and names the filter to search without |
 | The provider refuses the request | The call rejects with `websearch.<provider>: request failed (HTTP <status>)` |
 | The provider answers without results | Returns `results: []` |
 

@@ -737,7 +737,7 @@ describe("the filters of a search", () => {
           { jinaApiKey: "j" },
         )
       ).split("\n")[0],
-      "Error: websearch: no provider with a key can filter by includeDomains or freshness. Search without it.",
+      "Error: websearch: no provider with a key can filter by includeDomains and freshness. Search without one of them.",
     );
     assert.equal(sent.length, 0);
   });

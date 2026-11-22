@@ -34,7 +34,7 @@ export interface SearchRequest {
   language?: string;
   /** Hostnames in lower case to return results from, and no other. Never set with `excludeDomains`. */
   includeDomains?: string[];
-  /** Hostnames to leave out of the results. Never set with `includeDomains`. */
+  /** Hostnames in lower case to leave out of the results. Never set with `includeDomains`. */
   excludeDomains?: string[];
   /** Return only pages published this recently. */
   freshness?: Freshness;
@@ -77,7 +77,7 @@ export interface SearchProvider {
   /**
    * The provider's parameters for a search, under the names its API gives
    * them. A domain or freshness filter that changes nothing here is one the
-   * provider cannot apply, and the plugin refuses a search that sets it.
+   * provider cannot apply, and the plugin sends it no search that sets it.
    */
   params(search: SearchRequest): Record<string, unknown>;
   /** The results in the provider's answer. */
@@ -541,7 +541,7 @@ export const serpapi: SearchProvider = {
 };
 
 /**
- * Every provider, in the order one is chosen when a search names none:
+ * Every provider, in the order one is chosen when the connection names none:
  * providers with an index of their own, then those that read pages for a
  * search, then those that return Google's results.
  */
