@@ -221,7 +221,7 @@ describe("a script that does not run to its end", () => {
   });
 
   it("refuses a bound on output too small to say anything in", async () => {
-    for (const maxOutputBytes of [0, 1_023, Number.NaN])
+    for (const maxOutputBytes of [0, 1_023, 2_000.5, Number.NaN])
       await assert.rejects(
         runShell(SH, "echo hi", { maxOutputBytes }),
         RangeError,

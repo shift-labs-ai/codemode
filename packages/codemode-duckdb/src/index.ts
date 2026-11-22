@@ -186,9 +186,9 @@ class Database {
 
   /**
    * A result's rows: all of them while they fit in what the host lets an
-   * action hold in memory, and then the first of them, with every row in a file, a line of
-   * JSON each. The result is read to its end to write the file and to count
-   * its rows.
+   * action hold in memory, and then the first of them, with every row in a
+   * file, a line of JSON each. The result is read to its end to write the
+   * file and to count its rows.
    */
   private async rows(
     result: DuckDBResult,

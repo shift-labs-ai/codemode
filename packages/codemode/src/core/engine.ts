@@ -32,6 +32,7 @@ import type {
 import { notifyObserver } from "../utils/observer.js";
 import { ACTION_MEMORY_BYTES } from "../utils/output-files.js";
 import {
+  isOutputBytes,
   MIN_OUTPUT_LIMIT,
   type OutputLimitSetting,
   resolveOutputLimit,
@@ -359,12 +360,7 @@ export class ExecutionEngine {
       options?.maxActionOutputBytes ??
       this.config.maxActionOutputBytes ??
       ACTION_MEMORY_BYTES;
-    if (
-      !(
-        Number.isSafeInteger(maxActionOutputBytes) &&
-        maxActionOutputBytes >= MIN_OUTPUT_LIMIT.bytes
-      )
-    ) {
+    if (!isOutputBytes(maxActionOutputBytes)) {
       return {
         result: null,
         error: `Invalid maxActionOutputBytes: ${maxActionOutputBytes}. Pass a whole number of bytes, at least ${MIN_OUTPUT_LIMIT.bytes}.`,

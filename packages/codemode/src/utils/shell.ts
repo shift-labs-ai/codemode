@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
 import { ACTION_MEMORY_BYTES, OutputFileWriter } from "./output-files.js";
-import { cutText, MIN_OUTPUT_LIMIT } from "./output-limit.js";
+import { cutText, isOutputBytes, MIN_OUTPUT_LIMIT } from "./output-limit.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 
 /** How a shell program takes a script. */
@@ -95,7 +95,7 @@ const EXIT_STDIO_GRACE_MS = 100;
  * end in memory and the whole of it in a file.
  */
 class ShellOutput {
-  /** The end of the output: all of it until it passes twice the bound. */
+  /** The end of the output: all of it until it passes the bound, then that much and a chunk. */
   private kept: Buffer[] = [];
   private keptBytes = 0;
   /** Whether `kept` starts where a line starts. */
@@ -141,12 +141,12 @@ class ShellOutput {
     const keepReading = this.file?.write(chunk) ?? true;
     this.kept.push(chunk);
     this.keptBytes += chunk.length;
-    // Whole chunks are dropped while what stays is still twice what is
-    // handed back, which leaves room to cut at a line. The file starts at
-    // the bound, so it holds everything before a chunk is dropped.
+    // Whole chunks are dropped while what stays is still as much as is
+    // handed back. The file starts at the bound, so it holds everything
+    // before a chunk is dropped.
     while (
       this.kept.length > 1 &&
-      this.keptBytes - this.kept[0].length >= this.maxBytes * 2
+      this.keptBytes - this.kept[0].length >= this.maxBytes
     ) {
       const dropped = this.kept.shift() as Buffer;
       this.keptBytes -= dropped.length;
@@ -381,9 +381,9 @@ export async function runShell(
       `Invalid timeout: a number of milliseconds above 0 and at most ${MAX_TIMEOUT_MS}`,
     );
   const maxOutputBytes = options.maxOutputBytes ?? ACTION_MEMORY_BYTES;
-  if (!(maxOutputBytes >= MIN_OUTPUT_LIMIT.bytes))
+  if (!isOutputBytes(maxOutputBytes))
     throw new RangeError(
-      `Invalid maxOutputBytes: at least ${MIN_OUTPUT_LIMIT.bytes}`,
+      `Invalid maxOutputBytes: a whole number of bytes, at least ${MIN_OUTPUT_LIMIT.bytes}`,
     );
   if (signal?.aborted) throw new ShellError("aborted", "Command aborted");
   if (options.cwd !== undefined && !existsSync(options.cwd))

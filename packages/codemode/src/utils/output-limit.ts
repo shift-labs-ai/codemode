@@ -30,6 +30,16 @@ export const MIN_OUTPUT_LIMIT: Readonly<OutputLimit> = Object.freeze({
 /** The least room for output beside a closing line: with less, the line names no path. */
 const LEAST_SHOWN_BYTES = 256;
 
+/**
+ * Whether `bytes` is a size a text can be cut to: a whole number with room
+ * for some output beside its closing line.
+ */
+export function isOutputBytes(bytes: unknown): bytes is number {
+  return (
+    Number.isSafeInteger(bytes) && (bytes as number) >= MIN_OUTPUT_LIMIT.bytes
+  );
+}
+
 /** A limit as a host sets it: either number alone, or `false` for none. */
 export type OutputLimitSetting = Partial<OutputLimit> | false;
 
@@ -45,9 +55,8 @@ export function resolveOutputLimit(
   if (
     !(
       Number.isSafeInteger(limit.lines) &&
-      Number.isSafeInteger(limit.bytes) &&
       limit.lines >= MIN_OUTPUT_LIMIT.lines &&
-      limit.bytes >= MIN_OUTPUT_LIMIT.bytes
+      isOutputBytes(limit.bytes)
     )
   )
     throw new Error(
