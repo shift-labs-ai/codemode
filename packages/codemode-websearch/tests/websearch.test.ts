@@ -481,7 +481,7 @@ describe("web.search through each provider", () => {
     assert.deepEqual(found, { provider: "brave", results: [] });
     assert.equal(
       sent[0].url,
-      "https://api.search.brave.com/res/v1/web/search?q=plain&count=5",
+      "https://api.search.brave.com/res/v1/web/search?q=plain&count=10",
     );
   });
 
@@ -582,7 +582,7 @@ const FILTERED: Record<string, { only: object; without: object }> = {
   parallel: {
     only: {
       advanced_settings: {
-        max_results: 5,
+        max_results: 10,
         source_policy: {
           include_domains: ["a.example", "b.example"],
           after_date: "WEEK_AGO",
@@ -591,7 +591,7 @@ const FILTERED: Record<string, { only: object; without: object }> = {
     },
     without: {
       advanced_settings: {
-        max_results: 5,
+        max_results: 10,
         source_policy: { exclude_domains: ["c.example"] },
       },
     },
@@ -774,17 +774,17 @@ describe("a country and a language", () => {
         serper: await sentFor("serper", codes),
       },
       {
-        parallel: { max_results: 5, location: "gb" },
-        brave: { q: "q", count: "5", country: "GB", search_lang: "pt-br" },
-        you: { query: "q", count: 5, country: "GB", language: "PT-BR" },
+        parallel: { max_results: 10, location: "gb" },
+        brave: { q: "q", count: "10", country: "GB", search_lang: "pt-br" },
+        you: { query: "q", count: 10, country: "GB", language: "PT-BR" },
         tavily: {
           query: "q",
-          max_results: 5,
+          max_results: 10,
           search_depth: "basic",
           country: "united kingdom",
           language: "pt",
         },
-        serper: { q: "q", num: 5, gl: "gb", hl: "pt" },
+        serper: { q: "q", num: 10, gl: "gb", hl: "pt" },
       },
     );
   });
@@ -793,12 +793,12 @@ describe("a country and a language", () => {
     // Israel and Tibetan: real codes that Brave, You.com, Valyu and Google's
     // language list do not carry.
     const codes = { country: "IL", language: "bo" };
-    assert.deepEqual(await sentFor("brave", codes), { q: "q", count: "5" });
-    assert.deepEqual(await sentFor("you", codes), { query: "q", count: 5 });
+    assert.deepEqual(await sentFor("brave", codes), { q: "q", count: "10" });
+    assert.deepEqual(await sentFor("you", codes), { query: "q", count: 10 });
     assert.deepEqual(await sentFor("valyu", codes), {
       query: "q",
       search_type: "all",
-      max_num_results: 5,
+      max_num_results: 10,
     });
     assert.deepEqual(await sentFor("serpapi", codes), {
       q: "q",
@@ -807,7 +807,7 @@ describe("a country and a language", () => {
     });
     assert.deepEqual(await sentFor("perplexity", codes), {
       query: "q",
-      max_results: 5,
+      max_results: 10,
       country: "IL",
       search_language_filter: ["bo"],
     });
@@ -927,7 +927,7 @@ describe("a provider a host adds", () => {
       provider: "acme",
       results: [{ title: "One", url: "https://a.example", content: "" }],
     });
-    assert.equal(sent[0].url, "https://search.acme.example/api/find?q=q&n=5");
+    assert.equal(sent[0].url, "https://search.acme.example/api/find?q=q&n=10");
     assert.equal(sent[0].headers["x-acme-key"], "KEY-acme");
     assert.ok(!JSON.stringify(sent).includes("KEY-parallel"));
   });
@@ -972,7 +972,7 @@ describe("a host that keeps the keys", () => {
           },
           body: JSON.stringify({
             query: "q",
-            numResults: 5,
+            numResults: 10,
             type: "auto",
             contents: { text: { maxCharacters: 3000 }, highlights: true },
           }),

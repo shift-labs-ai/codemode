@@ -30,7 +30,7 @@ import {
 export * from "./providers.js";
 
 const NAME = "web";
-const DEFAULT_RESULTS = 5;
+const DEFAULT_RESULTS = 10;
 const MAX_RESULTS = 20;
 const MAX_DOMAINS = 20;
 /** The longest query every provider takes, with room for the sites a filter adds to it. */

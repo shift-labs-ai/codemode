@@ -40,7 +40,7 @@ codemode exec 'return await web.search({ query: "duckdb 1.4 release notes", numR
 | Input | Meaning |
 |---|---|
 | `query` | What to search for |
-| `numResults` | The most results to return. The default is 5 |
+| `numResults` | The most results to return. The default is 10 |
 | `country` | A country to prefer results from |
 | `language` | A language to prefer results in |
 | `includeDomains` | Return results from these sites only |
