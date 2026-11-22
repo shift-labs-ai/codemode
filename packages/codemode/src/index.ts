@@ -335,9 +335,9 @@ export {
 export {
   clipTail,
   clipText,
-  createOutputFileStream,
   formatSize,
   OUTPUT_LIMIT,
+  OutputFileWriter,
   type OutputLimit,
   writeOutputFile,
 } from "./utils/output-files.js";

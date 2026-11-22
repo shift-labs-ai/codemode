@@ -1,12 +1,12 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { existsSync, type WriteStream } from "node:fs";
+import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
 import {
   clipTail,
-  createOutputFileStream,
   formatSize,
   OUTPUT_LIMIT,
+  OutputFileWriter,
   type OutputLimit,
 } from "./output-files.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
@@ -32,8 +32,9 @@ export interface RunShellOptions {
   timeoutMs?: number;
   /** Aborting kills the command's process group and rejects the call. */
   signal?: AbortSignal;
-  /** How much output the result carries: its last lines. Default: `OUTPUT_LIMIT`, 2000 lines or 50 KB. */
+  /** How many of its last lines the result carries. Default: `OUTPUT_LIMIT.lines`, 2000. */
   maxOutputLines?: number;
+  /** How many bytes of its last lines the result carries. Default: `OUTPUT_LIMIT.bytes`, 50 KB. */
   maxOutputBytes?: number;
   /** The start of the name of the file that keeps output past the limit. Default: `codemode-shell`. */
   outputFilePrefix?: string;
@@ -91,8 +92,6 @@ export function isShellError(error: unknown): error is ShellError {
 
 /** How long output may stay quiet, once the shell has exited, before the call ends. */
 const EXIT_STDIO_GRACE_MS = 100;
-/** Output goes to its file in blocks of this size, not a write per chunk read. */
-const SPILL_BLOCK_BYTES = 64 * 1024;
 
 /**
  * What a command wrote, within a bound: everything while it fits, then its
@@ -107,13 +106,8 @@ class ShellOutput {
   private total = 0;
   private lineBreaks = 0;
   private lastByte: number | undefined;
-  private path: string | undefined;
-  private file: WriteStream | undefined;
-  /** What the file has not been handed yet: it is written in blocks. */
-  private block: Buffer[] = [];
-  private blockBytes = 0;
-  /** The file could not be created or written: the output goes on without it. */
-  private fileFailed = false;
+  /** Everything written, from the moment it passes the limit. */
+  private file: OutputFileWriter | undefined;
 
   constructor(
     private readonly limit: OutputLimit,
@@ -147,9 +141,11 @@ class ShellOutput {
     )
       this.lineBreaks++;
     this.lastByte = chunk[chunk.length - 1];
-    let keepReading = true;
-    if (this.file) keepReading = this.write(chunk);
-    else if (this.over && !this.fileFailed) this.spill(chunk);
+    if (!this.file && this.over) {
+      this.file = new OutputFileWriter(this.prefix, ".log", this.dir);
+      for (const earlier of this.kept) this.file.write(earlier);
+    }
+    const keepReading = this.file?.write(chunk) ?? true;
     this.kept.push(chunk);
     this.keptBytes += chunk.length;
     // Whole chunks are dropped while what stays is still twice what is
@@ -168,66 +164,12 @@ class ShellOutput {
 
   /** Resolves when the file has caught up, or has failed. */
   drained(): Promise<void> {
-    const file = this.file;
-    return file?.writableNeedDrain && !this.fileFailed
-      ? new Promise((resolve) => {
-          const done = () => {
-            file.off("drain", done);
-            file.off("error", done);
-            resolve();
-          };
-          file.once("drain", done);
-          file.once("error", done);
-        })
-      : Promise.resolve();
-  }
-
-  private write(chunk: Buffer): boolean {
-    if (this.fileFailed) return true;
-    this.block.push(chunk);
-    this.blockBytes += chunk.length;
-    return this.blockBytes < SPILL_BLOCK_BYTES || this.flush();
-  }
-
-  private flush(): boolean {
-    const block = Buffer.concat(this.block);
-    this.block = [];
-    this.blockBytes = 0;
-    return !this.file || this.fileFailed || !block.length
-      ? true
-      : this.file.write(block);
-  }
-
-  /** Start the file with everything so far; `latest` is its last part. */
-  private spill(latest: Buffer): void {
-    try {
-      const created = createOutputFileStream(this.prefix, ".log", this.dir);
-      this.path = created.path;
-      this.file = created.stream;
-    } catch {
-      this.fileFailed = true;
-      return;
-    }
-    this.file.on("error", () => {
-      this.fileFailed = true;
-    });
-    this.block = [...this.kept, latest];
-    this.blockBytes = this.total;
-    this.flush();
+    return this.file?.drained() ?? Promise.resolve();
   }
 
   /** The output as text, once nothing more is appended. */
   async finish(): Promise<{ text: string; truncated: boolean; path?: string }> {
-    if (this.file) {
-      const file = this.file;
-      this.flush();
-      // `close` follows a finished file and a failed one alike.
-      if (!file.closed)
-        await new Promise<void>((resolve) => {
-          file.once("close", () => resolve());
-          file.end();
-        });
-    }
+    const path = await this.file?.close();
     let end = Buffer.concat(this.kept);
     if (!this.over) return { text: end.toString("utf8"), truncated: false };
     // Cut between characters, then at a line, unless that leaves nothing:
@@ -247,12 +189,10 @@ class ShellOutput {
     const shown = clipped.partialLine
       ? `Showing the last ${formatSize(Buffer.byteLength(clipped.text, "utf8"))} of line ${first}`
       : `Showing lines ${first}-${total} of ${total}`;
-    const path =
-      this.path === undefined || this.fileFailed ? {} : { path: this.path };
     return {
-      text: `${shownText}\n\n[${shown} (${formatSize(this.total)} in all).${path.path ? ` Full output: ${path.path}` : ""}]`,
+      text: `${shownText}\n\n[${shown} (${formatSize(this.total)} in all).${path ? ` Full output: ${path}` : ""}]`,
       truncated: true,
-      ...path,
+      ...(path ? { path } : {}),
     };
   }
 }
@@ -446,6 +386,14 @@ export async function runShell(
     throw new RangeError(
       `Invalid timeout: a number of milliseconds above 0 and at most ${MAX_TIMEOUT_MS}`,
     );
+  const limit = {
+    lines: options.maxOutputLines ?? OUTPUT_LIMIT.lines,
+    bytes: options.maxOutputBytes ?? OUTPUT_LIMIT.bytes,
+  };
+  if (!(limit.lines >= 1 && limit.bytes >= 1))
+    throw new RangeError(
+      "Invalid output limit: at least 1 line and at least 1 byte",
+    );
   if (signal?.aborted) throw new ShellError("aborted", "Command aborted");
   if (options.cwd !== undefined && !existsSync(options.cwd))
     throw new ShellError(
@@ -454,10 +402,7 @@ export async function runShell(
     );
 
   const output = new ShellOutput(
-    {
-      lines: options.maxOutputLines ?? OUTPUT_LIMIT.lines,
-      bytes: options.maxOutputBytes ?? OUTPUT_LIMIT.bytes,
-    },
+    limit,
     options.outputFilePrefix ?? "codemode-shell",
     options.outputDir,
   );

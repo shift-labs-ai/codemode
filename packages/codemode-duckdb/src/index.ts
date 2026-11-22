@@ -12,11 +12,9 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { once } from "node:events";
-import { mkdtempSync, rmSync, type WriteStream, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { finished } from "node:stream/promises";
 import {
   type DuckDBConnection,
   DuckDBInstance,
@@ -26,13 +24,11 @@ import {
 import {
   type ActionContext,
   type CodemodePluginAPI,
-  createOutputFileStream,
-} from "@shiftlabs/codemode";
-import {
   formatSize,
   OUTPUT_LIMIT,
-  packageVersion,
-} from "@shiftlabs/codemode/utils/cli";
+  OutputFileWriter,
+} from "@shiftlabs/codemode";
+import { packageVersion } from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
 
 /** What DuckDB's client says of SQL with no statement in it. */
@@ -87,10 +83,6 @@ interface QueryResult {
   totalRows: number;
   truncated: boolean;
   fullOutputPath?: string;
-}
-
-async function write(stream: WriteStream, text: string): Promise<void> {
-  if (!stream.write(text)) await once(stream, "drain");
 }
 
 function quoted(identifier: string): string {
@@ -186,7 +178,8 @@ class Database {
   /**
    * A result's rows within the output limit: the first of them, a row
    * standing for a line. Past the limit every row goes to a file, a line of
-   * JSON each, and the result is read to its end to write it.
+   * JSON each, and the result is read to its end to write it and to count
+   * its rows.
    */
   private async rows(
     result: DuckDBResult,
@@ -196,12 +189,13 @@ class Database {
     const types = result.columnTypes();
     const wide = types.map((type) => WIDE_INTEGERS.has(type.typeId));
     const rows: Rows = [];
-    let bytes = 0;
+    /** The rows kept, as the file's lines. */
+    let kept = "";
+    let keptBytes = 0;
     let totalRows = 0;
-    let truncated = false;
-    let file: ReturnType<typeof createOutputFileStream> | undefined;
+    let file: OutputFileWriter | undefined;
     try {
-      reading: for await (const part of result.yieldRowsJson()) {
+      for await (const part of result.yieldRowsJson()) {
         this.stillOpen();
         let lines = "";
         for (const values of part) {
@@ -213,46 +207,30 @@ class Database {
           );
           const line = `${JSON.stringify(row)}\n`;
           totalRows++;
-          if (!truncated) {
-            const size = Buffer.byteLength(line, "utf8");
-            if (
-              rows.length < OUTPUT_LIMIT.lines &&
-              bytes + size <= OUTPUT_LIMIT.bytes
-            ) {
-              rows.push(row);
-              bytes += size;
-              continue;
-            }
-            truncated = true;
-            try {
-              file = createOutputFileStream(
-                "codemode-duckdb",
-                ".jsonl",
-                outputDir,
-              );
-            } catch {
-              // With nowhere to keep the rest, there is nothing to read it for.
-              break reading;
-            }
-            lines = rows.map((kept) => `${JSON.stringify(kept)}\n`).join("");
+          const size = Buffer.byteLength(line, "utf8");
+          if (file) {
+            lines += line;
+          } else if (
+            rows.length < OUTPUT_LIMIT.lines &&
+            keptBytes + size <= OUTPUT_LIMIT.bytes
+          ) {
+            rows.push(row);
+            kept += line;
+            keptBytes += size;
+          } else {
+            file = new OutputFileWriter("codemode-duckdb", ".jsonl", outputDir);
+            lines = kept + line;
           }
-          lines += line;
         }
-        if (file && lines) await write(file.stream, lines);
-      }
-      if (file) {
-        file.stream.end();
-        await finished(file.stream);
+        if (file && !file.write(lines)) await file.drained();
       }
     } catch (error) {
-      if (file) {
-        file.stream.destroy();
-        rmSync(file.path, { force: true });
-      }
+      await file?.discard();
       throw error;
     } finally {
       result.closeSync();
     }
+    const fullOutputPath = await file?.close();
     return {
       columns: names.map((name, index) => ({
         name,
@@ -260,8 +238,8 @@ class Database {
       })),
       rows,
       totalRows,
-      truncated,
-      ...(file ? { fullOutputPath: file.path } : {}),
+      truncated: file !== undefined,
+      ...(fullOutputPath ? { fullOutputPath } : {}),
     };
   }
 

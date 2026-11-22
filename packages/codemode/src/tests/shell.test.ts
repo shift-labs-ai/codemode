@@ -217,6 +217,15 @@ describe("a script that does not run to its end", () => {
     for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
       await assert.rejects(runShell(SH, "echo hi", { timeoutMs }), RangeError);
   });
+
+  it("refuses an output limit that leaves room for nothing", async () => {
+    for (const limit of [
+      { maxOutputBytes: 0 },
+      { maxOutputLines: 0 },
+      { maxOutputBytes: Number.NaN },
+    ])
+      await assert.rejects(runShell(SH, "echo hi", limit), RangeError);
+  });
 });
 
 describe("a command whose host ends first", () => {

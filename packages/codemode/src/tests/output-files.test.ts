@@ -22,8 +22,8 @@ import { Codemode } from "../sdk.js";
 import {
   clipTail,
   clipText,
-  createOutputFileStream,
   OUTPUT_LIMIT,
+  OutputFileWriter,
   writeOutputFile,
 } from "../utils/output-files.js";
 
@@ -72,10 +72,43 @@ describe("an output file", () => {
   });
 
   it("takes output that arrives in parts", async () => {
-    const { path, stream } = createOutputFileStream("log", ".log", tmp);
-    stream.write("one ");
-    await new Promise<void>((resolve) => stream.end("two", () => resolve()));
+    const file = new OutputFileWriter("log", ".log", tmp);
+    assert.equal(file.write("one "), true);
+    file.write(Buffer.from("two"));
+    const path = await file.close();
+    assert.ok(path);
+    assert.equal(dirname(path), tmp);
+    assert.match(path, /log-[0-9a-f]{16}\.log$/);
     assert.equal(readFileSync(path, "utf8"), "one two");
+    if (process.platform !== "win32")
+      assert.equal(statSync(path).mode & 0o777, 0o600);
+  });
+
+  it("says when it is behind, and takes more once it has caught up", async () => {
+    const file = new OutputFileWriter("log", ".log", tmp);
+    const part = Buffer.alloc(1_000_000, "a");
+    let behind = false;
+    for (let sent = 0; sent < 8; sent++)
+      if (!file.write(part)) {
+        behind = true;
+        await file.drained();
+      }
+    assert.equal(behind, true);
+    assert.equal(statSync((await file.close()) as string).size, 8_000_000);
+  });
+
+  it("goes on without a file that cannot be written, and answers no path", async () => {
+    const file = new OutputFileWriter("log", ".log", join(tmp, "missing"));
+    assert.equal(file.write("dropped"), true);
+    await file.drained();
+    assert.equal(await file.close(), undefined);
+  });
+
+  it("is removed when what it was for did not come to an end", async () => {
+    const file = new OutputFileWriter("log", ".log", tmp);
+    file.write("half");
+    await file.discard();
+    assert.deepEqual(readdirSync(tmp), []);
   });
 
   it("refuses a name that would leave its directory", () => {

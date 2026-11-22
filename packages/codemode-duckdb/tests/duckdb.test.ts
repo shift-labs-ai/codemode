@@ -177,6 +177,21 @@ describe("duckdb.query", () => {
     assert.equal(statSync(found.fullOutputPath).mode & 0o777, 0o600);
   });
 
+  it("still returns the first rows where the file cannot be written", async () => {
+    const outputDir = join(harness.tmp, "outbox");
+    const { result, error } = await codemode({}, { outputDir }).execute(`
+      require("node:fs").rmSync(${JSON.stringify(outputDir)}, { recursive: true });
+      return await duckdb.query({ sql: "select range as n from range(2500)" });
+    `);
+    assert.equal(error, undefined);
+    const found = result as Result;
+    assert.deepEqual(
+      [found.rows.length, found.totalRows, found.truncated],
+      [2_000, 2_500, true],
+    );
+    assert.equal(found.fullOutputPath, undefined);
+  });
+
   it("returns the rows that fit in 50 KB, of rows that are large", async () => {
     const some = await query({
       sql: "select range as n, repeat('x', 1000) as text from range(200)",
@@ -245,7 +260,7 @@ describe("duckdb.query", () => {
     for (const input of [
       {},
       { sql: "" },
-      { sql: "select 1", maxRows: 0 },
+      { sql: "select 1", maxRows: 5 },
       { sql: "select 1", params: [{ nested: true }] },
       { sql: "select 1", table: {} },
     ]) {
