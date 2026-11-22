@@ -13,11 +13,11 @@ import { isDeepStrictEqual } from "node:util";
 import { Codemode } from "@shiftlabs/codemode";
 import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
-import web, {
+import plugin, {
   PROVIDERS,
   type SearchProvider,
   type SearchResult,
-  webSearch,
+  websearch,
 } from "../src/index.js";
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
@@ -57,11 +57,11 @@ interface Found {
   results: SearchResult[];
 }
 
-const harness = pluginHarness(web, "web");
+const harness = pluginHarness(plugin, "websearch");
 const search = (
   input: Record<string, unknown>,
   config: Record<string, unknown>,
-) => harness.call<Found>("search", input, config);
+) => harness.call<Found>("query", input, config);
 
 /** A failed search's error text. */
 async function refused(
@@ -70,7 +70,7 @@ async function refused(
 ): Promise<string> {
   const { error } = await harness
     .codemode(config)
-    .execute(`return await web.search(${JSON.stringify(input)})`);
+    .execute(`return await websearch.query(${JSON.stringify(input)})`);
   assert.ok(error, "the search should fail");
   return error;
 }
@@ -440,7 +440,7 @@ const ALL_KEYS = Object.fromEntries(
   PROVIDERS.map(({ name }) => [`${name}ApiKey`, `KEY-${name}`]),
 );
 
-describe("web.search through each provider", () => {
+describe("websearch.query through each provider", () => {
   it("has a case for every provider", () => {
     assert.deepEqual(
       Object.keys(CASES),
@@ -537,7 +537,10 @@ describe("the provider a search uses", () => {
   it("says which keys to set when there is none", async () => {
     const sent = provider({});
     const error = await refused({ query: "q" }, {});
-    assert.match(error, /web: no search provider has a key\. Set one of /);
+    assert.match(
+      error,
+      /websearch: no search provider has a key\. Set one of /,
+    );
     for (const { env } of PROVIDERS) assert.ok(error.includes(env), env);
     assert.equal(sent.length, 0);
   });
@@ -550,7 +553,7 @@ describe("the provider a search uses", () => {
     );
     assert.equal(
       error.split("\n")[0],
-      "Error: web: no key for brave. Set BRAVE_API_KEY, or search with a provider that has one.",
+      "Error: websearch: no key for brave. Set BRAVE_API_KEY, or search with a provider that has one.",
     );
     assert.equal(sent.length, 0);
   });
@@ -559,11 +562,11 @@ describe("the provider a search uses", () => {
     const sent = provider({});
     assert.match(
       await refused({ query: "q", provider: "altavista" }, ALL_KEYS),
-      /Invalid input for web\.search.*\/provider must be equal to one of the allowed values/,
+      /Invalid input for websearch\.query.*\/provider must be equal to one of the allowed values/,
     );
     assert.match(
       await refused({ query: "q" }, { ...ALL_KEYS, provider: "altavista" }),
-      /web: no provider named "altavista"\. The providers are parallel, brave, /,
+      /websearch: no provider named "altavista"\. The providers are parallel, brave, /,
     );
     assert.equal(sent.length, 0);
   });
@@ -718,7 +721,7 @@ describe("the filters of a search", () => {
           ALL_KEYS,
         )
       ).split("\n")[0],
-      "Error: web: jina cannot filter by freshness. Search without it, or with one of: parallel, brave, exa, you, tavily, firecrawl, linkup, valyu, perplexity, serper, serpapi.",
+      "Error: websearch: jina cannot filter by freshness. Search without it, or with one of: parallel, brave, exa, you, tavily, firecrawl, linkup, valyu, perplexity, serper, serpapi.",
     );
     assert.match(
       await refused(
@@ -746,7 +749,7 @@ describe("the filters of a search", () => {
         },
         ALL_KEYS,
       ),
-      /web: set includeDomains or excludeDomains, not both\./,
+      /websearch: set includeDomains or excludeDomains, not both\./,
     );
     assert.equal(sent.length, 0);
   });
@@ -830,11 +833,11 @@ describe("a country and a language", () => {
     const sent = provider({});
     assert.match(
       await refused({ query: "q", country: "XX" }, ALL_KEYS),
-      /web: XX is not a country\. Pass an ISO 3166-1 alpha-2 code, such as US\./,
+      /websearch: XX is not a country\. Pass an ISO 3166-1 alpha-2 code, such as US\./,
     );
     assert.match(
       await refused({ query: "q", language: "xx" }, ALL_KEYS),
-      /web: xx is not a language\. Pass an ISO 639-1 code, such as en\./,
+      /websearch: xx is not a language\. Pass an ISO 639-1 code, such as en\./,
     );
     assert.equal(sent.length, 0);
   });
@@ -863,7 +866,7 @@ describe("what a search accepts", () => {
     ])
       assert.match(
         await refused(input, ALL_KEYS),
-        /Invalid input for web\.search/,
+        /Invalid input for websearch\.query/,
         JSON.stringify(input),
       );
     assert.equal(sent.length, 0);
@@ -874,7 +877,7 @@ describe("a provider that fails", () => {
   it("is reported by provider and status, without what it answered", async () => {
     provider({ error: "the key KEY-brave is not valid" }, 401);
     const error = await refused({ query: "q", provider: "brave" }, ALL_KEYS);
-    assert.match(error, /web\.brave: request failed \(HTTP 401\)/);
+    assert.match(error, /websearch\.brave: request failed \(HTTP 401\)/);
     assert.ok(!error.includes("KEY-brave"));
   });
 
@@ -925,14 +928,14 @@ describe("a provider a host adds", () => {
         ({ name, href }) => ({ title: name, url: href, content: "" }),
       ),
   };
-  const extended = pluginHarness(webSearch([acme, ...PROVIDERS]), "web");
+  const extended = pluginHarness(websearch([acme, ...PROVIDERS]), "websearch");
 
   it("is searched like the others, with a key of its own", async () => {
     const sent = provider({
       hits: [{ name: "One", href: "https://a.example" }],
     });
     const found = await extended.call<Found>(
-      "search",
+      "query",
       { query: "q" },
       { ...ALL_KEYS, acmeApiKey: "KEY-acme" },
     );
@@ -951,9 +954,13 @@ describe("a host that keeps the keys", () => {
     const sent = provider({});
     const requests: unknown[] = [];
     const codemode = Codemode.create({
-      plugins: [web],
+      plugins: [plugin],
       connections: [
-        { name: "web", plugin: "web", config: { provider: "exa" } },
+        {
+          name: "websearch",
+          plugin: "websearch",
+          config: { provider: "exa" },
+        },
       ],
       credentialBroker: () => ({
         request: async (request) => {
@@ -967,7 +974,7 @@ describe("a host that keeps the keys", () => {
     });
     try {
       const { result, error } = await codemode.execute(
-        'return await web.search({ query: "q" })',
+        'return await websearch.query({ query: "q" })',
       );
       assert.equal(error, undefined);
       assert.deepEqual(result, {
@@ -1029,7 +1036,7 @@ describe("the README", () => {
 
 describePackage(PACKAGE, {
   package: "@shiftlabs/codemode-websearch",
-  plugin: "web",
+  plugin: "websearch",
   actions: 1,
   write: 0,
 });

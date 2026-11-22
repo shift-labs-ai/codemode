@@ -3,7 +3,7 @@
  * whichever provider the connection has a key for, and answers results in
  * one shape whichever provider that was.
  *
- *   const { results } = await web.search({ query: "duckdb 1.4 release notes" })
+ *   const { results } = await websearch.query({ query: "duckdb 1.4 release notes" })
  *
  * A connection holds a key per provider. Each key is declared with the one
  * host that may receive it, so a search through one provider sends no other
@@ -29,7 +29,7 @@ import {
 
 export * from "./providers.js";
 
-const NAME = "web";
+const NAME = "websearch";
 const DEFAULT_RESULTS = 10;
 const MAX_RESULTS = 20;
 const MAX_DOMAINS = 20;
@@ -201,17 +201,17 @@ function defined(params: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * The `web` plugin over `providers`, in the order one is chosen when a
+ * The `websearch` plugin over `providers`, in the order one is chosen when a
  * search names none. A host adds a provider of its own by passing a list
  * that includes it.
  */
-export function webSearch(
+export function websearch(
   providers: SearchProvider[] = PROVIDERS,
 ): PluginFunction {
   const credential = credentialOf(providers);
   const names = providers.map((provider) => provider.name);
 
-  return function web(rl: CodemodePluginAPI): void {
+  return function plugin(rl: CodemodePluginAPI): void {
     rl.setName(NAME);
     rl.setVersion(packageVersion(import.meta.url));
     rl.setDescription(
@@ -242,7 +242,7 @@ export function webSearch(
       }),
     );
 
-    rl.registerAction("search", {
+    rl.registerAction("query", {
       access: "read",
       description:
         "Search the web. Returns results with a title, a URL and the text the provider returned for the page.",
@@ -390,4 +390,4 @@ export function webSearch(
   };
 }
 
-export default webSearch();
+export default websearch();

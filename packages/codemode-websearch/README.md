@@ -1,8 +1,8 @@
 # codemode-websearch
 
-A [codemode](../../README.md) package with one plugin, `web`, whose one action searches the web through the search provider you have a key for.
+A [codemode](../../README.md) package with one plugin, `websearch`, whose one action searches the web through the search provider you have a key for.
 
-Code calls `web.search` the same way whichever provider answers, and gets results in one shape. Changing provider changes a key, not the code.
+Code calls `websearch.query` the same way whichever provider answers, and gets results in one shape. Changing provider changes a key, not the code.
 
 ## Install
 
@@ -17,10 +17,10 @@ It needs a codemode newer than 0.46.0.
 
 ## Search
 
-`web.search` returns the results and the provider that gave them:
+`websearch.query` returns the results and the provider that gave them:
 
 ```bash
-codemode exec 'return await web.search({ query: "duckdb 1.4 release notes", numResults: 2 })'
+codemode exec 'return await websearch.query({ query: "duckdb 1.4 release notes", numResults: 2 })'
 ```
 
 ```json
@@ -89,7 +89,7 @@ A search uses the provider it names, else the connection's `provider`, else the 
 Name a provider to search with it for one call:
 
 ```js
-const { results } = await web.search({ query: "duckdb", provider: "exa" });
+const { results } = await websearch.query({ query: "duckdb", provider: "exa" });
 ```
 
 ## Narrow a search
@@ -97,13 +97,13 @@ const { results } = await web.search({ query: "duckdb", provider: "exa" });
 `includeDomains`, `excludeDomains`, and `freshness` are filters. Every result meets them, or the call is refused:
 
 ```js
-await web.search({
+await websearch.query({
   query: "window functions",
   includeDomains: ["duckdb.org", "postgresql.org"],
   freshness: "year",
 });
 
-await web.search({ query: "duckdb benchmarks", excludeDomains: ["medium.com"] });
+await websearch.query({ query: "duckdb benchmarks", excludeDomains: ["medium.com"] });
 ```
 
 Set sites to search or sites to leave out, not both.
@@ -115,7 +115,7 @@ Set sites to search or sites to leave out, not both.
 Add a connection to keep keys in codemode, or to set the default provider. Every field is optional:
 
 ```bash
-codemode connection add web --plugin web --set exaApiKey=$EXA_API_KEY --set tavilyApiKey=$TAVILY_API_KEY --set provider=tavily
+codemode connection add websearch --plugin websearch --set exaApiKey=$EXA_API_KEY --set tavilyApiKey=$TAVILY_API_KEY --set provider=tavily
 ```
 
 | Field | Meaning |
@@ -132,7 +132,7 @@ A host that embeds codemode builds the plugin from its own list of providers. A 
 
 ```typescript
 import { Codemode } from "@shiftlabs/codemode";
-import { PROVIDERS, type SearchProvider, webSearch } from "@shiftlabs/codemode-websearch";
+import { PROVIDERS, type SearchProvider, websearch } from "@shiftlabs/codemode-websearch";
 
 const acme: SearchProvider = {
   name: "acme",
@@ -148,7 +148,7 @@ const acme: SearchProvider = {
     ),
 };
 
-const codemode = Codemode.create({ plugins: [webSearch([acme, ...PROVIDERS])] });
+const codemode = Codemode.create({ plugins: [websearch([acme, ...PROVIDERS])] });
 ```
 
 The list's order is the order a provider is chosen in. Parameters go in the query of a `GET` and the JSON body of a `POST`. The package is TypeScript source, so the host imports it with a runtime that runs TypeScript, such as Bun.
@@ -160,7 +160,7 @@ The list's order is the order a provider is chosen in. Parameters go in the quer
 | No provider has a key | The call rejects and names the environment variables |
 | The provider named has no key | The call rejects and names its environment variable |
 | The provider cannot apply a filter | The call rejects and names the providers that can |
-| The provider refuses the request | The call rejects with `web.<provider>: request failed (HTTP <status>)` |
+| The provider refuses the request | The call rejects with `websearch.<provider>: request failed (HTTP <status>)` |
 | The provider answers without results | Returns `results: []` |
 
 A provider's error text is not included in the message, because it can repeat the key it was sent.
