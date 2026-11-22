@@ -125,7 +125,7 @@ export function shellRunAction(
 ): ActionDefinition<typeof shellRunInput> {
   return {
     access: "write",
-    description: `Run a ${options.shell} command and return its output and exit code. A command that ends with a failure still returns: check \`exitCode\`. A command that cannot start, or that outlives \`timeoutMs\`, rejects.`,
+    description: `Run a ${options.shell} script and return its output and exit code. A script that ends with a failure still returns: check \`exitCode\`. A script that cannot start, or that outlives \`timeoutMs\`, rejects.`,
     hints: { destructive: true, openWorld: true },
     inputSchema: shellRunInput,
     outputSchema: shellRunOutput,

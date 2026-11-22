@@ -115,6 +115,6 @@ Review a server's command or URL before adding it, and a project's `mcpServers` 
 These practices do not replace isolation, but they reduce exposure:
 
 - Add connections only for the plugins a task needs. `codemode exec` loads a bundled plugin only when a connection names it.
-- Install the `codemode-node`, `codemode-bash`, `codemode-powershell`, and `codemode-duckdb` packages only where code should reach the filesystem, the network, commands, or SQL through actions.
+- Install the `codemode-node`, `codemode-bash`, `codemode-powershell`, and `codemode-duckdb` packages only where code should run scripts, commands, or SQL on the machine.
 - Audit what ran. Every action carries a `read` or `write` label, and the SDK reports each action call to `onAction` after it settles.
 - Review generated code before running it against an account that matters.

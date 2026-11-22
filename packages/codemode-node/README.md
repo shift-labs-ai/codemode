@@ -1,8 +1,8 @@
 # codemode-node
 
-A [codemode](../../README.md) package with one plugin, `node`, that gives code the host's files, paths, system facts, hashing, and HTTP as actions.
+A [codemode](../../README.md) package with one plugin, `node`, whose one action runs JavaScript in Node.js on the machine codemode runs on.
 
-Install it where code should reach the machine through actions that are named, labelled `read` or `write`, and reported to the host. It is not a sandbox: an action runs with the permissions of the codemode process.
+Install it where code should use the filesystem, the network, or any Node.js module. It is not a sandbox: a script runs with the permissions of the codemode process.
 
 ## Install
 
@@ -12,81 +12,65 @@ Install the package. It needs no connection:
 codemode install npm:@shiftlabs/codemode-node
 ```
 
-It needs a codemode newer than 0.46.0. Through 0.46.0, `node` was a bundled plugin.
+It needs a codemode newer than 0.46.0, and Node.js 20.19 or newer. Through 0.46.0, `node` was a bundled plugin with an action for each function; see [Migrate from runline](../../docs/migrating-from-runline.md#install-the-node-plugin).
 
-## Use files
+## Run a script
 
-`node.fs` reads and changes files on the host:
+`node.run` returns what the script wrote and how it ended:
 
-```js
-const text = await node.fs.readFile({ path: "notes.txt" });
-await node.fs.writeFile({ path: "notes.bak", data: text });
+```bash
+codemode exec 'return await node.run({ command: "console.log(require(\"node:os\").platform())" })'
 ```
 
-| Action | Access | Result |
-|---|---|---|
-| `fs.readFile({ path, encoding?, maxBytes? })` | read | The file's text. Pass `encoding: "base64"` for a binary file |
-| `fs.readdir({ path, withFileTypes? })` | read | The names in a directory, or an entry for each with its kind |
-| `fs.stat({ path })`, `fs.lstat({ path })` | read | Size, times, mode, and kind |
-| `fs.exists({ path })` | read | `true` or `false` |
-| `fs.access({ path })` | read | `{ ok: true }`, or the call rejects |
-| `fs.writeFile({ path, data, encoding? })`, `fs.appendFile(…)` | write | `{ ok: true, path }` |
-| `fs.mkdir({ path, recursive? })` | write | `{ ok: true, path }`. `recursive` defaults to `true` |
-| `fs.rm({ path, recursive?, force? })`, `fs.unlink({ path })` | write | `{ ok: true, path }` |
-| `fs.rename({ from, to })`, `fs.copyFile({ from, to })` | write | `{ ok: true, from, to }` |
-
-`fs.readFile` refuses a file larger than `maxBytes`, 10 MiB by default, and names its size. Read a larger file in parts with `bash.run`, or query it with `duckdb.query`.
-
-## Make a request
-
-`node.fetch` makes an HTTP request and returns the response:
-
-```js
-const { status, body } = await node.fetch({ url: "https://api.example.com/health" });
+```json
+{
+  "output": "linux\n",
+  "exitCode": 0,
+  "truncated": false,
+  "wallTimeMs": 48
+}
 ```
 
 | Input | Meaning |
 |---|---|
-| `url`, `method`, `headers`, `body` | The request. `body` is text |
-| `timeoutMs` | Give up after this long. The default is no limit of its own |
-| `maxBytes` | The largest body to return as `body`. The default is 10 MiB |
+| `command` | The script to run |
+| `cwd` | Working directory. A relative path resolves from the connection's `cwd` |
+| `timeoutMs` | End the script, and what it started, after this long. The default is no limit of its own |
 
-| Result | Contents |
+A script can use `require`, or `import` and a top-level `await`, but not `require` together with a top-level `await`. Print what the calling code needs, as JSON when it is data:
+
+```js
+const { output } = await node.run({
+  command: `
+    import { readdir, stat } from "node:fs/promises";
+    const names = await readdir(".");
+    const sizes = await Promise.all(names.map(async (name) => [name, (await stat(name)).size]));
+    console.log(JSON.stringify(Object.fromEntries(sizes)));
+  `,
+});
+const sizes = JSON.parse(output);
+```
+
+Each call is a new process, so variables do not carry from one call to the next.
+
+## Handle results
+
+A script that fails still returns, so check `exitCode`:
+
+| Outcome | Result |
 |---|---|
-| `ok`, `status`, `statusText`, `headers` | The response's status and headers |
-| `body` | The body, when it is text within `maxBytes`. Parsed when the response says JSON |
-| `bodyPath` | A file with all of the body, when it is not text or is larger than `maxBytes` |
-| `bytes` | The body's size |
+| The script ends, with any exit code | Returns `output`, `exitCode`, `truncated`, and `wallTimeMs` |
+| The script throws, or cannot be parsed | Returns `exitCode` 1, with the error in `output` |
+| A signal ends the script | Returns `exitCode` 128 plus the signal's number |
+| Node.js cannot start, or `cwd` does not exist | The call rejects |
+| The script outlives `timeoutMs` | The call rejects, with what the script wrote |
+| The run ends first | The script, and what it started, is ended |
 
-A response has `body` or `bodyPath`, never part of a body. The file is in the host's [output directory](../../docs/sdk.md#limit-a-runs-result), and only your account can read it.
-
-## Use the other actions
-
-The remaining actions follow the Node.js functions they are named after:
-
-| Group | Actions |
-|---|---|
-| `path` | `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative`, `isAbsolute`, `parse`, `format`, `constants` |
-| `os` | `info`, `platform`, `arch`, `homedir`, `tmpdir`, `userInfo` |
-| `process` | `cwd`, `env` |
-| `crypto` | `randomUUID`, `randomBytes`, `hash` |
-
-`path.join` and `path.resolve` take `{ segments: [...] }`. `process.env({ name })` returns one variable, and without `name` all of them.
-
-Inspect any action from code with `actions.describe("node.fs.readFile")`.
-
-## Understand how a call lives
-
-| Rule | Meaning |
-|---|---|
-| Every call stands alone | Nothing stays open from one call to the next |
-| A call ends with its run | A request, a read, or a write still under way is stopped when the run ends |
-| A result is bounded | A file over the limit is refused, and a large or binary response body is a file |
-| Input is checked | A missing, misspelled, or unknown field is refused before anything runs |
+`output` is stdout and stderr together. Past 1 MiB it keeps its start and end around a note of what was left out, and `fullOutputPath` names a file with all of it, in the host's [output directory](../../docs/sdk.md#limit-a-runs-result).
 
 ## Configure the connection
 
-Add a connection to set where relative paths resolve from. The value is optional:
+Add a connection to set where scripts run or which Node.js runs them. Both values are optional:
 
 ```bash
 codemode connection add node --plugin node --set cwd=/srv/app
@@ -94,16 +78,13 @@ codemode connection add node --plugin node --set cwd=/srv/app
 
 | Field | Meaning |
 |---|---|
-| `cwd` | The directory relative paths resolve from, and what `process.cwd` returns. The default is the directory codemode runs in |
-
-## Run commands
-
-The package runs no commands. Install [`codemode-bash`](../codemode-bash) or [`codemode-powershell`](../codemode-powershell) for that. Their `run` action returns the exit code, ends the command with the run, and bounds its output.
+| `cwd` | The directory scripts run in. The default is the directory codemode runs in |
+| `shell` | Path of the Node.js to run. The default is `node` on `PATH` |
 
 ## Understand the limits
 
-- `cwd` is where relative paths start, not a boundary. An absolute path or `..` reaches any file the codemode process can.
-- `process.env` returns every environment variable of the codemode process, secrets included.
-- `fetch` sends whatever headers the code passes, to any URL.
-- Output files are not removed. The host that names the directory clears it.
+- A script sees the whole environment of the codemode process.
+- The action is labelled `write`, whatever the script does.
+- The script arrives on stdin, so it cannot read stdin itself.
+- A script resolves packages from its working directory, not from codemode.
 - Windows is untested.

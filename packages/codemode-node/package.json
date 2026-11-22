@@ -1,13 +1,13 @@
 {
   "name": "@shiftlabs/codemode-node",
   "version": "0.1.0",
-  "description": "Files, paths, system facts, hashing and HTTP for codemode, as actions",
+  "description": "Run JavaScript in Node.js from codemode",
   "type": "module",
   "keywords": [
     "codemode-plugin",
     "node",
-    "filesystem",
-    "fetch"
+    "javascript",
+    "shell"
   ],
   "codemode": {
     "plugins": [
@@ -33,14 +33,12 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "@shiftlabs/codemode": ">0.46.0",
-    "typebox": "*"
+    "@shiftlabs/codemode": ">0.46.0"
   },
   "devDependencies": {
     "@shiftlabs/codemode": "workspace:*",
     "@types/bun": "^1.2.17",
     "@types/node": "^25.5.0",
-    "typebox": "^1.1.35",
     "typescript": "^5.8.0"
   }
 }

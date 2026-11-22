@@ -79,7 +79,7 @@ Three things carry the new name from 0.46.0, with nothing to keep the old one:
 
 ## Install the node plugin
 
-After 0.46.0 the `node` plugin is a package, not a bundled plugin, and nothing keeps the old arrangement:
+After 0.46.0 the `node` plugin is a package with one action, `node.run`, and nothing keeps the old arrangement:
 
 ```bash
 codemode install npm:@shiftlabs/codemode-node
@@ -87,9 +87,8 @@ codemode connection add node --plugin node
 ```
 
 - Add the connection again. A connection made for the bundled plugin belongs to it, and the packaged plugin refuses it.
-- Input is checked. An unknown field is refused, and `node.path.join` takes `{ segments: [...] }` only.
-- `node.fetch` returns a body that is not text, or is larger than `maxBytes`, as a file named by `bodyPath`. `node.fs.readFile` refuses a file over 10 MiB unless `maxBytes` allows it.
-- `node.process.exec` and `node.process.execFile` are gone. Run commands with `bash.run` from [`codemode-bash`](../packages/codemode-bash/README.md) or `powershell.run` from [`codemode-powershell`](../packages/codemode-powershell/README.md), which return an exit code instead of rejecting on one.
+- The actions that each wrapped one function, such as `node.fs.readFile`, `node.path.join`, and `node.fetch`, are gone. Run a script that calls the function instead: `node.run({ command: 'console.log(require("node:fs").readFileSync("notes.txt", "utf8"))' })`.
+- `node.process.exec` and `node.process.execFile` are gone. Run commands with `bash.run` from [`codemode-bash`](../packages/codemode-bash/README.md) or `powershell.run` from [`codemode-powershell`](../packages/codemode-powershell/README.md).
 
 ## Understand what did not move
 

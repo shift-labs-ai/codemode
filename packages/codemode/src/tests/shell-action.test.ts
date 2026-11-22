@@ -120,7 +120,7 @@ describe("a shell plugin's run action", () => {
       prepare: () => ({ program: { program: "sh", args: [] }, script: "" }),
     });
     assert.equal(action.access, "write");
-    assert.match(action.description ?? "", /^Run a sh command/);
+    assert.match(action.description ?? "", /^Run a sh script/);
   });
 });
 
