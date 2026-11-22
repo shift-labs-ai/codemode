@@ -34,7 +34,6 @@ const { rows } = await duckdb.query({
 | `params` | Values for the last statement's parameters: a list for `$1`, `$2`, or an object for `$name` |
 | `tables` | Rows to query, by table name. DuckDB works out each column's type from all of the values |
 | `db` | A database from `duckdb.open`. The default is a new in-memory database |
-| `maxRows` | Return at most this many rows. The default is 10,000 |
 
 Pass values in `params` instead of writing them into the SQL.
 
@@ -42,7 +41,11 @@ Pass values in `params` instead of writing them into the SQL.
 |---|---|
 | `columns` | Each column's `name` and DuckDB `type`, in order |
 | `rows` | One object per row, keyed by column name |
-| `truncated` | Whether there were more rows than `maxRows` |
+| `totalRows` | How many rows the statement returned |
+| `truncated` | Whether `rows` is fewer than all of them |
+| `fullOutputPath` | A file with every row, a line of JSON each, when `truncated` |
+
+`rows` holds the first 2,000 rows or 50 KB of them, whichever comes first. A larger result is read to its end and written to a file in the host's [output directory](../../docs/sdk.md#limit-a-runs-result). Select fewer rows or aggregate to stay within the limit, and read the file with `read_json` in a later query when the rest is needed.
 
 Values arrive as JSON holds them:
 

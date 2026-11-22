@@ -56,7 +56,7 @@ if (found.exitCode === 1) return "nothing to do";
 | The command outlives `timeoutMs` | The call rejects, with what the command wrote |
 | The run ends first | The command, and what it started, is ended |
 
-`output` is stdout and stderr together. Past 1 MiB it keeps its start and end around a note of what was left out, and `fullOutputPath` names a file with all of it, in the host's [output directory](../../docs/sdk.md#limit-a-runs-result).
+`output` is stdout and stderr together. Past 2,000 lines or 50 KB, whichever comes first, it is the last lines within both, followed by a line that says which lines they are. `fullOutputPath` then names a file with all of it, in the host's [output directory](../../docs/sdk.md#limit-a-runs-result).
 
 ## Configure the connection
 

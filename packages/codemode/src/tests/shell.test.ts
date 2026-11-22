@@ -251,7 +251,7 @@ describe("a command whose host ends first", () => {
 
 describe("output past the limit", () => {
   posix(
-    "keeps its start and end, and all of it in a file only the user reads",
+    "keeps its last lines, and all of it in a file only the user reads",
     async () => {
       const result = await runShell(
         SH,
@@ -269,12 +269,16 @@ describe("output past the limit", () => {
         result.fullOutputPath,
         /codemode-shell-test-[0-9a-f]{16}\.log$/,
       );
-      assert.ok(result.output.startsWith("START\n"));
-      assert.ok(result.output.endsWith("END\n"));
       const total = 6 + 400 * 41 + 4;
-      assert.match(
-        result.output,
-        new RegExp(`\\[\\.\\.\\. ${total - 1_000} bytes omitted \\.\\.\\.\\]`),
+      const [shown, note] = result.output.split("\n\n[");
+      // 24 lines of 41 bytes and the last, `END`, fit in 1,000 bytes.
+      assert.deepEqual(shown.split("\n"), [
+        ...Array(24).fill("0123456789012345678901234567890123456789"),
+        "END",
+      ]);
+      assert.equal(
+        note,
+        `Showing lines 378-402 of 402 (${(total / 1024).toFixed(1)}KB in all). Full output: ${result.fullOutputPath}]`,
       );
       const full = readFileSync(result.fullOutputPath, "utf8");
       assert.equal(full.length, total);
@@ -283,8 +287,25 @@ describe("output past the limit", () => {
     },
   );
 
+  posix("keeps at most the last lines the limit allows", async () => {
+    const result = await runShell(
+      SH,
+      "i=0; while [ $i -lt 50 ]; do echo line $i; i=$((i+1)); done",
+      { maxOutputLines: 3, outputDir: tmp },
+    );
+    assert.equal(result.truncated, true);
+    assert.equal(
+      result.output,
+      `line 47\nline 48\nline 49\n\n[Showing lines 48-50 of 50 (390B in all). Full output: ${result.fullOutputPath}]`,
+    );
+    const whole = await runShell(SH, "echo a; echo b; echo c", {
+      maxOutputLines: 3,
+    });
+    assert.deepEqual([whole.output, whole.truncated], ["a\nb\nc\n", false]);
+  });
+
   posix(
-    "still answers its start and end where the file cannot be written",
+    "still answers its last lines where the file cannot be written",
     async () => {
       const blocked = join(tmp, "a-file");
       writeFileSync(blocked, "");
@@ -295,7 +316,10 @@ describe("output past the limit", () => {
       );
       assert.equal(result.truncated, true);
       assert.equal(result.fullOutputPath, undefined);
-      assert.ok(result.output.endsWith("END\n"));
+      assert.match(
+        result.output,
+        /\nEND\n\n\[Showing lines 377-401 of 401 \(16\.0KB in all\)\.\]$/,
+      );
     },
   );
 
@@ -310,7 +334,10 @@ describe("output past the limit", () => {
     spilled.push(result.fullOutputPath);
     assert.equal(result.exitCode, 0);
     assert.equal(statSync(result.fullOutputPath).size, bytes + 5);
-    assert.ok(result.output.endsWith("END\n"));
+    assert.match(
+      result.output,
+      /^END\n\n\[Showing lines 2-2 of 2 \(7\.6MB in all\)\./,
+    );
   });
 
   posix("cuts between characters, not inside one", async () => {
@@ -322,6 +349,11 @@ describe("output past the limit", () => {
     if (result.fullOutputPath) spilled.push(result.fullOutputPath);
     assert.equal(result.truncated, true);
     assert.equal(result.output.includes("\uFFFD"), false);
+    // One line too long to keep whole: its end, with the note saying so.
+    assert.match(
+      result.output,
+      /^é{50}\n\n\[Showing the last 100B of line 1 \(400B in all\)\./,
+    );
   });
 
   posix("carries a timed-out script's output in the same bound", async () => {
@@ -334,6 +366,7 @@ describe("output past the limit", () => {
     if (failure.fullOutputPath) spilled.push(failure.fullOutputPath);
     assert.equal(failure.code, "timed_out");
     assert.ok(failure.fullOutputPath);
-    assert.ok(Buffer.byteLength(failure.output) < 600);
+    assert.ok(Buffer.byteLength(failure.output) < 800);
+    assert.match(failure.output, /\[Showing lines \d+-\d+ of \d+ /);
   });
 });

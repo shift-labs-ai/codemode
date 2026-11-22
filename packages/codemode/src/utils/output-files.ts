@@ -11,6 +11,18 @@ import { createWriteStream, type WriteStream, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * How much of an output an action hands back: at most this many lines and
+ * this many bytes, whichever is reached first. The rest is in an output
+ * file. One rule for every action, so that code learns it once.
+ */
+export const OUTPUT_LIMIT = { lines: 2000, bytes: 50 * 1024 } as const;
+
+export interface OutputLimit {
+  lines: number;
+  bytes: number;
+}
+
 /** Output can carry private data, so only the user may read the files. */
 const OUTPUT_FILE_MODE = 0o600;
 
@@ -88,5 +100,81 @@ export function clipText(
       bytes.length - maxBytes,
     ),
     truncated: true,
+  };
+}
+
+/** A size as a person reads it: `512B`, `50.0KB`, `1.4MB`. */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+/** The lines of `text`, without the empty one after a final line break. */
+function linesOf(text: string): string[] {
+  if (!text) return [];
+  const lines = text.split("\n");
+  if (text.endsWith("\n")) lines.pop();
+  return lines;
+}
+
+/** The end of `line` that fits in `maxBytes`, cut between characters. */
+function endOf(line: string, maxBytes: number): string {
+  const bytes = Buffer.from(line, "utf8");
+  let start = Math.max(0, bytes.length - maxBytes);
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+  return bytes.subarray(start).toString("utf8");
+}
+
+export interface ClippedTail {
+  /** The lines kept, joined, with no line break after the last. */
+  text: string;
+  truncated: boolean;
+  /** How many lines `text` has. */
+  lines: number;
+  /** Whether `text` starts with only the end of a line too long to keep whole. */
+  partialLine: boolean;
+}
+
+/**
+ * The last whole lines of `text` within `limit`. A last line that is over
+ * the byte limit by itself is kept in part, from its end, so that the
+ * answer is never empty.
+ */
+export function clipTail(
+  text: string,
+  limit: OutputLimit = OUTPUT_LIMIT,
+): ClippedTail {
+  const lines = linesOf(text);
+  if (
+    lines.length <= limit.lines &&
+    Buffer.byteLength(text, "utf8") <= limit.bytes
+  )
+    return { text, truncated: false, lines: lines.length, partialLine: false };
+  const kept: string[] = [];
+  let bytes = 0;
+  let partialLine = false;
+  const blank = (line: string) => !line.trim();
+  for (let index = lines.length - 1; index >= 0; index--) {
+    if (kept.length >= limit.lines) break;
+    const line = lines[index];
+    const joint = kept.length ? 1 : 0;
+    const size = Buffer.byteLength(line, "utf8") + joint;
+    if (bytes + size > limit.bytes) {
+      const room = limit.bytes - bytes - joint;
+      if (!kept.length || (!blank(line) && kept.every(blank) && room > 0)) {
+        kept.unshift(endOf(line, room));
+        partialLine = true;
+      }
+      break;
+    }
+    kept.unshift(line);
+    bytes += size;
+  }
+  return {
+    text: kept.join("\n"),
+    truncated: true,
+    lines: kept.length,
+    partialLine,
   };
 }

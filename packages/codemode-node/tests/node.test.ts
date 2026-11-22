@@ -105,7 +105,11 @@ describe("node.run", () => {
     assert.equal(error, undefined);
     const found = result as ShellResult;
     assert.equal(found.truncated, true);
-    assert.ok(found.output.endsWith("END"));
+    assert.match(
+      found.output,
+      /END\n\n\[Showing the last 50\.0KB of line 1 \(1\.4MB in all\)\. Full output: /,
+    );
+    assert.ok(Buffer.byteLength(found.output) < 52_000);
     assert.ok(found.fullOutputPath);
     assert.equal(dirname(found.fullOutputPath), outputDir);
     assert.match(found.fullOutputPath, /codemode-node-[0-9a-f]{16}\.log$/);

@@ -2,7 +2,13 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, type WriteStream } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
-import { createOutputFileStream, joinClipped } from "./output-files.js";
+import {
+  clipTail,
+  createOutputFileStream,
+  formatSize,
+  OUTPUT_LIMIT,
+  type OutputLimit,
+} from "./output-files.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 
 /** How a shell program takes a script. */
@@ -26,7 +32,8 @@ export interface RunShellOptions {
   timeoutMs?: number;
   /** Aborting kills the command's process group and rejects the call. */
   signal?: AbortSignal;
-  /** How much output the result carries. Default: 1 MiB. */
+  /** How much output the result carries: its last lines. Default: `OUTPUT_LIMIT`, 2000 lines or 50 KB. */
+  maxOutputLines?: number;
   maxOutputBytes?: number;
   /** The start of the name of the file that keeps output past the limit. Default: `codemode-shell`. */
   outputFilePrefix?: string;
@@ -42,7 +49,10 @@ export interface ShellResult {
   output: string;
   /** The shell's exit code. A shell ended by a signal has 128 plus the signal's number. */
   exitCode: number;
-  /** Whether `output` leaves out the middle of what the command wrote. */
+  /**
+   * Whether `output` is only the end of what the command wrote, followed by
+   * a line that says which lines it shows and where the rest is.
+   */
   truncated: boolean;
   /** The file holding everything the command wrote, when `output` does not. */
   fullOutputPath?: string;
@@ -79,7 +89,6 @@ export function isShellError(error: unknown): error is ShellError {
   );
 }
 
-const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 /** How long output may stay quiet, once the shell has exited, before the call ends. */
 const EXIT_STDIO_GRACE_MS = 100;
 /** Output goes to its file in blocks of this size, not a write per chunk read. */
@@ -87,15 +96,17 @@ const SPILL_BLOCK_BYTES = 64 * 1024;
 
 /**
  * What a command wrote, within a bound: everything while it fits, then its
- * first and last halves in memory and the whole of it in a file.
+ * end in memory and the whole of it in a file.
  */
 class ShellOutput {
-  private readonly half: number;
-  private head: Buffer[] = [];
-  private headBytes = 0;
-  private tail: Buffer[] = [];
-  private tailBytes = 0;
+  /** The end of the output: all of it until it passes twice the byte limit. */
+  private kept: Buffer[] = [];
+  private keptBytes = 0;
+  /** Whether `kept` starts where a line starts. */
+  private keptFromLineStart = true;
   private total = 0;
+  private lineBreaks = 0;
+  private lastByte: number | undefined;
   private path: string | undefined;
   private file: WriteStream | undefined;
   /** What the file has not been handed yet: it is written in blocks. */
@@ -105,11 +116,20 @@ class ShellOutput {
   private fileFailed = false;
 
   constructor(
-    private readonly maxBytes: number,
+    private readonly limit: OutputLimit,
     private readonly prefix: string,
     private readonly dir: string | undefined,
-  ) {
-    this.half = Math.floor(maxBytes / 2);
+  ) {}
+
+  private get lines(): number {
+    return (
+      this.lineBreaks +
+      (this.lastByte === undefined || this.lastByte === 0x0a ? 0 : 1)
+    );
+  }
+
+  private get over(): boolean {
+    return this.total > this.limit.bytes || this.lines > this.limit.lines;
   }
 
   /**
@@ -120,24 +140,29 @@ class ShellOutput {
   append(chunk: Buffer): boolean {
     if (!chunk.length) return true;
     this.total += chunk.length;
+    for (
+      let at = chunk.indexOf(0x0a);
+      at !== -1;
+      at = chunk.indexOf(0x0a, at + 1)
+    )
+      this.lineBreaks++;
+    this.lastByte = chunk[chunk.length - 1];
     let keepReading = true;
     if (this.file) keepReading = this.write(chunk);
-    else if (this.total > this.maxBytes && !this.fileFailed) this.spill(chunk);
-    if (this.headBytes < this.half) {
-      const part = chunk.subarray(0, this.half - this.headBytes);
-      this.head.push(part);
-      this.headBytes += part.length;
-      chunk = chunk.subarray(part.length);
-      if (!chunk.length) return keepReading;
-    }
-    this.tail.push(chunk);
-    this.tailBytes += chunk.length;
-    // Whole chunks are dropped while what stays still covers the tail.
+    else if (this.over && !this.fileFailed) this.spill(chunk);
+    this.kept.push(chunk);
+    this.keptBytes += chunk.length;
+    // Whole chunks are dropped while what stays is still twice what is
+    // handed back, which leaves room to cut at a line. The file starts at
+    // the limit, so it holds everything before a chunk is dropped.
     while (
-      this.tail.length > 1 &&
-      this.tailBytes - this.tail[0].length >= this.maxBytes - this.half
-    )
-      this.tailBytes -= (this.tail.shift() as Buffer).length;
+      this.kept.length > 1 &&
+      this.keptBytes - this.kept[0].length >= this.limit.bytes * 2
+    ) {
+      const dropped = this.kept.shift() as Buffer;
+      this.keptBytes -= dropped.length;
+      this.keptFromLineStart = dropped[dropped.length - 1] === 0x0a;
+    }
     return keepReading;
   }
 
@@ -186,7 +211,7 @@ class ShellOutput {
     this.file.on("error", () => {
       this.fileFailed = true;
     });
-    this.block = [...this.head, ...this.tail, latest];
+    this.block = [...this.kept, latest];
     this.blockBytes = this.total;
     this.flush();
   }
@@ -203,21 +228,31 @@ class ShellOutput {
           file.end();
         });
     }
-    const head = Buffer.concat(this.head);
-    if (this.total <= this.maxBytes)
-      return {
-        text: Buffer.concat([head, ...this.tail]).toString("utf8"),
-        truncated: false,
-      };
-    const kept = this.maxBytes - this.half;
-    let tail = Buffer.concat(this.tail);
-    tail = tail.subarray(Math.max(0, tail.length - kept));
+    let end = Buffer.concat(this.kept);
+    if (!this.over) return { text: end.toString("utf8"), truncated: false };
+    // Cut between characters, then at a line, unless that leaves nothing:
+    // the output is then the end of one long line.
+    let start = 0;
+    while (start < end.length && (end[start] & 0xc0) === 0x80) start++;
+    end = end.subarray(start);
+    const whole = end.toString("utf8");
+    const fromLine = this.keptFromLineStart
+      ? whole
+      : whole.slice(whole.indexOf("\n") + 1);
+    const clipped = clipTail(fromLine.trim() ? fromLine : whole, this.limit);
+    // What is kept may be whole, and then ends with its line break.
+    const shownText = clipped.text.replace(/\n$/, "");
+    const total = this.lines;
+    const first = total - clipped.lines + 1;
+    const shown = clipped.partialLine
+      ? `Showing the last ${formatSize(Buffer.byteLength(clipped.text, "utf8"))} of line ${first}`
+      : `Showing lines ${first}-${total} of ${total}`;
+    const path =
+      this.path === undefined || this.fileFailed ? {} : { path: this.path };
     return {
-      text: joinClipped(head, tail, this.total - head.length - tail.length),
+      text: `${shownText}\n\n[${shown} (${formatSize(this.total)} in all).${path.path ? ` Full output: ${path.path}` : ""}]`,
       truncated: true,
-      ...(this.path === undefined || this.fileFailed
-        ? {}
-        : { path: this.path }),
+      ...path,
     };
   }
 }
@@ -419,7 +454,10 @@ export async function runShell(
     );
 
   const output = new ShellOutput(
-    options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
+    {
+      lines: options.maxOutputLines ?? OUTPUT_LIMIT.lines,
+      bytes: options.maxOutputBytes ?? OUTPUT_LIMIT.bytes,
+    },
     options.outputFilePrefix ?? "codemode-shell",
     options.outputDir,
   );

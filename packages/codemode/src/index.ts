@@ -333,7 +333,11 @@ export {
   syncExec,
 } from "./utils/cli.js";
 export {
+  clipTail,
   clipText,
   createOutputFileStream,
+  formatSize,
+  OUTPUT_LIMIT,
+  type OutputLimit,
   writeOutputFile,
 } from "./utils/output-files.js";

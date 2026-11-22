@@ -61,6 +61,12 @@ export function commandExists(name: string): boolean {
   return commandPath(name) !== undefined;
 }
 
+export {
+  clipTail,
+  formatSize,
+  OUTPUT_LIMIT,
+  type OutputLimit,
+} from "./output-files.js";
 export { packageVersion } from "./package-version.js";
 export {
   isShellError,

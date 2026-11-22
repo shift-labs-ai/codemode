@@ -122,7 +122,8 @@ describe("powershell.run", () => {
       assert.equal(error, undefined);
       const found = result as ShellResult;
       assert.equal(found.truncated, true);
-      assert.deepEqual(lines(found.output).at(-1)?.slice(-3), "END");
+      assert.match(found.output, /END\r?\n\n\[Showing .* Full output: /);
+      assert.ok(Buffer.byteLength(found.output) < 52_000);
       assert.ok(found.fullOutputPath);
       assert.equal(dirname(found.fullOutputPath), outputDir);
       assert.match(

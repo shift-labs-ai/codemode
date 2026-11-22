@@ -12,19 +12,28 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { once } from "node:events";
+import { mkdtempSync, rmSync, type WriteStream, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { finished } from "node:stream/promises";
 import {
   type DuckDBConnection,
   DuckDBInstance,
+  type DuckDBResult,
   DuckDBTypeId,
 } from "@duckdb/node-api";
-import type { ActionContext, CodemodePluginAPI } from "@shiftlabs/codemode";
-import { packageVersion } from "@shiftlabs/codemode/utils/cli";
+import {
+  type ActionContext,
+  type CodemodePluginAPI,
+  createOutputFileStream,
+} from "@shiftlabs/codemode";
+import {
+  formatSize,
+  OUTPUT_LIMIT,
+  packageVersion,
+} from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
-
-const DEFAULT_MAX_ROWS = 10_000;
 
 /** What DuckDB's client says of SQL with no statement in it. */
 const NO_STATEMENT = "Error in native callback";
@@ -65,12 +74,6 @@ const queryInput = t.Object(
           "A database from `duckdb.open`. Default: a new in-memory database that is gone when the query returns.",
       }),
     ),
-    maxRows: t.Optional(
-      t.Integer({
-        minimum: 1,
-        description: `Return at most this many rows. Default: ${DEFAULT_MAX_ROWS}.`,
-      }),
-    ),
   },
   { additionalProperties: false },
 );
@@ -81,7 +84,13 @@ type Query = Omit<t.Static<typeof queryInput>, "db">;
 interface QueryResult {
   columns: { name: string; type: string }[];
   rows: Rows;
+  totalRows: number;
   truncated: boolean;
+  fullOutputPath?: string;
+}
+
+async function write(stream: WriteStream, text: string): Promise<void> {
+  if (!stream.write(text)) await once(stream, "drain");
 }
 
 function quoted(identifier: string): string {
@@ -118,8 +127,8 @@ class Database {
     }
   }
 
-  query(input: Query): Promise<QueryResult> {
-    const result = this.turn.then(() => this.run(input));
+  query(input: Query, outputDir: string | undefined): Promise<QueryResult> {
+    const result = this.turn.then(() => this.run(input, outputDir));
     this.turn = result.catch(() => {});
     return result;
   }
@@ -145,7 +154,10 @@ class Database {
     if (this.closing) throw new Error("duckdb: the database is closed");
   }
 
-  private async run(input: Query): Promise<QueryResult> {
+  private async run(
+    input: Query,
+    outputDir: string | undefined,
+  ): Promise<QueryResult> {
     for (const [name, rows] of Object.entries(input.tables ?? {})) {
       this.stillOpen();
       await this.load(name, rows);
@@ -165,37 +177,92 @@ class Database {
     const last = await statements.prepare(statements.count - 1);
     try {
       if (input.params) last.bind(input.params);
-      const maxRows = input.maxRows ?? DEFAULT_MAX_ROWS;
-      // One row past the limit says whether there were more.
-      const reader = await last.streamAndReadUntil(maxRows + 1);
-      try {
-        const names = reader.deduplicatedColumnNames();
-        const types = reader.columnTypes();
-        const wide = types.map((type) => WIDE_INTEGERS.has(type.typeId));
-        const all = reader.getRowsJson();
-        return {
-          columns: names.map((name, index) => ({
-            name,
-            type: String(types[index]),
-          })),
-          rows: all
-            .slice(0, maxRows)
-            .map((row) =>
-              Object.fromEntries(
-                row.map((value, index) => [
-                  names[index],
-                  wide[index] ? exactNumber(value) : value,
-                ]),
-              ),
-            ),
-          truncated: all.length > maxRows,
-        };
-      } finally {
-        reader.closeSync();
-      }
+      return await this.rows(await last.stream(), outputDir);
     } finally {
       last.destroySync();
     }
+  }
+
+  /**
+   * A result's rows within the output limit: the first of them, a row
+   * standing for a line. Past the limit every row goes to a file, a line of
+   * JSON each, and the result is read to its end to write it.
+   */
+  private async rows(
+    result: DuckDBResult,
+    outputDir: string | undefined,
+  ): Promise<QueryResult> {
+    const names = result.deduplicatedColumnNames();
+    const types = result.columnTypes();
+    const wide = types.map((type) => WIDE_INTEGERS.has(type.typeId));
+    const rows: Rows = [];
+    let bytes = 0;
+    let totalRows = 0;
+    let truncated = false;
+    let file: ReturnType<typeof createOutputFileStream> | undefined;
+    try {
+      reading: for await (const part of result.yieldRowsJson()) {
+        this.stillOpen();
+        let lines = "";
+        for (const values of part) {
+          const row = Object.fromEntries(
+            values.map((value, index) => [
+              names[index],
+              wide[index] ? exactNumber(value) : value,
+            ]),
+          );
+          const line = `${JSON.stringify(row)}\n`;
+          totalRows++;
+          if (!truncated) {
+            const size = Buffer.byteLength(line, "utf8");
+            if (
+              rows.length < OUTPUT_LIMIT.lines &&
+              bytes + size <= OUTPUT_LIMIT.bytes
+            ) {
+              rows.push(row);
+              bytes += size;
+              continue;
+            }
+            truncated = true;
+            try {
+              file = createOutputFileStream(
+                "codemode-duckdb",
+                ".jsonl",
+                outputDir,
+              );
+            } catch {
+              // With nowhere to keep the rest, there is nothing to read it for.
+              break reading;
+            }
+            lines = rows.map((kept) => `${JSON.stringify(kept)}\n`).join("");
+          }
+          lines += line;
+        }
+        if (file && lines) await write(file.stream, lines);
+      }
+      if (file) {
+        file.stream.end();
+        await finished(file.stream);
+      }
+    } catch (error) {
+      if (file) {
+        file.stream.destroy();
+        rmSync(file.path, { force: true });
+      }
+      throw error;
+    } finally {
+      result.closeSync();
+    }
+    return {
+      columns: names.map((name, index) => ({
+        name,
+        type: String(types[index]),
+      })),
+      rows,
+      totalRows,
+      truncated,
+      ...(file ? { fullOutputPath: file.path } : {}),
+    };
   }
 
   /**
@@ -290,16 +357,24 @@ const queryOutput = {
     },
     rows: {
       type: "array",
-      description:
-        "One object per row, keyed by column name. A 64-bit integer is a number when a number holds it exactly, else a string. A decimal is a string.",
+      description: `One object per row, keyed by column name: the first ${OUTPUT_LIMIT.lines} rows or ${formatSize(OUTPUT_LIMIT.bytes)} of them, whichever comes first. A 64-bit integer is a number when a number holds it exactly, else a string. A decimal is a string.`,
       items: { type: "object" },
+    },
+    totalRows: {
+      type: "number",
+      description: "How many rows the statement returned.",
     },
     truncated: {
       type: "boolean",
-      description: "Whether there were more rows than `maxRows`.",
+      description: "Whether `rows` is fewer than all of them.",
+    },
+    fullOutputPath: {
+      type: "string",
+      description:
+        "The file with every row, a line of JSON each, when `truncated`.",
     },
   },
-  required: ["columns", "rows", "truncated"],
+  required: ["columns", "rows", "totalRows", "truncated"],
 };
 
 export default function duckdb(rl: CodemodePluginAPI): void {
@@ -321,19 +396,19 @@ export default function duckdb(rl: CodemodePluginAPI): void {
 
   rl.registerAction("query", {
     access: "write",
-    description:
-      "Run DuckDB SQL and return its rows. SQL can read and write files, attach other databases, and load extensions. Without `db`, the query runs on a new in-memory database and nothing it creates is kept.",
+    description: `Run DuckDB SQL and return its rows. Rows are cut to the first ${OUTPUT_LIMIT.lines} or ${formatSize(OUTPUT_LIMIT.bytes)}, whichever comes first, with all of them in the file \`fullOutputPath\` names: select fewer, or aggregate. SQL can read and write files, attach other databases, and load extensions. Without \`db\`, the query runs on a new in-memory database and nothing it creates is kept.`,
     hints: { destructive: true, openWorld: true },
     inputSchema: queryInput,
     outputSchema: queryOutput,
     async execute({ db, ...input }, ctx) {
-      if (db !== undefined) return database(ctx, db).query(input);
+      if (db !== undefined)
+        return database(ctx, db).query(input, ctx.outputDir);
       const own = await openFor(ctx);
       // A close that fails here fails the query's own promise, below.
       const stop = () => void own.close().catch(() => {});
       ctx.signal?.addEventListener("abort", stop, { once: true });
       try {
-        return await own.query(input);
+        return await own.query(input, ctx.outputDir);
       } finally {
         ctx.signal?.removeEventListener("abort", stop);
         await own.close();
