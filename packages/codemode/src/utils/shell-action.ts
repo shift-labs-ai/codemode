@@ -1,7 +1,8 @@
 /**
- * The `run` action of a shell plugin: one input, one result and one set of
- * rules, whichever shell runs the command. A plugin says which program
- * that is and how a command becomes its script.
+ * The `run` action of a plugin that runs scripts through a program, such as
+ * a shell or an interpreter: one input, one result and one set of rules,
+ * whichever program it is. A plugin says which program that is and how a
+ * call's `command` becomes its script.
  */
 
 import { accessSync, constants } from "node:fs";
@@ -40,7 +41,7 @@ const shellRunInput = t.Object(
         minimum: 1,
         maximum: MAX_TIMEOUT_MS,
         description:
-          "End the command, and what it started, after this many milliseconds. Default: no limit of its own; the command ends when the run does.",
+          "End the script, and what it started, after this many milliseconds. Default: no limit of its own; the script ends when the run does.",
       }),
     ),
   },
@@ -58,7 +59,7 @@ const shellRunOutput = {
     exitCode: {
       type: "number",
       description:
-        "The shell's exit code. A shell a signal ended has 128 plus the signal's number.",
+        "The program's exit code. A program a signal ended has 128 plus the signal's number.",
     },
     truncated: { type: "boolean" },
     fullOutputPath: {
@@ -71,7 +72,7 @@ const shellRunOutput = {
 };
 
 /**
- * The connection of a shell plugin: where commands run, and which program
+ * The connection of such a plugin: where scripts run, and which program
  * runs them. `defaultShell` says in words what runs when none is named.
  */
 export function shellConnectionSchema(defaultShell: string) {
@@ -79,26 +80,26 @@ export function shellConnectionSchema(defaultShell: string) {
     cwd: t.Optional(
       t.String({
         description:
-          "The directory commands run in. Default: the directory codemode runs in.",
+          "The directory scripts run in. Default: the directory codemode runs in.",
       }),
     ),
     shell: t.Optional(
       t.String({
-        description: `Path of the shell to run commands with. Default: ${defaultShell}.`,
+        description: `Path of the program that runs scripts. Default: ${defaultShell}.`,
       }),
     ),
   });
 }
 
 export interface ShellRunActionOptions {
-  /** The shell's name as the action's description says it: `bash`, `PowerShell`. */
+  /** The program's name as the action's description says it: `bash`, `PowerShell`, `Node.js`. */
   shell: string;
   /** The start of the name of the file that keeps output past the limit. */
   outputFilePrefix: string;
   /**
-   * The program a call runs, from the shell the connection names when it
-   * names one, the script that program is handed for a command, and what
-   * the shell needs added to its environment.
+   * The program a call runs, from the one the connection names as `shell`
+   * when it names one, the script that program is handed for a command, and
+   * what the program needs added to its environment.
    */
   prepare(
     command: string,
@@ -116,8 +117,8 @@ function text(value: unknown): string | undefined {
 }
 
 /**
- * A shell plugin's `run` action. It runs on the machine codemode runs on,
- * so it is a write whatever the command does, and it ends with the run
+ * Such a plugin's `run` action. It runs on the machine codemode runs on,
+ * so it is a write whatever the script does, and it ends with the run
  * that called it.
  */
 export function shellRunAction(

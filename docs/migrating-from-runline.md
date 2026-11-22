@@ -83,10 +83,9 @@ After 0.46.0 the `node` plugin is a package with one action, `node.run`, and not
 
 ```bash
 codemode install npm:@shiftlabs/codemode-node
-codemode connection add node --plugin node
 ```
 
-- Add the connection again. A connection made for the bundled plugin belongs to it, and the packaged plugin refuses it.
+- Add a `node` connection again where there is one, with `codemode connection add node --plugin node`. A connection made for the bundled plugin belongs to it, and the packaged plugin refuses it.
 - The actions that each wrapped one function, such as `node.fs.readFile`, `node.path.join`, and `node.fetch`, are gone. Run a script that calls the function instead: `node.run({ command: 'console.log(require("node:fs").readFileSync("notes.txt", "utf8"))' })`.
 - `node.process.exec` and `node.process.execFile` are gone. Run commands with `bash.run` from [`codemode-bash`](../packages/codemode-bash/README.md) or `powershell.run` from [`codemode-powershell`](../packages/codemode-powershell/README.md).
 

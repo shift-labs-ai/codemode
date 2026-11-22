@@ -178,7 +178,7 @@ Pass `ctx.signal` so that a command ends with the run that started it, and `ctx.
 
 The command inherits the environment of the codemode process, with `env` added to it. It runs in a process group of its own, and codemode ends that group when its own process exits or is interrupted. Check a failure with `isShellError()`.
 
-A plugin that is a shell registers `shellRunAction` instead, which gives it the same `run` action as `bash` and `powershell`: the inputs `command`, `cwd` and `timeoutMs`, and the result above. The plugin names the program and turns a command into its script:
+A plugin that is a shell or an interpreter registers `shellRunAction` instead, which gives it the same `run` action as `bash`, `powershell`, and `node`: the inputs `command`, `cwd` and `timeoutMs`, and the result above. The plugin names the program and turns a command into its script:
 
 ```typescript
 import { shellConnectionSchema, shellRunAction } from "@shiftlabs/codemode/utils/cli";

@@ -142,6 +142,18 @@ describe("the Node.js node.run uses", () => {
       /node: no Node\.js at /,
     );
   });
+
+  it("is the one codemode runs in when none is on PATH, where that is Node.js", () => {
+    const path = process.env.PATH;
+    process.env.PATH = harness.tmp;
+    try {
+      if ("bun" in process.versions)
+        assert.throws(() => resolveNode(), /node: no Node\.js found/);
+      else assert.equal(resolveNode().program, process.execPath);
+    } finally {
+      process.env.PATH = path;
+    }
+  });
 });
 
 describePackage(PACKAGE, {
