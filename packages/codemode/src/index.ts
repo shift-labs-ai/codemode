@@ -324,6 +324,7 @@ export {
   isShellError,
   killProcessTree,
   MAX_TIMEOUT_MS,
+  packageVersion,
   pathExists,
   runShell,
   ShellError,

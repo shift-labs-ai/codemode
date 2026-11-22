@@ -8,21 +8,16 @@
  * call to the next. The command ends with the run that started it.
  */
 
-import { createRequire } from "node:module";
 import { win32 } from "node:path";
 import type { CodemodePluginAPI } from "@shiftlabs/codemode";
 import {
   commandPath,
+  packageVersion,
   pathExists,
   type ShellProgram,
   shellConnectionSchema,
   shellRunAction,
 } from "@shiftlabs/codemode/utils/cli";
-
-/** The package's version is the plugin's. */
-const { version } = createRequire(import.meta.url)("../package.json") as {
-  version: string;
-};
 
 /**
  * Windows' own `bash.exe` starts WSL and passes `-c` arguments through
@@ -70,7 +65,7 @@ export function resolveBash(named?: string): ShellProgram {
 
 export default function bash(rl: CodemodePluginAPI): void {
   rl.setName("bash");
-  rl.setVersion(version);
+  rl.setVersion(packageVersion(import.meta.url));
   rl.setDescription(
     "Run bash commands on the machine codemode runs on, with the permissions of the codemode process.",
   );

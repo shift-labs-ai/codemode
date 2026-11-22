@@ -1,0 +1,49 @@
+{
+  "name": "@shiftlabs/codemode-duckdb",
+  "version": "0.1.0",
+  "description": "Run DuckDB SQL from codemode: over databases, files and rows the code fetched",
+  "type": "module",
+  "keywords": [
+    "codemode-plugin",
+    "duckdb",
+    "sql",
+    "database"
+  ],
+  "codemode": {
+    "plugins": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests --timeout 30000",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shift-labs-ai/codemode.git",
+    "directory": "packages/codemode-duckdb"
+  },
+  "homepage": "https://github.com/shift-labs-ai/codemode/tree/main/packages/codemode-duckdb#readme",
+  "bugs": {
+    "url": "https://github.com/shift-labs-ai/codemode/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@duckdb/node-api": "2.0.1-r.1"
+  },
+  "peerDependencies": {
+    "@shiftlabs/codemode": ">0.46.0",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@shiftlabs/codemode": "workspace:*",
+    "@types/bun": "^1.2.17",
+    "@types/node": "^25.5.0",
+    "typebox": "^1.1.35",
+    "typescript": "^5.8.0"
+  }
+}

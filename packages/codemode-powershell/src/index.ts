@@ -8,21 +8,16 @@
  * from one call to the next. The command ends with the run that started it.
  */
 
-import { createRequire } from "node:module";
 import { win32 } from "node:path";
 import type { CodemodePluginAPI } from "@shiftlabs/codemode";
 import {
   commandPath,
+  packageVersion,
   pathExists,
   type ShellProgram,
   shellConnectionSchema,
   shellRunAction,
 } from "@shiftlabs/codemode/utils/cli";
-
-/** The package's version is the plugin's. */
-const { version } = createRequire(import.meta.url)("../package.json") as {
-  version: string;
-};
 
 /** No profile and no prompt, so a call runs the same on every machine and never waits for a person. */
 const ARGS = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"];
@@ -120,7 +115,7 @@ export function powershellScript(command: string, program: string): string {
 
 export default function powershell(rl: CodemodePluginAPI): void {
   rl.setName("powershell");
-  rl.setVersion(version);
+  rl.setVersion(packageVersion(import.meta.url));
   rl.setDescription(
     "Run PowerShell commands on the machine codemode runs on, with the permissions of the codemode process.",
   );

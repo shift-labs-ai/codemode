@@ -74,6 +74,12 @@ Without `codemode.plugins`, codemode loads the module named by `main`, then `src
 
 Each module default-exports a plugin, as described in [Plugins](plugins.md). A packaged plugin must set its name and register at least one action. Codemode does not fall back to the file name, because two packages would both become `index`.
 
+`packageVersion(import.meta.url)` from `@shiftlabs/codemode/utils/cli` reads the version from the `package.json` one directory above the module, so the plugin and the package state it once:
+
+```typescript
+rl.setVersion(packageVersion(import.meta.url));
+```
+
 Codemode loads TypeScript and JavaScript modules directly. It never runs install scripts, so a package that needs a build step must publish the built files.
 
 The `codemode-plugin` keyword makes an npm package appear in `codemode search`.
