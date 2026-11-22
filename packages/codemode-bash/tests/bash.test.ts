@@ -4,66 +4,24 @@
  */
 
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-  Codemode,
-  MemoryPackageStore,
-  PackageManager,
-} from "@shiftlabs/codemode";
 import type { ShellResult } from "@shiftlabs/codemode/utils/cli";
 import { ends, pidIn } from "../../codemode/src/tests/helpers/processes.js";
+import { describePackage, pluginHarness } from "../../package-tests/harness.js";
 import bash, { resolveBash } from "../src/index.js";
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
 const posix = process.platform === "win32" ? it.skip : it;
 
-let tmp: string;
-const instances: Codemode[] = [];
-
-beforeEach(() => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), "codemode-bash-")));
-});
-
-afterEach(() => {
-  for (const codemode of instances.splice(0)) codemode.dispose();
-  rmSync(tmp, { recursive: true, force: true });
-});
-
-function codemode(
-  config: Record<string, unknown> = {},
-  options: Parameters<typeof Codemode.create>[0] = {},
-) {
-  const created = Codemode.create({
-    plugins: [bash],
-    connections: [{ name: "bash", plugin: "bash", config }],
-    ...options,
-  });
-  instances.push(created);
-  return created;
-}
-
-/** Run one command through the engine and answer the action's result. */
-async function run(
+const harness = pluginHarness(bash, "bash");
+const codemode = harness.codemode;
+const run = (
   input: Record<string, unknown>,
-  config: Record<string, unknown> = {},
-): Promise<ShellResult> {
-  const { result, error } = await codemode(config).execute(
-    `return await bash.run(${JSON.stringify(input)})`,
-  );
-  assert.equal(error, undefined);
-  return result as ShellResult;
-}
+  config?: Record<string, unknown>,
+) => harness.call<ShellResult>("run", input, config);
 
 describe("bash.run", () => {
   posix("returns a command's output and exit code", async () => {
@@ -97,26 +55,27 @@ describe("bash.run", () => {
   });
 
   posix("starts each call afresh", async () => {
-    const { result } = await codemode({ cwd: tmp }).execute(`
+    const { result } = await codemode({ cwd: harness.tmp }).execute(`
       await bash.run({ command: "cd / && export KEPT=1" });
       return (await bash.run({ command: 'pwd; echo "kept=$KEPT"' })).output;
     `);
-    assert.equal(result, `${tmp}\nkept=\n`);
+    assert.equal(result, `${harness.tmp}\nkept=\n`);
   });
 
   posix(
     "runs in the connection's directory, or the call's within it",
     async () => {
-      mkdirSync(join(tmp, "inner"));
+      mkdirSync(join(harness.tmp, "inner"));
       assert.equal(
-        (await run({ command: "pwd" }, { cwd: tmp })).output,
-        `${tmp}\n`,
+        (await run({ command: "pwd" }, { cwd: harness.tmp })).output,
+        `${harness.tmp}\n`,
       );
       assert.equal(
-        (await run({ command: "pwd", cwd: "inner" }, { cwd: tmp })).output,
-        `${join(tmp, "inner")}\n`,
+        (await run({ command: "pwd", cwd: "inner" }, { cwd: harness.tmp }))
+          .output,
+        `${join(harness.tmp, "inner")}\n`,
       );
-      const { error } = await codemode({ cwd: tmp }).execute(
+      const { error } = await codemode({ cwd: harness.tmp }).execute(
         `return await bash.run({ command: "pwd", cwd: "missing" })`,
       );
       assert.match(error ?? "", /Working directory does not exist/);
@@ -136,7 +95,7 @@ describe("bash.run", () => {
   posix(
     "ends the command, and what it started, when the run ends first",
     async () => {
-      const pidFile = join(tmp, "pid");
+      const pidFile = join(harness.tmp, "pid");
       const { error } = await codemode().execute(
         `return await bash.run({ command: "sleep 30 & echo $! > ${pidFile}; wait" })`,
         { timeoutMs: 1_500 },
@@ -149,7 +108,7 @@ describe("bash.run", () => {
   posix(
     "keeps output past the limit in the host's output directory",
     async () => {
-      const outputDir = join(tmp, "outbox");
+      const outputDir = join(harness.tmp, "outbox");
       const { result, error } = await codemode({}, { outputDir }).execute(
         `return await bash.run({ command: "head -c 1500000 /dev/zero | tr '\\\\0' a; echo END" })`,
       );
@@ -186,35 +145,15 @@ describe("the shell bash.run uses", () => {
 
   it("is refused when it is not there", () => {
     assert.throws(
-      () => resolveBash(join(tmp, "no-such-shell")),
+      () => resolveBash(join(harness.tmp, "no-such-shell")),
       /bash: no shell at /,
     );
   });
 });
 
-describe("the package", () => {
-  it("loads through the package manager as one plugin named bash", async () => {
-    const packages = new PackageManager({
-      roots: { user: join(tmp, "user") },
-      store: new MemoryPackageStore({ user: [PACKAGE] }),
-    });
-    // The package needs a codemode after 0.46.0, and the workspace's carries
-    // its last release's version until the next one: that warning is right.
-    const beyondPeer = (problems: Array<{ code: string }>) =>
-      problems.filter((problem) => problem.code !== "peer_unsatisfied");
-    const report = await packages.inspect(await packages.fetch(PACKAGE));
-    assert.deepEqual(beyondPeer(report.problems), []);
-    assert.equal(report.name, "@shiftlabs/codemode-bash");
-    assert.equal(report.plugins[0].version, report.version);
-    assert.deepEqual(
-      report.plugins.map(({ name, actions, write }) => [name, actions, write]),
-      [["bash", 1, 1]],
-    );
-    const { plugins, problems } = await packages.load();
-    assert.deepEqual(beyondPeer(problems), []);
-    assert.equal(
-      plugins[0].sourceInfo?.owner,
-      `local:${PACKAGE.replace(/\/$/, "")}`,
-    );
-  });
+describePackage(PACKAGE, {
+  package: "@shiftlabs/codemode-bash",
+  plugin: "bash",
+  actions: 1,
+  write: 1,
 });

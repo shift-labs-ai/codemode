@@ -39,7 +39,7 @@ codemode exec 'return await powershell.run({ command: "Get-ChildItem *.md | Sele
 
 Each call is a new process, so `Set-Location` and variables do not carry from one call to the next. Put steps that depend on each other in one command.
 
-PowerShell runs with `-NoProfile -NonInteractive -ExecutionPolicy Bypass`. Output is UTF-8 and plain text, without colour codes.
+PowerShell runs with `-NoProfile -NonInteractive -ExecutionPolicy Bypass`. Output is UTF-8. PowerShell and the programs it starts run with `NO_COLOR=1`, so PowerShell 7.4 and newer write errors as plain text.
 
 ## Handle results
 
@@ -86,5 +86,6 @@ codemode connection add powershell --plugin powershell --set cwd=/srv/app
 
 - A command sees the whole environment of the codemode process.
 - The action is labelled `write`, whatever the command does.
+- A command cannot start with a `using` statement or a `param` block. PowerShell allows them only at the start of a script, and the line that sets the output encoding comes first. Write the full type name instead.
 - In Windows PowerShell 5.1, a program that writes to a redirected stderr and exits 0 counts as a success.
 - Windows and Windows PowerShell 5.1 are untested.

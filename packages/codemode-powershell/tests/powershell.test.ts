@@ -1,27 +1,17 @@
 /**
  * The PowerShell package: its one action through a real engine and a real
  * PowerShell, and the package as codemode's package manager loads it. The
- * tests that run a command need a PowerShell on `PATH`.
+ * tests that run a command need a PowerShell on `PATH`: without one they are
+ * skipped, except in CI, where they fail.
  */
 
 import assert from "node:assert/strict";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-  Codemode,
-  MemoryPackageStore,
-  PackageManager,
-} from "@shiftlabs/codemode";
 import { commandPath, type ShellResult } from "@shiftlabs/codemode/utils/cli";
+import { describePackage, pluginHarness } from "../../package-tests/harness.js";
 import powershell, {
   powershellScript,
   resolvePowerShell,
@@ -29,44 +19,14 @@ import powershell, {
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
 const installed = commandPath("pwsh") ?? commandPath("powershell");
-const withPowerShell = installed ? it : it.skip;
+const withPowerShell = installed || process.env.CI ? it : it.skip;
 
-let tmp: string;
-const instances: Codemode[] = [];
-
-beforeEach(() => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), "codemode-powershell-")));
-});
-
-afterEach(() => {
-  for (const codemode of instances.splice(0)) codemode.dispose();
-  rmSync(tmp, { recursive: true, force: true });
-});
-
-function codemode(
-  config: Record<string, unknown> = {},
-  options: Parameters<typeof Codemode.create>[0] = {},
-) {
-  const created = Codemode.create({
-    plugins: [powershell],
-    connections: [{ name: "powershell", plugin: "powershell", config }],
-    ...options,
-  });
-  instances.push(created);
-  return created;
-}
-
-/** Run one command through the engine and answer the action's result. */
-async function run(
+const harness = pluginHarness(powershell, "powershell");
+const codemode = harness.codemode;
+const run = (
   input: Record<string, unknown>,
-  config: Record<string, unknown> = {},
-): Promise<ShellResult> {
-  const { result, error } = await codemode(config).execute(
-    `return await powershell.run(${JSON.stringify(input)})`,
-  );
-  assert.equal(error, undefined);
-  return result as ShellResult;
-}
+  config?: Record<string, unknown>,
+) => harness.call<ShellResult>("run", input, config);
 
 const lines = (output: string) => output.trim().split(/\r?\n/);
 
@@ -90,10 +50,20 @@ describe("powershell.run", () => {
     "returns 1 for a command whose last statement failed, with the error as plain text",
     async () => {
       const result = await run({
-        command: `Get-Item ${JSON.stringify(join(tmp, "missing"))}`,
+        command: `Get-Item ${JSON.stringify(join(harness.tmp, "missing"))}`,
       });
       assert.equal(result.exitCode, 1);
       assert.match(result.output, /Cannot find path/);
+      assert.equal(result.output.includes("\u001b["), false);
+    },
+  );
+
+  withPowerShell(
+    "returns 1 for a command that cannot be parsed, with the error as plain text",
+    async () => {
+      const result = await run({ command: "Get-ChildItem | )" });
+      assert.equal(result.exitCode, 1);
+      assert.match(result.output, /empty pipe element/);
       assert.equal(result.output.includes("\u001b["), false);
     },
   );
@@ -104,23 +74,27 @@ describe("powershell.run", () => {
   });
 
   withPowerShell("starts each call afresh", async () => {
-    const { result, error } = await codemode({ cwd: tmp }).execute(`
+    const { result, error } = await codemode({ cwd: harness.tmp }).execute(`
       await powershell.run({ command: "Set-Location ..; $kept = 1" });
       return (await powershell.run({ command: '(Get-Location).Path; "kept=$kept"' })).output;
     `);
     assert.equal(error, undefined);
-    assert.deepEqual(lines(result as string), [tmp, "kept="]);
+    assert.deepEqual(lines(result as string), [harness.tmp, "kept="]);
   });
 
   withPowerShell(
     "runs in the connection's directory, or the call's within it",
     async () => {
-      mkdirSync(join(tmp, "inner"));
+      mkdirSync(join(harness.tmp, "inner"));
       const where = { command: "(Get-Location).Path" };
-      assert.deepEqual(lines((await run(where, { cwd: tmp })).output), [tmp]);
+      assert.deepEqual(lines((await run(where, { cwd: harness.tmp })).output), [
+        harness.tmp,
+      ]);
       assert.deepEqual(
-        lines((await run({ ...where, cwd: "inner" }, { cwd: tmp })).output),
-        [join(tmp, "inner")],
+        lines(
+          (await run({ ...where, cwd: "inner" }, { cwd: harness.tmp })).output,
+        ),
+        [join(harness.tmp, "inner")],
       );
     },
   );
@@ -129,11 +103,11 @@ describe("powershell.run", () => {
     "rejects a command that outlives its timeout, with what it wrote",
     async () => {
       const { error } = await codemode().execute(
-        `return await powershell.run({ command: "Write-Output started; Start-Sleep -Seconds 30", timeoutMs: 3000 })`,
+        `return await powershell.run({ command: "Write-Output started; Start-Sleep -Seconds 60", timeoutMs: 5000 })`,
       );
       assert.match(
         error ?? "",
-        /started\r?\n\r?\nCommand timed out after 3 seconds/,
+        /started\r?\n\r?\nCommand timed out after 5 seconds/,
       );
     },
   );
@@ -141,7 +115,7 @@ describe("powershell.run", () => {
   withPowerShell(
     "keeps output past the limit in the host's output directory",
     async () => {
-      const outputDir = join(tmp, "outbox");
+      const outputDir = join(harness.tmp, "outbox");
       const { result, error } = await codemode({}, { outputDir }).execute(
         `return await powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END" })`,
       );
@@ -190,7 +164,7 @@ describe("the shell powershell.run uses", () => {
 
   it("is refused when it is not there", () => {
     assert.throws(
-      () => resolvePowerShell(join(tmp, "no-such-shell")),
+      () => resolvePowerShell(join(harness.tmp, "no-such-shell")),
       /powershell: no shell at /,
     );
   });
@@ -200,11 +174,10 @@ describe("the script a PowerShell is handed", () => {
   const WINDOWS_POWERSHELL =
     "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\PowerShell.exe";
 
-  it("is the command after the lines that set its output", () => {
+  it("is the command after the line that sets its output's encoding", () => {
     const script = powershellScript("Get-Date", "/usr/local/bin/pwsh");
-    assert.ok(script.endsWith("\nGet-Date"));
-    assert.match(script, /OutputEncoding/);
-    assert.match(script, /PlainText/);
+    assert.deepEqual(script.split("\n").slice(1), ["Get-Date"]);
+    assert.match(script, /OutputEncoding.*UTF8/);
   });
 
   it("ends, in Windows PowerShell, with lines that settle the exit code", () => {
@@ -222,29 +195,9 @@ describe("the script a PowerShell is handed", () => {
   });
 });
 
-describe("the package", () => {
-  it("loads through the package manager as one plugin named powershell", async () => {
-    const packages = new PackageManager({
-      roots: { user: join(tmp, "user") },
-      store: new MemoryPackageStore({ user: [PACKAGE] }),
-    });
-    // The package needs a codemode after 0.46.0, and the workspace's carries
-    // its last release's version until the next one: that warning is right.
-    const beyondPeer = (problems: Array<{ code: string }>) =>
-      problems.filter((problem) => problem.code !== "peer_unsatisfied");
-    const report = await packages.inspect(await packages.fetch(PACKAGE));
-    assert.deepEqual(beyondPeer(report.problems), []);
-    assert.equal(report.name, "@shiftlabs/codemode-powershell");
-    assert.equal(report.plugins[0].version, report.version);
-    assert.deepEqual(
-      report.plugins.map(({ name, actions, write }) => [name, actions, write]),
-      [["powershell", 1, 1]],
-    );
-    const { plugins, problems } = await packages.load();
-    assert.deepEqual(beyondPeer(problems), []);
-    assert.equal(
-      plugins[0].sourceInfo?.owner,
-      `local:${PACKAGE.replace(/\/$/, "")}`,
-    );
-  });
+describePackage(PACKAGE, {
+  package: "@shiftlabs/codemode-powershell",
+  plugin: "powershell",
+  actions: 1,
+  write: 1,
 });

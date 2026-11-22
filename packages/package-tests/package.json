@@ -1,0 +1,16 @@
+{
+  "name": "codemode-package-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What the tests of the packages published beside codemode share",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@shiftlabs/codemode": "workspace:*",
+    "@types/bun": "^1.2.17",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0"
+  }
+}

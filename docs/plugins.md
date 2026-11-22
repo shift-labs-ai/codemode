@@ -197,7 +197,7 @@ rl.registerAction(
 );
 ```
 
-`shell` is the connection's `shell` value when it has one.
+`shell` is the connection's `shell` value when it has one. `prepare` can also return `env`, which is added to the command's environment.
 
 ## Understand how plugins load
 

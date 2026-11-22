@@ -27,15 +27,17 @@ const { version } = createRequire(import.meta.url)("../package.json") as {
 /** No profile and no prompt, so a call runs the same on every machine and never waits for a person. */
 const ARGS = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"];
 
+/** Before the command: output as UTF-8 whatever the console's code page. */
+const PREFIX =
+  "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}\n";
+
 /**
- * Before the command: output as UTF-8 whatever the console's code page, and
- * as plain text, without the colour codes PowerShell 7 puts in its errors.
+ * Plain text, without the colour codes PowerShell 7 puts in its errors. It
+ * is the environment and not a line of the script because PowerShell reads
+ * the whole script before it runs any of it, so a script's line cannot
+ * change how that script's own parse error is written.
  */
-const PREFIX = [
-  "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}",
-  "if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' }",
-  "",
-].join("\n");
+const ENVIRONMENT = { NO_COLOR: "1" };
 
 /**
  * After the command, in Windows PowerShell 5.1 only. It turns what a
@@ -132,7 +134,11 @@ export default function powershell(rl: CodemodePluginAPI): void {
       outputFilePrefix: "codemode-powershell",
       prepare: (command, shell) => {
         const program = resolvePowerShell(shell);
-        return { program, script: powershellScript(command, program.program) };
+        return {
+          program,
+          script: powershellScript(command, program.program),
+          env: ENVIRONMENT,
+        };
       },
     }),
   );

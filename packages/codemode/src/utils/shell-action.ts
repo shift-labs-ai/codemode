@@ -97,12 +97,22 @@ export interface ShellRunActionOptions {
   outputFilePrefix: string;
   /**
    * The program a call runs, from the shell the connection names when it
-   * names one, and the script that program is handed for a command.
+   * names one, the script that program is handed for a command, and what
+   * the shell needs added to its environment.
    */
   prepare(
     command: string,
     shell: string | undefined,
-  ): { program: ShellProgram; script: string };
+  ): {
+    program: ShellProgram;
+    script: string;
+    env?: Readonly<Record<string, string>>;
+  };
+}
+
+/** A connection value that is text with something in it. */
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
 }
 
 /**
@@ -121,16 +131,14 @@ export function shellRunAction(
     outputSchema: shellRunOutput,
     execute({ command, cwd, timeoutMs }, ctx) {
       const { config } = ctx.connection;
-      const base =
-        typeof config.cwd === "string" && config.cwd ? config.cwd : undefined;
-      const { program, script } = options.prepare(
+      const base = text(config.cwd);
+      const { program, script, env } = options.prepare(
         command,
-        typeof config.shell === "string" && config.shell
-          ? config.shell
-          : undefined,
+        text(config.shell),
       );
       return runShell(program, script, {
         cwd: cwd === undefined ? base : resolve(base ?? process.cwd(), cwd),
+        env,
         timeoutMs,
         signal: ctx.signal,
         outputDir: ctx.outputDir,
