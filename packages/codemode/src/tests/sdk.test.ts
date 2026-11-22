@@ -94,13 +94,6 @@ describe("Codemode SDK", () => {
     assert.deepEqual(result.result, { x: "late" });
   });
 
-  it("does not auto-enable node", async () => {
-    const rl = Codemode.create();
-    const result = await rl.execute("return await node.os.platform()");
-    assert.ok(result.error);
-    assert.match(result.error, /'?node'? is not defined|Unknown action: node/);
-  });
-
   it("accepts PluginDef objects directly", async () => {
     const def = {
       name: "inline",

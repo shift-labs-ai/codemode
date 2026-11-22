@@ -34,10 +34,6 @@ const CREDENTIAL_FREE_FETCH = new Map<string, string>([
     "the owner login: unsigned calls whose inputs come from the person logging in; local only",
   ],
   ["hackernews/src/index.ts", "public API; no connection secret"],
-  [
-    "node/src/index.ts",
-    "its fetch action sends caller-supplied requests; no connection secret",
-  ],
   ["openThesaurus/src/index.ts", "public API; no connection secret"],
   ["postbin/src/index.ts", "public API; no connection secret"],
   [

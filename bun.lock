@@ -85,6 +85,19 @@
         "typebox": "*",
       },
     },
+    "packages/codemode-node": {
+      "name": "@shiftlabs/codemode-node",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@shiftlabs/codemode": "workspace:*",
+        "@types/bun": "^1.2.17",
+        "@types/node": "^25.5.0",
+        "typescript": "^5.8.0",
+      },
+      "peerDependencies": {
+        "@shiftlabs/codemode": ">0.46.0",
+      },
+    },
     "packages/codemode-plugins": {
       "name": "codemode-plugins",
       "version": "0.1.0",
@@ -258,6 +271,8 @@
     "@shiftlabs/codemode-bash": ["@shiftlabs/codemode-bash@workspace:packages/codemode-bash"],
 
     "@shiftlabs/codemode-duckdb": ["@shiftlabs/codemode-duckdb@workspace:packages/codemode-duckdb"],
+
+    "@shiftlabs/codemode-node": ["@shiftlabs/codemode-node@workspace:packages/codemode-node"],
 
     "@shiftlabs/codemode-powershell": ["@shiftlabs/codemode-powershell@workspace:packages/codemode-powershell"],
 

@@ -17,7 +17,7 @@ Repeat `--set` or `-s` for each value. Values are stored as strings. The field n
 Adding a connection with an existing name replaces it. A bundled plugin that needs no configuration still needs a connection before `codemode exec` loads it:
 
 ```bash
-codemode connection add node --plugin node
+codemode connection add hackernews --plugin hackernews
 ```
 
 ## Use environment variables

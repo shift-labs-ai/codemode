@@ -31,10 +31,10 @@ codemode init
 
 A **plugin** is a set of actions for one service. A **connection** is the configuration a plugin runs with, usually its credentials.
 
-The bundled `node` plugin needs no credentials. Add a connection to make it available:
+The bundled `hackernews` plugin needs no credentials. Add a connection to make it available:
 
 ```bash
-codemode connection add node --plugin node
+codemode connection add hackernews --plugin hackernews
 ```
 
 Most plugins need a key or token. Pass it with `--set`:
@@ -50,7 +50,7 @@ See [Bundled Plugins](bundled-plugins.md) for every plugin and the values it nee
 Pass JavaScript to `codemode exec`. Each plugin with a connection is a global, and `return` produces the result:
 
 ```bash
-codemode exec 'return await node.os.platform()'
+codemode exec 'return await hackernews.all.top({ limit: 3 })'
 ```
 
 One run can call several actions and combine their results:
@@ -58,8 +58,8 @@ One run can call several actions and combine their results:
 ```bash
 codemode exec '
   const repo = await github.repository.get({ owner: "nodejs", repo: "node" });
-  const host = await node.os.platform();
-  return { stars: repo.stargazers_count, host };
+  const [story] = await hackernews.all.top({ limit: 1 });
+  return { stars: repo.stargazers_count, top: story.title };
 '
 ```
 

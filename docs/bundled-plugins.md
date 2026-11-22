@@ -1,6 +1,8 @@
 # Bundled Plugins
 
-Codemode ships with plugins for SaaS, DevOps, productivity, and image-generation APIs, and a `node` plugin for host capabilities. They are part of the `codemode` package and need no installation.
+Codemode ships with plugins for SaaS, DevOps, productivity, and image-generation APIs. They are part of the `codemode` package and need no installation.
+
+Host capabilities are separate packages to install: [`codemode-node`](../packages/codemode-node/README.md) for files and HTTP, [`codemode-bash`](../packages/codemode-bash/README.md) and [`codemode-powershell`](../packages/codemode-powershell/README.md) for commands, and [`codemode-duckdb`](../packages/codemode-duckdb/README.md) for SQL.
 
 A bundled plugin becomes available to `codemode exec` once it has a connection. The last column lists each required connection field and, in parentheses, the environment variable that can supply it:
 
@@ -145,7 +147,6 @@ A plugin that uses OAuth shows the `codemode auth` command that connects it. See
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/netscalerAdc.svg" width="16" height="16" style="vertical-align: middle"> **netscalerAdc** | 3 | certificate, file | `url` (`NETSCALER_URL`), `username` (`NETSCALER_USERNAME`), `password` (`NETSCALER_PASSWORD`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/nextcloud.svg" width="16" height="16" style="vertical-align: middle"> **nextcloud** | 13 | file, folder, user | `webDavUrl` (`NEXTCLOUD_WEBDAV_URL`), `username` (`NEXTCLOUD_USERNAME`), `password` (`NEXTCLOUD_PASSWORD`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/nocodb.svg" width="16" height="16" style="vertical-align: middle"> **nocodb** | 5 | row | `host` (`NOCODB_HOST`), `apiToken` (`NOCODB_API_TOKEN`) |
-| <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/node.svg" width="16" height="16" style="vertical-align: middle"> **node** | 38 | fs, path, os, process, crypto, fetch | — |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/notion.svg" width="16" height="16" style="vertical-align: middle"> **notion** | 14 | block, database, page, user | `apiKey` (`NOTION_API_KEY`) |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/npm.svg" width="16" height="16" style="vertical-align: middle"> **npm** | 5 | package, distTag |  |
 | <img src="https://raw.githubusercontent.com/shift-labs-ai/codemode/main/packages/codemode-plugins/icons/odoo.svg" width="16" height="16" style="vertical-align: middle"> **odoo** | 6 | record, model | `url` (`ODOO_URL`), `username` (`ODOO_USERNAME`), `password` (`ODOO_PASSWORD`) |

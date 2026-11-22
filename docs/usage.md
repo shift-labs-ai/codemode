@@ -15,7 +15,7 @@ codemode exec 'return await github.issue.get({ owner: "nodejs", repo: "node", is
 Code can also be a single arrow function, which codemode calls:
 
 ```bash
-codemode exec 'async () => { return await node.os.platform(); }'
+codemode exec 'async () => { return await hackernews.all.top({ limit: 3 }); }'
 ```
 
 Use `--file` or `-f` to run a file instead of an inline string:
@@ -116,4 +116,4 @@ Code runs in a Node.js worker thread, not in the process that runs actions.
 
 Codemode stops a run after `timeoutMs`, 30 seconds by default, and when it exceeds `memoryLimitBytes`, 64 MB by default. Set either in [`config.json`](configuration.md#settings).
 
-The worker is a convenient place to run code, not a security boundary. Code can load `node:fs` and `node:child_process` through `require`. Add a connection for the bundled `node` plugin when code should reach the filesystem, processes, or the network through labeled actions such as `node.fs.readFile` and `node.fetch`. See [Security](security.md).
+The worker is a convenient place to run code, not a security boundary. Code can load `node:fs` and `node:child_process` through `require`. Install the [`codemode-node`](../packages/codemode-node/README.md) package when code should reach the filesystem or the network through labeled actions such as `node.fs.readFile` and `node.fetch`, and [`codemode-bash`](../packages/codemode-bash/README.md) or [`codemode-powershell`](../packages/codemode-powershell/README.md) when it should run commands. See [Security](security.md).

@@ -121,7 +121,6 @@
       "!packages/codemode-plugins/netscalerAdc",
       "!packages/codemode-plugins/nextcloud",
       "!packages/codemode-plugins/nocodb",
-      "!packages/codemode-plugins/node",
       "!packages/codemode-plugins/node_modules",
       "!packages/codemode-plugins/notion",
       "!packages/codemode-plugins/npm",

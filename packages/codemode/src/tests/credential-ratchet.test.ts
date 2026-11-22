@@ -25,10 +25,6 @@ const FIXTURES = join(here, "credential-fixtures");
 const NO_CREDENTIAL = new Map<string, string>([
   ["docker", "local docker CLI via syncExec; no network, no secret"],
   ["hackernews", "public Algolia and Firebase APIs; empty connection schema"],
-  [
-    "node",
-    "local fs/process utilities; its fetch action sends caller-supplied headers, no connection secret",
-  ],
   ["openThesaurus", "public API; empty connection schema"],
   ["postbin", "public API; empty connection schema"],
   ["quickchart", "builds a public chart URL; makes no request"],

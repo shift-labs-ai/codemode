@@ -1,4 +1,13 @@
-import { exec as execCb, execFile as execFileCb } from "node:child_process";
+/**
+ * Node for codemode: the host's files, paths, system facts, hashing and HTTP
+ * as actions, so that code reaches them by name and each call is labelled
+ * and reported.
+ *
+ *   const text = await node.fs.readFile({ path: "notes.txt" })
+ *
+ * Running a command is the bash and powershell packages' work.
+ */
+
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -44,11 +53,12 @@ import {
   resolve,
   sep,
 } from "node:path";
-import { promisify } from "node:util";
-import type { ActionDef, InputSchema, CodemodePluginAPI } from "@shiftlabs/codemode";
-
-const exec = promisify(execCb);
-const execFile = promisify(execFileCb);
+import type {
+  ActionDef,
+  CodemodePluginAPI,
+  InputSchema,
+} from "@shiftlabs/codemode";
+import { packageVersion } from "@shiftlabs/codemode/utils/cli";
 
 type JsonObject = Record<string, unknown>;
 
@@ -64,7 +74,10 @@ function action(name: string, def: NodeAction): ActionDef {
 
 export default function node(rl: CodemodePluginAPI): void {
   rl.setName("node");
-  rl.setVersion("0.1.0");
+  rl.setVersion(packageVersion(import.meta.url));
+  rl.setDescription(
+    "Read and write files, work with paths, read system facts, hash, and make HTTP requests on the machine codemode runs on, with the permissions of the codemode process.",
+  );
   for (const action of nodeActions) {
     rl.registerAction(action.name, action);
   }
@@ -180,7 +193,7 @@ const nodeActions: ActionDef[] = [
     inputSchema: pathInput(),
     async execute(input) {
       return serializeStats(
-        await stat(objectInput<{ path: string }>(input).path)
+        await stat(objectInput<{ path: string }>(input).path),
       );
     },
   }),
@@ -190,7 +203,7 @@ const nodeActions: ActionDef[] = [
     inputSchema: pathInput(),
     async execute(input) {
       return serializeStats(
-        await lstat(objectInput<{ path: string }>(input).path)
+        await lstat(objectInput<{ path: string }>(input).path),
       );
     },
   }),
@@ -356,7 +369,7 @@ const nodeActions: ActionDef[] = [
     },
     execute(input) {
       const { path, suffix } = objectInput<{ path: string; suffix?: string }>(
-        input
+        input,
       );
       return basename(path, suffix);
     },
@@ -410,7 +423,7 @@ const nodeActions: ActionDef[] = [
     execute(input) {
       return format(
         objectInput<{ pathObject: Parameters<typeof format>[0] }>(input)
-          .pathObject
+          .pathObject,
       );
     },
   }),
@@ -422,7 +435,7 @@ const nodeActions: ActionDef[] = [
     },
   }),
 
-  // os/process/shell actions
+  // os and process actions
   action("os.info", {
     access: "read",
     description: "Get useful host OS information",
@@ -495,81 +508,6 @@ const nodeActions: ActionDef[] = [
     execute(input) {
       const name = (input as { name?: string } | undefined)?.name;
       return name ? process.env[name] : { ...process.env };
-    },
-  }),
-  action("process.exec", {
-    access: "write",
-    description: "Run a shell command on the host",
-    inputSchema: {
-      command: {
-        type: "string",
-        required: true,
-        description: "Shell command",
-      },
-      cwd: {
-        type: "string",
-        required: false,
-        description: "Working directory",
-      },
-      timeout: {
-        type: "number",
-        required: false,
-        description: "Timeout in milliseconds",
-      },
-    },
-    async execute(input) {
-      const { command, cwd, timeout } = objectInput<{
-        command: string;
-        cwd?: string;
-        timeout?: number;
-      }>(input);
-      const { stdout, stderr } = await exec(command, {
-        cwd,
-        timeout,
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      return { stdout, stderr };
-    },
-  }),
-  action("process.execFile", {
-    access: "write",
-    description: "Run a host executable without a shell",
-    inputSchema: {
-      file: {
-        type: "string",
-        required: true,
-        description: "Executable path or name",
-      },
-      args: { type: "array", required: false, description: "Arguments" },
-      cwd: {
-        type: "string",
-        required: false,
-        description: "Working directory",
-      },
-      timeout: {
-        type: "number",
-        required: false,
-        description: "Timeout in milliseconds",
-      },
-    },
-    async execute(input) {
-      const {
-        file,
-        args = [],
-        cwd,
-        timeout,
-      } = objectInput<{
-        file: string;
-        args?: string[];
-        cwd?: string;
-        timeout?: number;
-      }>(input);
-      const { stdout, stderr } = await execFile(file, args, {
-        cwd,
-        timeout,
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      return { stdout, stderr };
     },
   }),
   action("crypto.randomUUID", {
