@@ -789,6 +789,19 @@ describe("a country and a language", () => {
     );
   });
 
+  it("name a language as the provider does where it takes one only with a script or a region", async () => {
+    const chinese = { language: "zh" };
+    assert.deepEqual(
+      [
+        (await sentFor("brave", chinese)).search_lang,
+        (await sentFor("you", chinese)).language,
+        (await sentFor("serpapi", chinese)).hl,
+        (await sentFor("tavily", chinese)).language,
+      ],
+      ["zh-hans", "ZH-HANS", "zh-cn", "zh"],
+    );
+  });
+
   it("are left out for a provider whose list does not have them", async () => {
     // Israel and Tibetan: real codes that Brave, You.com, Valyu and Google's
     // language list do not carry.

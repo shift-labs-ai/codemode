@@ -142,28 +142,29 @@ function chosen(
   return provider;
 }
 
-const REGION_NAMES = new Intl.DisplayNames(["en"], {
-  type: "region",
-  fallback: "none",
-});
-const LANGUAGE_NAMES = new Intl.DisplayNames(["en"], {
-  type: "language",
-  fallback: "none",
-});
+/** The codes that name something, by what they name. */
+const CODES = {
+  country: {
+    names: new Intl.DisplayNames(["en"], { type: "region", fallback: "none" }),
+    standard: "ISO 3166-1 alpha-2",
+    example: "US",
+  },
+  language: {
+    names: new Intl.DisplayNames(["en"], {
+      type: "language",
+      fallback: "none",
+    }),
+    standard: "ISO 639-1",
+    example: "en",
+  },
+};
 
-/** Refuse a code in the right form that names no country. */
-function checkCountry(code: string): void {
-  if (!REGION_NAMES.of(code))
+/** Refuse a code in the right form that names no country, or no language. */
+function checkCode(kind: keyof typeof CODES, code: string | undefined): void {
+  const { names, standard, example } = CODES[kind];
+  if (code !== undefined && !names.of(code))
     throw new Error(
-      `${NAME}: ${code} is not a country. Pass an ISO 3166-1 alpha-2 code, such as US.`,
-    );
-}
-
-/** Refuse a code in the right form that names no language. */
-function checkLanguage(code: string): void {
-  if (!LANGUAGE_NAMES.of(code))
-    throw new Error(
-      `${NAME}: ${code} is not a language. Pass an ISO 639-1 code, such as en.`,
+      `${NAME}: ${code} is not a ${kind}. Pass an ${standard} code, such as ${example}.`,
     );
 }
 
@@ -340,8 +341,8 @@ export function webSearch(
           throw new Error(
             `${NAME}: set includeDomains or excludeDomains, not both.`,
           );
-        if (input.country) checkCountry(input.country);
-        if (input.language) checkLanguage(input.language);
+        checkCode("country", input.country);
+        checkCode("language", input.language);
         const numResults = input.numResults ?? DEFAULT_RESULTS;
         const freshness = input.freshness as Freshness | undefined;
         const search: SearchRequest = {

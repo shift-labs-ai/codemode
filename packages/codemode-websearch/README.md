@@ -59,15 +59,13 @@ Each input has one form, and a value in another form is refused before any reque
 | `includeDomains`, `excludeDomains` | 1 to 20 hostnames in lower case, without `https://` or a path | `["duckdb.org"]` |
 | `freshness` | `"day"`, `"week"`, `"month"`, or `"year"` | `"week"` |
 
-Codemode turns each value into what the provider's API takes: `"DE"` reaches Parallel as `de`, Tavily as `germany`, and Brave as `DE`.
+Codemode turns each value into what the provider's API takes: `"DE"` reaches Parallel as `de`, Tavily as `germany`, and Brave as `DE`. The inputs are the same for every provider, and a search names no parameter of a provider's own.
 
 | Result field | Contents |
 |---|---|
 | `title`, `url` | The page |
 | `content` | The text the provider returned for the page: a snippet, excerpts, or the page itself |
 | `publishedDate`, `author`, `sourceType` | Present when the provider gives them |
-
-The inputs are the same for every provider, and a search names no parameter of a provider's own.
 
 ## Choose a provider
 
@@ -171,7 +169,7 @@ A provider's error text is not included in the message, because it can repeat th
 
 - Results are what the provider returns. Their length and freshness differ from provider to provider.
 - Jina applies no filter, so a search through it with `includeDomains`, `excludeDomains`, or `freshness` is refused.
-- Brave, Serper, and SerpAPI filter by site with `site:` operators added to the query.
+- Brave, Serper, and SerpAPI filter by site with `site:` operators added to the query. Brave takes a query of 600 characters, so a long query with many long hostnames can pass it and be refused.
 - `freshness` reaches back 1, 7, 31, or 365 days, by the date a provider holds for a page.
 - Serper and SerpAPI can return a first result with an empty `url`: what Google's results page says about the thing searched for.
 - SerpAPI takes no number of results. It answers one page of Google's results, of which the first `numResults` are returned.
