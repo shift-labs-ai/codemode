@@ -8,7 +8,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
   statSync,
@@ -23,6 +22,7 @@ import {
   PackageManager,
 } from "@shiftlabs/codemode";
 import type { ShellResult } from "@shiftlabs/codemode/utils/cli";
+import { ends, pidIn } from "../../codemode/src/tests/helpers/processes.js";
 import bash, { resolveBash } from "../src/index.js";
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
@@ -142,17 +142,7 @@ describe("bash.run", () => {
         { timeoutMs: 1_500 },
       );
       assert.match(error ?? "", /timed out/);
-      const pid = Number(readFileSync(pidFile, "utf8"));
-      let alive = true;
-      for (let tries = 0; tries < 100 && alive; tries++) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        try {
-          process.kill(pid, 0);
-        } catch {
-          alive = false;
-        }
-      }
-      assert.equal(alive, false);
+      assert.equal(await ends(await pidIn(pidFile)), true);
     },
   );
 
@@ -215,6 +205,7 @@ describe("the package", () => {
     const report = await packages.inspect(await packages.fetch(PACKAGE));
     assert.deepEqual(beyondPeer(report.problems), []);
     assert.equal(report.name, "@shiftlabs/codemode-bash");
+    assert.equal(report.plugins[0].version, report.version);
     assert.deepEqual(
       report.plugins.map(({ name, actions, write }) => [name, actions, write]),
       [["bash", 1, 1]],

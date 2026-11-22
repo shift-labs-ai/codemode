@@ -40,6 +40,7 @@ import { isLoopbackHost } from "../auth/token.js";
 import type { OAuth2Definition, OAuthTokens } from "../auth/types.js";
 import type { OAuthConfig } from "../plugin/types.js";
 import { environment } from "../utils/deprecation.js";
+import { MAX_TIMEOUT_MS } from "../utils/timers.js";
 
 export type { OAuthTokens } from "../auth/types.js";
 
@@ -353,7 +354,7 @@ function captureCode(
   if (
     !Number.isInteger(timeoutMs) ||
     timeoutMs <= 0 ||
-    timeoutMs > 2 ** 31 - 1
+    timeoutMs > MAX_TIMEOUT_MS
   ) {
     return Promise.reject(new Error("OAuth: invalid callback timeout"));
   }

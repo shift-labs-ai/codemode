@@ -79,6 +79,7 @@ Before submitting changes, run:
 bun --filter @shiftlabs/codemode build
 bun run typecheck
 bun --filter @shiftlabs/codemode test
+bun run --filter '@shiftlabs/codemode-*' test
 bun run check
 ```
 

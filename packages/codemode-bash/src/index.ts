@@ -9,17 +9,21 @@
  */
 
 import { accessSync, constants } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve, win32 } from "node:path";
 import type { CodemodePluginAPI } from "@shiftlabs/codemode";
 import {
   commandPath,
+  MAX_TIMEOUT_MS,
   runShell,
   type ShellProgram,
 } from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
 
-/** The longest delay a timer takes. */
-const MAX_TIMEOUT_MS = 2_147_483_647;
+/** The package's version is the plugin's. */
+const { version } = createRequire(import.meta.url)("../package.json") as {
+  version: string;
+};
 
 /** Whether a path is there. Not `existsSync`: on Windows its extra check refuses runnable Store aliases. */
 function present(path: string): boolean {
@@ -126,7 +130,7 @@ const runOutput = {
 
 export default function bash(rl: CodemodePluginAPI): void {
   rl.setName("bash");
-  rl.setVersion("0.1.0");
+  rl.setVersion(version);
   rl.setDescription(
     "Run bash commands on the machine codemode runs on, with the permissions of the codemode process.",
   );

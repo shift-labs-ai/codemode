@@ -71,3 +71,4 @@ export {
   type ShellProgram,
   type ShellResult,
 } from "./shell.js";
+export { MAX_TIMEOUT_MS } from "./timers.js";

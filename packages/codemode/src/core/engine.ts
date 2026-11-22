@@ -31,6 +31,9 @@ import type {
 } from "../plugin/types.js";
 import { notifyObserver } from "../utils/observer.js";
 import { clipText, writeOutputFile } from "../utils/output-files.js";
+import { MAX_TIMEOUT_MS } from "../utils/timers.js";
+
+export { MAX_TIMEOUT_MS };
 
 export interface ExecuteResult {
   /**
@@ -190,14 +193,6 @@ export function shouldArmRssWatchdog(
 ): boolean {
   return Boolean(versions.bun);
 }
-
-/**
- * Ceiling on an armed timeout: setTimeout stores its delay in an int32,
- * so past ~24.8 days it overflows and fires at 0ms. Oversized values are
- * rejected with an error that teaches the caller to pass 0 — the explicit
- * "no timeout" — instead of overflowing into an instant kill.
- */
-export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 // Extra slack on top of the configured memory limit for the RSS watchdog,
 // since whole-process RSS includes the host's own working set.

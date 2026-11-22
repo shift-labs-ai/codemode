@@ -3,6 +3,7 @@ import { existsSync, type WriteStream } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
 import { createOutputFileStream, joinClipped } from "./output-files.js";
+import { MAX_TIMEOUT_MS } from "./timers.js";
 
 /** How a shell program takes a script. */
 export interface ShellProgram {
@@ -79,8 +80,6 @@ export function isShellError(error: unknown): error is ShellError {
 }
 
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
-/** The longest delay a timer takes. */
-const MAX_TIMEOUT_MS = 2_147_483_647;
 /** How long output may stay quiet, once the shell has exited, before the call ends. */
 const EXIT_STDIO_GRACE_MS = 100;
 /** Output goes to its file in blocks of this size, not a write per chunk read. */

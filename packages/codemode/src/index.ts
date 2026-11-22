@@ -322,6 +322,7 @@ export {
   commandPath,
   isShellError,
   killProcessTree,
+  MAX_TIMEOUT_MS,
   runShell,
   ShellError,
   syncExec,
