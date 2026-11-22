@@ -71,4 +71,10 @@ export {
   type ShellProgram,
   type ShellResult,
 } from "./shell.js";
+export {
+  pathExists,
+  type ShellRunActionOptions,
+  shellConnectionSchema,
+  shellRunAction,
+} from "./shell-action.js";
 export { MAX_TIMEOUT_MS } from "./timers.js";

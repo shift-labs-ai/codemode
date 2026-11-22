@@ -1,0 +1,90 @@
+# codemode-powershell
+
+A [codemode](../../README.md) package with one plugin, `powershell`, whose one action runs a PowerShell command on the machine codemode runs on.
+
+Install it where code should run commands. It is not a sandbox: a command runs with the permissions of the codemode process.
+
+## Install
+
+Install the package. It needs no connection:
+
+```bash
+codemode install npm:@shiftlabs/codemode-powershell
+```
+
+It needs a codemode newer than 0.46.0, and a PowerShell: `pwsh` on any system, or Windows PowerShell 5.1.
+
+## Run a command
+
+`powershell.run` returns what the command wrote and how it ended:
+
+```bash
+codemode exec 'return await powershell.run({ command: "Get-ChildItem *.md | Select-Object -ExpandProperty Name" })'
+```
+
+```json
+{
+  "output": "README.md\n",
+  "exitCode": 0,
+  "truncated": false,
+  "wallTimeMs": 412
+}
+```
+
+| Input | Meaning |
+|---|---|
+| `command` | The script to run |
+| `cwd` | Working directory. A relative path resolves from the connection's `cwd` |
+| `timeoutMs` | End the command, and what it started, after this long. The default is no limit of its own |
+
+Each call is a new process, so `Set-Location` and variables do not carry from one call to the next. Put steps that depend on each other in one command.
+
+PowerShell runs with `-NoProfile -NonInteractive -ExecutionPolicy Bypass`. Output is UTF-8 and plain text, without colour codes.
+
+## Handle results
+
+A command that ends with a failure still returns, so check `exitCode`. PowerShell decides it by the command's last statement:
+
+| The command | `exitCode` |
+|---|---|
+| Calls `exit 3` | 3 |
+| Ends with a statement that succeeded | 0 |
+| Ends with a statement that failed, or throws | 1 |
+| Ends with a program that exited 5 | 1 |
+| Cannot be parsed | 1 |
+
+End a command with `exit $LASTEXITCODE` to return the exit code of the program it ran:
+
+```js
+const built = await powershell.run({ command: "dotnet build; exit $LASTEXITCODE" });
+if (built.exitCode !== 0) return built.output;
+```
+
+| Outcome | Result |
+|---|---|
+| The command ends, with any exit code | Returns `output`, `exitCode`, `truncated`, and `wallTimeMs` |
+| PowerShell cannot start, or `cwd` does not exist | The call rejects |
+| The command outlives `timeoutMs` | The call rejects, with what the command wrote |
+| The run ends first | The command, and what it started, is ended |
+
+`output` is stdout and stderr together. Past 1 MiB it keeps its start and end around a note of what was left out, and `fullOutputPath` names a file with all of it, in the host's [output directory](../../docs/sdk.md#limit-a-runs-result).
+
+## Configure the connection
+
+Add a connection to set where commands run or which PowerShell runs them. Both values are optional:
+
+```bash
+codemode connection add powershell --plugin powershell --set cwd=/srv/app
+```
+
+| Field | Meaning |
+|---|---|
+| `cwd` | The directory commands run in. The default is the directory codemode runs in |
+| `shell` | Path of the PowerShell to run. The default is `pwsh` on `PATH`, then `powershell` on `PATH`. On Windows it is PowerShell 7 where it installs, before Windows PowerShell |
+
+## Understand the limits
+
+- A command sees the whole environment of the codemode process.
+- The action is labelled `write`, whatever the command does.
+- In Windows PowerShell 5.1, a program that writes to a redirected stderr and exits 0 counts as a success.
+- Windows and Windows PowerShell 5.1 are untested.

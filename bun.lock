@@ -61,12 +61,10 @@
         "@shiftlabs/codemode": "workspace:*",
         "@types/bun": "^1.2.17",
         "@types/node": "^25.5.0",
-        "typebox": "^1.1.35",
         "typescript": "^5.8.0",
       },
       "peerDependencies": {
         "@shiftlabs/codemode": ">0.46.0",
-        "typebox": "*",
       },
     },
     "packages/codemode-plugins": {
@@ -89,6 +87,19 @@
       },
       "peerDependencies": {
         "@shiftlabs/codemode": "*",
+      },
+    },
+    "packages/codemode-powershell": {
+      "name": "@shiftlabs/codemode-powershell",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@shiftlabs/codemode": "workspace:*",
+        "@types/bun": "^1.2.17",
+        "@types/node": "^25.5.0",
+        "typescript": "^5.8.0",
+      },
+      "peerDependencies": {
+        "@shiftlabs/codemode": ">0.46.0",
       },
     },
     "packages/runline": {
@@ -197,6 +208,8 @@
     "@shiftlabs/codemode": ["@shiftlabs/codemode@workspace:packages/codemode"],
 
     "@shiftlabs/codemode-bash": ["@shiftlabs/codemode-bash@workspace:packages/codemode-bash"],
+
+    "@shiftlabs/codemode-powershell": ["@shiftlabs/codemode-powershell@workspace:packages/codemode-powershell"],
 
     "@types/bun": ["@types/bun@1.3.12", "", { "dependencies": { "bun-types": "1.3.12" } }, "sha512-DBv81elK+/VSwXHDlnH3Qduw+KxkTIWi7TXkAeh24zpi5l0B2kUg9Ga3tb4nJaPcOFswflgi/yAvMVBPrxMB+A=="],
 

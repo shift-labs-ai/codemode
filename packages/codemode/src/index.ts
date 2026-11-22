@@ -316,6 +316,7 @@ export type {
   ShellErrorCode,
   ShellProgram,
   ShellResult,
+  ShellRunActionOptions,
 } from "./utils/cli.js";
 export {
   commandExists,
@@ -323,8 +324,11 @@ export {
   isShellError,
   killProcessTree,
   MAX_TIMEOUT_MS,
+  pathExists,
   runShell,
   ShellError,
+  shellConnectionSchema,
+  shellRunAction,
   syncExec,
 } from "./utils/cli.js";
 export {

@@ -1,0 +1,141 @@
+/**
+ * The `run` action of a shell plugin: one input, one result and one set of
+ * rules, whichever shell runs the command. A plugin says which program
+ * that is and how a command becomes its script.
+ */
+
+import { accessSync, constants } from "node:fs";
+import { resolve } from "node:path";
+import * as t from "typebox";
+import type { ActionDefinition } from "../plugin/api.js";
+import { runShell, type ShellProgram } from "./shell.js";
+import { MAX_TIMEOUT_MS } from "./timers.js";
+
+/** Whether a path is there. Not `existsSync`: on Windows its extra check refuses runnable Store aliases. */
+export function pathExists(path: string): boolean {
+  try {
+    accessSync(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const shellRunInput = t.Object(
+  {
+    command: t.String({
+      minLength: 1,
+      description:
+        "The script to run. Each call is a new process: a changed directory and variables do not carry over to the next call.",
+    }),
+    cwd: t.Optional(
+      t.String({
+        minLength: 1,
+        description:
+          "Working directory. A relative path resolves from the connection's `cwd`. Default: the connection's `cwd`, else the directory codemode runs in.",
+      }),
+    ),
+    timeoutMs: t.Optional(
+      t.Integer({
+        minimum: 1,
+        maximum: MAX_TIMEOUT_MS,
+        description:
+          "End the command, and what it started, after this many milliseconds. Default: no limit of its own; the command ends when the run does.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+const shellRunOutput = {
+  type: "object",
+  properties: {
+    output: {
+      type: "string",
+      description:
+        "stdout and stderr together. Past 1 MiB: its start and end around a note of what was left out.",
+    },
+    exitCode: {
+      type: "number",
+      description:
+        "The shell's exit code. A shell a signal ended has 128 plus the signal's number.",
+    },
+    truncated: { type: "boolean" },
+    fullOutputPath: {
+      type: "string",
+      description: "The file with all of the output, when `truncated`.",
+    },
+    wallTimeMs: { type: "number" },
+  },
+  required: ["output", "exitCode", "truncated", "wallTimeMs"],
+};
+
+/**
+ * The connection of a shell plugin: where commands run, and which program
+ * runs them. `defaultShell` says in words what runs when none is named.
+ */
+export function shellConnectionSchema(defaultShell: string) {
+  return t.Object({
+    cwd: t.Optional(
+      t.String({
+        description:
+          "The directory commands run in. Default: the directory codemode runs in.",
+      }),
+    ),
+    shell: t.Optional(
+      t.String({
+        description: `Path of the shell to run commands with. Default: ${defaultShell}.`,
+      }),
+    ),
+  });
+}
+
+export interface ShellRunActionOptions {
+  /** The shell's name as the action's description says it: `bash`, `PowerShell`. */
+  shell: string;
+  /** The start of the name of the file that keeps output past the limit. */
+  outputFilePrefix: string;
+  /**
+   * The program a call runs, from the shell the connection names when it
+   * names one, and the script that program is handed for a command.
+   */
+  prepare(
+    command: string,
+    shell: string | undefined,
+  ): { program: ShellProgram; script: string };
+}
+
+/**
+ * A shell plugin's `run` action. It runs on the machine codemode runs on,
+ * so it is a write whatever the command does, and it ends with the run
+ * that called it.
+ */
+export function shellRunAction(
+  options: ShellRunActionOptions,
+): ActionDefinition<typeof shellRunInput> {
+  return {
+    access: "write",
+    description: `Run a ${options.shell} command and return its output and exit code. A command that ends with a failure still returns: check \`exitCode\`. A command that cannot start, or that outlives \`timeoutMs\`, rejects.`,
+    hints: { destructive: true, openWorld: true },
+    inputSchema: shellRunInput,
+    outputSchema: shellRunOutput,
+    execute({ command, cwd, timeoutMs }, ctx) {
+      const { config } = ctx.connection;
+      const base =
+        typeof config.cwd === "string" && config.cwd ? config.cwd : undefined;
+      const { program, script } = options.prepare(
+        command,
+        typeof config.shell === "string" && config.shell
+          ? config.shell
+          : undefined,
+      );
+      return runShell(program, script, {
+        cwd: cwd === undefined ? base : resolve(base ?? process.cwd(), cwd),
+        timeoutMs,
+        signal: ctx.signal,
+        outputDir: ctx.outputDir,
+        outputFilePrefix: options.outputFilePrefix,
+      });
+    },
+  };
+}

@@ -64,6 +64,7 @@ Codemode is a Bun workspace. It was called runline through 0.45; see [Migrate fr
 | [`packages/codemode`](packages/codemode) | The library and command-line interface, published as `@shiftlabs/codemode` |
 | [`packages/codemode-plugins`](packages/codemode-plugins) | The bundled plugins, built into codemode's `dist` |
 | [`packages/codemode-bash`](packages/codemode-bash) | The `bash` plugin as a package, published as `@shiftlabs/codemode-bash` |
+| [`packages/codemode-powershell`](packages/codemode-powershell) | The `powershell` plugin as a package, published as `@shiftlabs/codemode-powershell` |
 | [`packages/runline`](packages/runline) | The `runline` package on npm, which forwards to codemode until 0.48.0 |
 
 Install dependencies and run the command-line interface from source:
