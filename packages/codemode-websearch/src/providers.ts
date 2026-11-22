@@ -399,10 +399,10 @@ export const serpapi: SearchProvider = {
   baseUrl: "https://serpapi.com/",
   method: "GET",
   path: "search.json",
-  params: ({ query, numResults, country, language }) => ({
+  // SerpAPI's Google search takes no number of results: it answers a page.
+  params: ({ query, country, language }) => ({
     q: query,
     engine: "google",
-    num: numResults,
     gl: country,
     hl: language,
   }),

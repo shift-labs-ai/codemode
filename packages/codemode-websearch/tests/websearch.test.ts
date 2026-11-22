@@ -408,7 +408,7 @@ const CASES: Record<
   serpapi: {
     request: {
       method: "GET",
-      url: "https://serpapi.com/search.json?q=duckdb+release&engine=google&num=3&gl=de&hl=de&api_key=KEY-serpapi",
+      url: "https://serpapi.com/search.json?q=duckdb+release&engine=google&gl=de&hl=de&api_key=KEY-serpapi",
       key: "query",
       body: null,
     },
@@ -480,6 +480,24 @@ describe("web.search through each provider", () => {
     assert.equal(
       sent[0].url,
       "https://api.search.brave.com/res/v1/web/search?q=plain&count=5",
+    );
+  });
+
+  it("returns no more results than were asked for, whatever the provider answers", async () => {
+    provider({
+      organic_results: [1, 2, 3, 4].map((n) => ({
+        title: `T${n}`,
+        link: `https://a.example/${n}`,
+        snippet: "s",
+      })),
+    });
+    const found = await search(
+      { query: "q", numResults: 2, provider: "serpapi" },
+      ALL_KEYS,
+    );
+    assert.deepEqual(
+      found.results.map(({ title }) => title),
+      ["T1", "T2"],
     );
   });
 

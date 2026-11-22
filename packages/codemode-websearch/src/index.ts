@@ -249,10 +249,11 @@ export function webSearch(
           input.provider,
           !ctx.credentials,
         );
+        const numResults = input.numResults ?? DEFAULT_RESULTS;
         const params = defined({
           ...provider.params({
             query: input.query,
-            numResults: input.numResults ?? DEFAULT_RESULTS,
+            numResults,
             country: input.country?.toLowerCase(),
             language: input.language?.toLowerCase(),
           }),
@@ -272,7 +273,12 @@ export function webSearch(
             ...(provider.headers ? { headers: provider.headers } : {}),
           },
         );
-        return { provider: provider.name, results: provider.results(answer) };
+        // A provider that takes no number of results, or returns more than
+        // it was asked for, is held to the number here.
+        return {
+          provider: provider.name,
+          results: provider.results(answer).slice(0, numResults),
+        };
       },
     });
   };
