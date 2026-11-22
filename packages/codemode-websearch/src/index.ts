@@ -35,10 +35,19 @@ function keyField(provider: SearchProvider): string {
   return `${provider.name}ApiKey`;
 }
 
+/** Whether the connection holds a key for the provider. */
+function hasKey(
+  provider: SearchProvider,
+  config: Readonly<Record<string, unknown>>,
+): boolean {
+  return Boolean(config[keyField(provider)]);
+}
+
 /**
  * One credential for every provider: a part per provider, each optional and
  * each placed only on that provider's target, so a connection holds the keys
- * it has and a key is sent to its own provider alone.
+ * it has and a key is sent to its own provider alone. A target is the
+ * provider's address, the method a search uses and the headers it carries.
  */
 function credentialOf(providers: SearchProvider[]): CredentialDeclaration {
   const names = providers.map((provider) => provider.name);
@@ -65,13 +74,18 @@ function credentialOf(providers: SearchProvider[]): CredentialDeclaration {
     ),
     targets: (config) =>
       Object.fromEntries(
-        providers.map(({ name, target }): [string, CredentialTarget] => [
-          name,
-          {
-            timeoutMs: TIMEOUT_MS,
-            ...(typeof target === "function" ? target(config) : target),
-          },
-        ]),
+        providers.map(
+          ({ name, baseUrl, method, headers }): [string, CredentialTarget] => [
+            name,
+            {
+              baseUrl:
+                typeof baseUrl === "function" ? baseUrl(config) : baseUrl,
+              methods: [method],
+              ...(headers ? { allowedHeaders: Object.keys(headers) } : {}),
+              timeoutMs: TIMEOUT_MS,
+            },
+          ],
+        ),
       ),
   });
 }
@@ -79,25 +93,34 @@ function credentialOf(providers: SearchProvider[]): CredentialDeclaration {
 /**
  * The provider a search goes to: the one the call names, else the
  * connection's `provider`, else the first with a key in the connection.
+ * A host that signs requests keeps the keys, so only a connection that
+ * signs for itself (`signsItself`) is asked to hold the key of a provider
+ * that is named.
  */
 function chosen(
   providers: SearchProvider[],
-  config: Record<string, unknown>,
+  config: Readonly<Record<string, unknown>>,
   named: string | undefined,
+  signsItself: boolean,
 ): SearchProvider {
   const name = named ?? config.provider;
-  if (name !== undefined) {
-    const provider = providers.find((candidate) => candidate.name === name);
-    if (provider) return provider;
+  if (name === undefined) {
+    const first = providers.find((candidate) => hasKey(candidate, config));
+    if (first) return first;
+    throw new Error(
+      `${NAME}: no search provider has a key. Set one of ${providers.map((candidate) => candidate.env).join(", ")}, or the connection's "provider" when the host keeps the keys.`,
+    );
+  }
+  const provider = providers.find((candidate) => candidate.name === name);
+  if (!provider)
     throw new Error(
       `${NAME}: no provider named ${JSON.stringify(name)}. The providers are ${providers.map((candidate) => candidate.name).join(", ")}.`,
     );
-  }
-  const provider = providers.find((candidate) => config[keyField(candidate)]);
-  if (provider) return provider;
-  throw new Error(
-    `${NAME}: no search provider has a key. Set one of ${providers.map((candidate) => candidate.env).join(", ")}, or the connection's "provider" when the host keeps the keys.`,
-  );
+  if (signsItself && !hasKey(provider, config))
+    throw new Error(
+      `${NAME}: no key for ${provider.name}. Set ${provider.env}, or search with a provider that has one.`,
+    );
+  return provider;
 }
 
 /** `params` without the entries that have no value. */
@@ -224,18 +247,8 @@ export function webSearch(
           providers,
           ctx.connection.config,
           input.provider,
+          !ctx.credentials,
         );
-        // A host that signs requests keeps the keys, so only a connection
-        // that signs for itself is asked for one here.
-        if (!ctx.credentials && !ctx.connection.config[keyField(provider)])
-          throw new Error(
-            `${NAME}: no key for ${provider.name}. Set ${provider.env}, or search with a provider that has one.`,
-          );
-        const method = (
-          typeof provider.target === "function"
-            ? provider.target(ctx.connection.config)
-            : provider.target
-        ).methods[0];
         const params = defined({
           ...provider.params({
             query: input.query,
@@ -252,8 +265,10 @@ export function webSearch(
           {
             target: provider.name,
             path: provider.path,
-            method,
-            ...(method === "GET" ? { query: params } : { json: params }),
+            method: provider.method,
+            ...(provider.method === "GET"
+              ? { query: params }
+              : { json: params }),
             ...(provider.headers ? { headers: provider.headers } : {}),
           },
         );

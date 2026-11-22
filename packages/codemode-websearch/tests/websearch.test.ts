@@ -5,8 +5,11 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { Codemode } from "@shiftlabs/codemode";
 import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
 import web, {
@@ -536,7 +539,7 @@ describe("the provider a search uses", () => {
     const sent = provider({});
     assert.match(
       await refused({ query: "q", provider: "altavista" }, ALL_KEYS),
-      /provider/,
+      /Invalid input for web\.search.*\/provider must be equal to one of the allowed values/,
     );
     assert.match(
       await refused({ query: "q" }, { ...ALL_KEYS, provider: "altavista" }),
@@ -577,9 +580,12 @@ describe("a provider's own parameters", () => {
 
   it("cannot name the parameter that carries the key", async () => {
     const sent = provider({});
-    await refused(
-      { query: "q", provider: "serpapi", options: { api_key: "mine" } },
-      ALL_KEYS,
+    assert.match(
+      await refused(
+        { query: "q", provider: "serpapi", options: { api_key: "mine" } },
+        ALL_KEYS,
+      ),
+      /outside the approved policy/,
     );
     assert.equal(sent.length, 0);
   });
@@ -596,7 +602,11 @@ describe("what a search accepts", () => {
       { query: "" },
       { query: "q", depth: "deep" },
     ])
-      await refused(input, ALL_KEYS);
+      assert.match(
+        await refused(input, ALL_KEYS),
+        /Invalid input for web\.search/,
+        JSON.stringify(input),
+      );
     assert.equal(sent.length, 0);
   });
 });
@@ -631,9 +641,12 @@ describe("a Firecrawl of the host's own", () => {
 
   it("is refused over plain HTTP, where the key would travel in the clear", async () => {
     const sent = provider({});
-    await refused(
-      { query: "q" },
-      { firecrawlApiKey: "k", firecrawlUrl: "http://crawl.acme.example" },
+    assert.match(
+      await refused(
+        { query: "q" },
+        { firecrawlApiKey: "k", firecrawlUrl: "http://crawl.acme.example" },
+      ),
+      /Missing or invalid authentication credentials/,
     );
     assert.equal(sent.length, 0);
   });
@@ -644,7 +657,8 @@ describe("a provider a host adds", () => {
     name: "acme",
     env: "ACME_SEARCH_KEY",
     key: { header: "X-Acme-Key" },
-    target: { baseUrl: "https://search.acme.example/api/", methods: ["GET"] },
+    baseUrl: "https://search.acme.example/api/",
+    method: "GET",
     path: "find",
     params: ({ query, numResults }) => ({ q: query, n: numResults }),
     results: (answer) =>
@@ -670,6 +684,83 @@ describe("a provider a host adds", () => {
     assert.equal(sent[0].url, "https://search.acme.example/api/find?q=q&n=5");
     assert.equal(sent[0].headers["x-acme-key"], "KEY-acme");
     assert.ok(!JSON.stringify(sent).includes("KEY-parallel"));
+  });
+});
+
+describe("a host that keeps the keys", () => {
+  it("is asked to sign the request for the connection's provider, which holds no key", async () => {
+    const sent = provider({});
+    const requests: unknown[] = [];
+    const codemode = Codemode.create({
+      plugins: [web],
+      connections: [
+        { name: "web", plugin: "web", config: { provider: "exa" } },
+      ],
+      credentialBroker: () => ({
+        request: async (request) => {
+          requests.push(request);
+          return Response.json({
+            results: [{ title: "One", url: "https://a.example/1", text: "t" }],
+          });
+        },
+        probe: async () => ({ outcome: "unverified" }),
+      }),
+    });
+    try {
+      const { result, error } = await codemode.execute(
+        'return await web.search({ query: "q" })',
+      );
+      assert.equal(error, undefined);
+      assert.deepEqual(result, {
+        provider: "exa",
+        results: [{ title: "One", url: "https://a.example/1", content: "t" }],
+      });
+      assert.deepEqual(requests, [
+        {
+          target: "exa",
+          path: "search",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            query: "q",
+            numResults: 5,
+            type: "auto",
+            contents: { text: { maxCharacters: 3000 }, highlights: true },
+          }),
+        },
+      ]);
+      assert.equal(sent.length, 0);
+    } finally {
+      codemode.dispose();
+    }
+  });
+});
+
+describe("the README", () => {
+  it("lists the providers in their order, with each key and what a search sends it", () => {
+    const readme = readFileSync(join(PACKAGE, "README.md"), "utf8");
+    const rows = [
+      ...readme.matchAll(
+        /^\| `(\w+)` \| `(\w+)` \| (Yes|No) \| (Yes|No) \|$/gm,
+      ),
+    ].map(([, name, env, country, language]) => [name, env, country, language]);
+    assert.deepEqual(
+      rows,
+      PROVIDERS.map(({ name, env, params }) => {
+        const sent = JSON.stringify(
+          params({ query: "q", numResults: 5, country: "zz", language: "yy" }),
+        ).toLowerCase();
+        return [
+          name,
+          env,
+          sent.includes('"zz"') ? "Yes" : "No",
+          sent.includes('"yy"') ? "Yes" : "No",
+        ];
+      }),
+    );
   });
 });
 

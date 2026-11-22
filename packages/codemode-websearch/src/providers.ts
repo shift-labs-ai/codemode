@@ -4,7 +4,7 @@
  * pure functions; the plugin sends the request.
  */
 
-import { type CredentialTarget, httpsBase } from "@shiftlabs/codemode";
+import { httpsBase } from "@shiftlabs/codemode";
 import * as t from "typebox";
 
 /** A search as every provider receives it. */
@@ -28,6 +28,7 @@ export interface SearchResult {
   sourceType?: string;
 }
 
+/** A search API: where it is, where its key goes, and how a search reads to and from it. */
 export interface SearchProvider {
   /** The name code passes as `provider`, and the stem of the key's connection field. */
   name: string;
@@ -35,20 +36,20 @@ export interface SearchProvider {
   env: string;
   /** Where the key goes in a request: a header, or a query parameter. */
   key: { header: string; prefix?: string } | { query: string };
-  /** The one place the key may be sent. */
-  target:
-    | CredentialTarget
-    | ((config: Record<string, unknown>) => CredentialTarget);
+  /**
+   * The HTTPS address the key may be sent beneath, ending in `/`: fixed, or
+   * from the connection's config.
+   */
+  baseUrl: string | ((config: Readonly<Record<string, unknown>>) => string);
   /** Connection fields of the provider's own, beside its key. */
   fields?: Record<string, t.TSchema>;
-  /** The path of the search endpoint beneath the target. */
+  /** How a search is sent: parameters in the query of a GET, or the JSON body of a POST. */
+  method: "GET" | "POST";
+  /** The path of the search endpoint beneath `baseUrl`. */
   path: string;
-  /** Headers every request carries. The target allows them. */
+  /** Headers every request carries. */
   headers?: Record<string, string>;
-  /**
-   * The provider's parameters for a search, under the names its API gives
-   * them: the query of a GET, the JSON body of a POST.
-   */
+  /** The provider's parameters for a search, under the names its API gives them. */
   params(search: SearchRequest): Record<string, unknown>;
   /** The results in the provider's answer. */
   results(answer: unknown): SearchResult[];
@@ -114,7 +115,8 @@ export const parallel: SearchProvider = {
   name: "parallel",
   env: "PARALLEL_API_KEY",
   key: { header: "x-api-key" },
-  target: { baseUrl: "https://api.parallel.ai/v1/", methods: ["POST"] },
+  baseUrl: "https://api.parallel.ai/v1/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults, country }) => ({
     objective: query,
@@ -137,7 +139,8 @@ export const brave: SearchProvider = {
   name: "brave",
   env: "BRAVE_API_KEY",
   key: { header: "X-Subscription-Token" },
-  target: { baseUrl: "https://api.search.brave.com/res/v1/", methods: ["GET"] },
+  baseUrl: "https://api.search.brave.com/res/v1/",
+  method: "GET",
   path: "web/search",
   params: ({ query, numResults, country, language }) => ({
     q: query,
@@ -160,7 +163,8 @@ export const exa: SearchProvider = {
   name: "exa",
   env: "EXA_API_KEY",
   key: { header: "x-api-key" },
-  target: { baseUrl: "https://api.exa.ai/", methods: ["POST"] },
+  baseUrl: "https://api.exa.ai/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults, country }) => ({
     query,
@@ -185,7 +189,8 @@ export const you: SearchProvider = {
   name: "you",
   env: "YOU_API_KEY",
   key: { header: "X-API-Key" },
-  target: { baseUrl: "https://ydc-index.io/v1/", methods: ["POST"] },
+  baseUrl: "https://ydc-index.io/v1/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults, country, language }) => ({
     query,
@@ -211,7 +216,8 @@ export const tavily: SearchProvider = {
   name: "tavily",
   env: "TAVILY_API_KEY",
   key: { header: "Authorization", prefix: "Bearer " },
-  target: { baseUrl: "https://api.tavily.com/", methods: ["POST"] },
+  baseUrl: "https://api.tavily.com/",
+  method: "POST",
   path: "search",
   // Tavily takes a country by its English name, so a country code is not sent.
   params: ({ query, numResults, language }) => ({
@@ -237,10 +243,8 @@ export const firecrawl: SearchProvider = {
   name: "firecrawl",
   env: "FIRECRAWL_API_KEY",
   key: { header: "Authorization", prefix: "Bearer " },
-  target: (config) => ({
-    baseUrl: httpsBase(config.firecrawlUrl ?? FIRECRAWL, "v2/"),
-    methods: ["POST"],
-  }),
+  baseUrl: (config) => httpsBase(config.firecrawlUrl ?? FIRECRAWL, "v2/"),
+  method: "POST",
   fields: {
     firecrawlUrl: t.Optional(
       t.String({
@@ -269,11 +273,8 @@ export const jina: SearchProvider = {
   name: "jina",
   env: "JINA_API_KEY",
   key: { header: "Authorization", prefix: "Bearer " },
-  target: {
-    baseUrl: "https://s.jina.ai/",
-    methods: ["POST"],
-    allowedHeaders: ["X-Retain-Images"],
-  },
+  baseUrl: "https://s.jina.ai/",
+  method: "POST",
   path: "",
   headers: { "X-Retain-Images": "none" },
   params: ({ query, numResults, country, language }) => ({
@@ -296,7 +297,8 @@ export const linkup: SearchProvider = {
   name: "linkup",
   env: "LINKUP_API_KEY",
   key: { header: "Authorization", prefix: "Bearer " },
-  target: { baseUrl: "https://api.linkup.so/v1/", methods: ["POST"] },
+  baseUrl: "https://api.linkup.so/v1/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults }) => ({
     q: query,
@@ -319,7 +321,8 @@ export const valyu: SearchProvider = {
   name: "valyu",
   env: "VALYU_API_KEY",
   key: { header: "X-API-Key" },
-  target: { baseUrl: "https://api.valyu.ai/v1/", methods: ["POST"] },
+  baseUrl: "https://api.valyu.ai/v1/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults, country }) => ({
     query,
@@ -343,7 +346,8 @@ export const perplexity: SearchProvider = {
   name: "perplexity",
   env: "PERPLEXITY_API_KEY",
   key: { header: "Authorization", prefix: "Bearer " },
-  target: { baseUrl: "https://api.perplexity.ai/", methods: ["POST"] },
+  baseUrl: "https://api.perplexity.ai/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults, country, language }) => ({
     query,
@@ -366,7 +370,8 @@ export const serper: SearchProvider = {
   name: "serper",
   env: "SERPER_API_KEY",
   key: { header: "X-API-KEY" },
-  target: { baseUrl: "https://google.serper.dev/", methods: ["POST"] },
+  baseUrl: "https://google.serper.dev/",
+  method: "POST",
   path: "search",
   params: ({ query, numResults, country, language }) => ({
     q: query,
@@ -391,7 +396,8 @@ export const serpapi: SearchProvider = {
   name: "serpapi",
   env: "SERPAPI_API_KEY",
   key: { query: "api_key" },
-  target: { baseUrl: "https://serpapi.com/", methods: ["GET"] },
+  baseUrl: "https://serpapi.com/",
+  method: "GET",
   path: "search.json",
   params: ({ query, numResults, country, language }) => ({
     q: query,

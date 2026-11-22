@@ -117,7 +117,7 @@ Each key is declared with the one host that may receive it. A search through one
 
 ## Add a provider
 
-A host that embeds codemode builds the plugin from its own list of providers. A provider is its key's place in a request, the one address that may receive the key, the parameters a search becomes, and how its answer reads as results:
+A host that embeds codemode builds the plugin from its own list of providers. A provider is its key's place in a request, the one HTTPS address that may receive the key, the parameters a search becomes, and how its answer reads as results:
 
 ```typescript
 import { Codemode } from "@shiftlabs/codemode";
@@ -127,7 +127,8 @@ const acme: SearchProvider = {
   name: "acme",
   env: "ACME_SEARCH_KEY",
   key: { header: "X-Acme-Key" },
-  target: { baseUrl: "https://search.acme.example/api/", methods: ["GET"] },
+  baseUrl: "https://search.acme.example/api/",
+  method: "GET",
   path: "find",
   params: ({ query, numResults }) => ({ q: query, n: numResults }),
   results: (answer) =>
@@ -139,7 +140,7 @@ const acme: SearchProvider = {
 const codemode = Codemode.create({ plugins: [webSearch([acme, ...PROVIDERS])] });
 ```
 
-The list's order is the order a provider is chosen in. The first method of `target.methods` is the one a search uses: parameters go in the query of a `GET` and the JSON body of a `POST`. The package is TypeScript source, so the host imports it with a runtime that runs TypeScript, such as Bun.
+The list's order is the order a provider is chosen in. Parameters go in the query of a `GET` and the JSON body of a `POST`. The package is TypeScript source, so the host imports it with a runtime that runs TypeScript, such as Bun.
 
 ## Handle failures
 
