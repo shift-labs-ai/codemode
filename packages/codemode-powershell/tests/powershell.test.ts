@@ -6,12 +6,13 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, realpathSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { commandPath, type ShellResult } from "@shiftlabs/codemode/utils/cli";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
+import { assertLargeOutputIsCutForTheRun } from "../../package-tests/shell.js";
 import powershell, {
   powershellScript,
   resolvePowerShell,
@@ -114,32 +115,11 @@ describe("powershell.run", () => {
 
   withPowerShell(
     "hands code all of a large output, and the run its last lines",
-    async () => {
-      const outputDir = join(harness.tmp, "outbox");
-      const inside = await codemode({}, { outputDir }).execute(
-        `return (await powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END; exit 4" })).output.length`,
-      );
-      assert.ok((inside.result as number) >= 1_500_003);
-      const { result, truncated, fullResultPath, error } = await codemode(
-        {},
-        { outputDir },
-      ).execute(
-        `return await powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END; exit 4" })`,
-      );
-      assert.equal(error, undefined);
-      assert.equal(truncated, true);
-      const found = result as ShellResult;
-      assert.equal(found.exitCode, 4);
-      assert.match(
-        found.output,
-        /END\r?\n\n\[Showing .* \(1\.4MB in all\)\. Full output: /,
-      );
-      assert.ok(Buffer.byteLength(JSON.stringify(found, null, 2)) <= 51_200);
-      assert.ok(fullResultPath);
-      assert.equal(dirname(fullResultPath), outputDir);
-      assert.match(fullResultPath, /codemode-result-[0-9a-f]{16}\.json$/);
-      assert.ok(statSync(fullResultPath).size > 1_500_000);
-    },
+    () =>
+      assertLargeOutputIsCutForTheRun(
+        harness,
+        `powershell.run({ command: "[Console]::Out.Write('a' * 1500000); Write-Output END; exit 4" })`,
+      ),
   );
 
   it("refuses input that is not a command", async () => {

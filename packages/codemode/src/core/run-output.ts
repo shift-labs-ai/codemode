@@ -127,9 +127,10 @@ function boundResult(
   limit: OutputLimit,
   outputDir: string | undefined,
 ): Pick<RunOutput, "result" | "truncated" | "fullResultPath"> {
-  if (result === undefined || result === null) return { result };
   const isText = typeof result === "string";
   const text = isText ? result : JSON.stringify(result, null, 2);
+  // Nothing, and what JSON has no text for, is handed back as it is.
+  if (result === null || text === undefined) return { result };
   if (isText ? withinLimit(text, limit) : valueFits(text, result, limit))
     return { result };
 
@@ -157,7 +158,7 @@ function boundText(
   outputDir: string | undefined,
 ): string {
   // The file is written only for a text that is cut.
-  if (!cutText(text, limit, { keep: "last" }).truncated) return text;
+  if (withinLimit(text, limit)) return text;
   return cutText(text, limit, {
     keep: "last",
     path: keep(file.name, file.extension, text, outputDir),
@@ -170,8 +171,8 @@ function boundText(
  * A result that fits is itself. Of one that does not:
  *
  * - a string is its last lines;
- * - a value made too large by one string in it keeps its shape, with that
- *   string cut to its last lines;
+ * - a value that fits once strings in it are cut to their last lines keeps
+ *   its shape;
  * - any other value is the first lines of its JSON, and so is text.
  *
  * An error and the logs each keep their last lines. Whatever is cut is

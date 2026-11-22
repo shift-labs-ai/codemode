@@ -4,13 +4,14 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, realpathSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { commandPath, type ShellResult } from "@shiftlabs/codemode/utils/cli";
 import { ends, pidIn } from "../../codemode/src/tests/helpers/processes.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
+import { assertLargeOutputIsCutForTheRun } from "../../package-tests/shell.js";
 import node, { resolveNode } from "../src/index.js";
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
@@ -97,32 +98,11 @@ describe("node.run", () => {
     assert.equal(await ends(await pidIn(pidFile)), true);
   });
 
-  it("hands code all of a large output, and the run its last lines", async () => {
-    const outputDir = join(harness.tmp, "outbox");
-    const inside = await codemode({}, { outputDir }).execute(
-      `return (await node.run({ command: 'process.stdout.write("a".repeat(1500000) + "END"); process.exitCode = 4' })).output.length`,
-    );
-    assert.ok((inside.result as number) >= 1_500_003);
-    const { result, truncated, fullResultPath, error } = await codemode(
-      {},
-      { outputDir },
-    ).execute(
-      `return await node.run({ command: 'process.stdout.write("a".repeat(1500000) + "END"); process.exitCode = 4' })`,
-    );
-    assert.equal(error, undefined);
-    assert.equal(truncated, true);
-    const found = result as ShellResult;
-    assert.equal(found.exitCode, 4);
-    assert.match(
-      found.output,
-      /END\r?\n\n\[Showing .* \(1\.4MB in all\)\. Full output: /,
-    );
-    assert.ok(Buffer.byteLength(JSON.stringify(found, null, 2)) <= 51_200);
-    assert.ok(fullResultPath);
-    assert.equal(dirname(fullResultPath), outputDir);
-    assert.match(fullResultPath, /codemode-result-[0-9a-f]{16}\.json$/);
-    assert.ok(statSync(fullResultPath).size > 1_500_000);
-  });
+  it("hands code all of a large output, and the run its last lines", () =>
+    assertLargeOutputIsCutForTheRun(
+      harness,
+      `node.run({ command: 'process.stdout.write("a".repeat(1500000) + "END"); process.exitCode = 4' })`,
+    ));
 
   it("refuses input that is not a script", async () => {
     for (const input of [{}, { command: "" }, { code: "1" }]) {

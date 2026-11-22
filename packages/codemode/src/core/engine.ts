@@ -44,7 +44,7 @@ export { MAX_TIMEOUT_MS };
  * sets none, `result`, `error` and `logs` are each within it:
  *
  * - a larger string result is its last lines;
- * - a larger value keeps its shape when cutting one string in it to its
+ * - a larger value keeps its shape when cutting strings in it to their
  *   last lines is enough, and is otherwise text, the first lines of its
  *   JSON;
  * - a larger error, or longer logs, keep their last lines.

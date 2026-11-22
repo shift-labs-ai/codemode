@@ -95,7 +95,7 @@ export function shellConnectionSchema(defaultShell: string) {
 export interface ShellRunActionOptions {
   /** The program's name as the action's description says it: `bash`, `PowerShell`, `Node.js`. */
   shell: string;
-  /** The start of the name of the file that keeps output past the limit. */
+  /** The start of the name of the file that keeps output past what the action holds in memory. */
   outputFilePrefix: string;
   /**
    * The program a call runs, from the one the connection names as `shell`

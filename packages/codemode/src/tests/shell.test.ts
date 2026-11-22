@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { commandExists, commandPath } from "../utils/cli.js";
 import { isShellError, runShell, type ShellProgram } from "../utils/shell.js";
+import { assertCutOf } from "./helpers/cut.js";
 import { randomText, seeded } from "./helpers/fuzz.js";
 import { ends, pidIn } from "./helpers/processes.js";
 
@@ -391,23 +392,7 @@ describe("output past what a command may hold in memory", () => {
           text,
           where,
         );
-        const closing =
-          /\n\n\[Showing (lines (\d+)-(\d+) of (\d+)|the last [\d.]+(B|KB|MB) of line \d+) [^\n]*\]$/.exec(
-            result.output,
-          );
-        assert.ok(closing, `no closing line: ${where}`);
-        const shown = result.output.slice(0, closing.index);
-        const lines = text.split("\n");
-        if (text.endsWith("\n")) lines.pop();
-        if (closing[2] === undefined) assert.ok(text.includes(shown), where);
-        else {
-          assert.equal(Number(closing[4]), lines.length, where);
-          assert.equal(
-            shown,
-            lines.slice(Number(closing[2]) - 1, Number(closing[3])).join("\n"),
-            `the lines named are not the lines shown: ${where}`,
-          );
-        }
+        assertCutOf(text, result.output, where);
       }
     },
   );

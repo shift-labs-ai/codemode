@@ -15,6 +15,7 @@ import {
   resolveOutputLimit,
   withinLimit,
 } from "../utils/output-limit.js";
+import { assertCutOf } from "./helpers/cut.js";
 import { randomText, seeded } from "./helpers/fuzz.js";
 
 const limit = { lines: 6, bytes: 1024 };
@@ -110,6 +111,13 @@ describe("a text cut to the output limit", () => {
     );
   });
 
+  it("keeps lines that are all blank as they are", () => {
+    assert.equal(
+      cutText("\n".repeat(50), limit, { keep: "last" }).text,
+      "\n\n\n\n\n[Showing lines 47-50 of 50 (50B in all).]",
+    );
+  });
+
   it("leaves out a path too long to fit beside any output", () => {
     const cut = cutText(numbered(50), limit, {
       keep: "last",
@@ -145,9 +153,6 @@ describe("a text cut to the output limit", () => {
 });
 
 describe("every text cut to the output limit", () => {
-  const CLOSING =
-    /\n\n\[Showing (lines (\d+)-(\d+) of (\d+)|the (first|last) [\d.]+(B|KB|MB) of line \d+) \([\d.]+(B|KB|MB) in all\)\.( Full output: [^\n]+)?\]$/;
-
   it("is within the limit, made of the text's own lines, and says truly which", () => {
     for (let seed = 1; seed <= 3_000; seed++) {
       const random = seeded(seed);
@@ -174,23 +179,7 @@ describe("every text cut to the output limit", () => {
         !cut.text.includes("\uFFFD") || text.includes("\uFFFD"),
         `a character was cut in two: ${where}`,
       );
-      const closing = CLOSING.exec(cut.text);
-      assert.ok(closing, `no closing line: ${where}`);
-      const shown = cut.text.slice(0, closing.index);
-      const lines = text.split("\n");
-      if (text.endsWith("\n")) lines.pop();
-      if (closing[2] === undefined) {
-        // Part of one line.
-        assert.ok(text.includes(shown), where);
-      } else {
-        assert.equal(
-          shown,
-          lines.slice(Number(closing[2]) - 1, Number(closing[3])).join("\n"),
-          `the lines named are not the lines shown: ${where}`,
-        );
-        assert.equal(Number(closing[4]), lines.length, where);
-        assert.ok(shown.trim() || !text.trim(), `nothing shown: ${where}`);
-      }
+      assertCutOf(text, cut.text, where);
       assert.equal(
         cutText(cut.text, limit, { keep }).truncated,
         false,

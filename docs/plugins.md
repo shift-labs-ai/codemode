@@ -164,7 +164,7 @@ const result = await runShell(
 // { output: " M README.md\n", exitCode: 0, truncated: false, wallTimeMs: 12 }
 ```
 
-Pass `ctx.signal` so that a command ends with the run that started it, and `ctx.outputDir` so that output past the limit is kept where the host keeps its output files.
+Pass `ctx.signal` so that a command ends with the run that started it, and `ctx.outputDir` so that output it cannot hold in memory is kept where the host keeps its output files.
 
 | Outcome | Result |
 |---|---|

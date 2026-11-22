@@ -188,8 +188,6 @@ class Database {
     const types = result.columnTypes();
     const wide = types.map((type) => WIDE_INTEGERS.has(type.typeId));
     const rows: Rows = [];
-    /** The rows kept, as the file's lines. */
-    let kept = "";
     let keptBytes = 0;
     let totalRows = 0;
     let file: OutputFileWriter | undefined;
@@ -211,11 +209,13 @@ class Database {
             lines += line;
           } else if (keptBytes + size <= ACTION_MEMORY_BYTES) {
             rows.push(row);
-            kept += line;
             keptBytes += size;
           } else {
             file = new OutputFileWriter("codemode-duckdb", ".jsonl", outputDir);
-            lines = kept + line;
+            // The file starts with the rows kept, then takes the rest.
+            lines =
+              rows.map((earlier) => `${JSON.stringify(earlier)}\n`).join("") +
+              line;
           }
         }
         if (file && !file.write(lines)) await file.drained();
@@ -342,7 +342,7 @@ const queryOutput = {
     truncated: {
       type: "boolean",
       description:
-        "Whether `rows` is fewer than all of them: they are the first 8 MiB of a larger result.",
+        "Whether `rows` is fewer than all of them: the first of a result larger than the action holds in memory.",
     },
     fullOutputPath: {
       type: "string",

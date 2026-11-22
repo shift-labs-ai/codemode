@@ -1,7 +1,6 @@
 /**
  * Output files: where codemode and its plugins write what a caller was not
- * handed in full, and how a host says where that is and how much a run may
- * return.
+ * handed in full, and how a host says where that is.
  */
 
 import assert from "node:assert/strict";

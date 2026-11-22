@@ -33,7 +33,7 @@ export interface RunShellOptions {
    * `ACTION_MEMORY_BYTES`, 8 MiB.
    */
   maxOutputBytes?: number;
-  /** The start of the name of the file that keeps output past the limit. Default: `codemode-shell`. */
+  /** The start of the name of the file that keeps output past `maxOutputBytes`. Default: `codemode-shell`. */
   outputFilePrefix?: string;
   /** Where that file is written: an action passes `ctx.outputDir`. Default: the system's temporary directory. */
   outputDir?: string;

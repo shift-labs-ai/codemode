@@ -13,13 +13,22 @@ export interface OutputLimit {
 }
 
 /** The limit a run has unless its host sets another. */
-export const OUTPUT_LIMIT: OutputLimit = { lines: 2000, bytes: 50 * 1024 };
+export const OUTPUT_LIMIT: Readonly<OutputLimit> = Object.freeze({
+  lines: 2000,
+  bytes: 50 * 1024,
+});
 
 /**
  * The least a limit can be: room for one line of output, a blank line and
  * the closing line, with a path in it.
  */
-export const MIN_OUTPUT_LIMIT: OutputLimit = { lines: 3, bytes: 1024 };
+export const MIN_OUTPUT_LIMIT: Readonly<OutputLimit> = Object.freeze({
+  lines: 3,
+  bytes: 1024,
+});
+
+/** The least room for output beside a closing line: with less, the line names no path. */
+const LEAST_SHOWN_BYTES = 256;
 
 /** A limit as a host sets it: either number alone, or `false` for none. */
 export type OutputLimitSetting = Partial<OutputLimit> | false;
@@ -105,7 +114,8 @@ interface KeptLines {
  * Whole lines from one end of `lines`, as many as `limit` allows. Blank
  * lines at that end are passed over, and a first line too long to keep
  * whole is kept in part, so that what is shown is never empty or blank
- * while there is something to show.
+ * while there is something to show. Lines that are all blank are kept as
+ * they are.
  */
 function keepLines(
   lines: string[],
@@ -113,11 +123,14 @@ function keepLines(
   keep: "first" | "last",
 ): KeptLines {
   const ordered = keep === "first" ? lines : [...lines].reverse();
-  const skipped = ordered.findIndex((line) => line.trim());
+  const skipped = Math.max(
+    0,
+    ordered.findIndex((line) => line.trim()),
+  );
   const kept: string[] = [];
   let bytes = 0;
   let partial = false;
-  for (const line of skipped === -1 ? [] : ordered.slice(skipped)) {
+  for (const line of ordered.slice(skipped)) {
     if (kept.length >= limit.lines) break;
     const joint = kept.length ? 1 : 0;
     const size = bytesOf(line) + joint;
@@ -131,11 +144,7 @@ function keepLines(
     kept.push(line);
     bytes += size;
   }
-  return {
-    lines: keep === "first" ? kept : kept.reverse(),
-    skipped: Math.max(0, skipped),
-    partial,
-  };
+  return { lines: keep === "first" ? kept : kept.reverse(), skipped, partial };
 }
 
 /** The closing line of a cut text. */
@@ -208,7 +217,7 @@ export function cutText(
       ),
     ) + 2;
   const path =
-    limit.bytes - longest(options.path) >= MIN_OUTPUT_LIMIT.bytes / 4
+    limit.bytes - longest(options.path) >= LEAST_SHOWN_BYTES
       ? options.path
       : undefined;
   const kept = keepLines(
