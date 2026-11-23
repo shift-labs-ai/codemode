@@ -1,0 +1,63 @@
+name: Release package
+
+# A package published beside codemode has a version of its own and is
+# released by a tag of its own: `codemode-bash@1.2.0` publishes
+# packages/codemode-bash at version 1.2.0. Codemode itself is released by a
+# `v*` tag, in release.yml.
+on:
+  push:
+    tags:
+      - "codemode-*@*"
+
+permissions:
+  contents: write
+
+concurrency:
+  # Serialize package releases so two tags can't race on the same npm package.
+  group: release-package
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag matches the package version
+        id: package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          PACKAGE="${TAG%@*}"
+          MANIFEST="packages/$PACKAGE/package.json"
+          if ! echo "$PACKAGE" | grep -qE '^codemode-[a-z0-9-]+$' || [ ! -f "$MANIFEST" ]; then
+            echo "::error::tag $TAG names no package under packages/"
+            exit 1
+          fi
+          VERSION=$(node -p "require('./$MANIFEST').version")
+          if [ "$VERSION" != "${TAG##*@}" ]; then
+            echo "::error::$MANIFEST is at version $VERSION, which does not match tag $TAG"
+            exit 1
+          fi
+          echo "name=$PACKAGE" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      # A package is tested against the codemode built from the same commit.
+      - run: bun --filter @shiftlabs/codemode build
+      - run: bun run --filter '@shiftlabs/${{ steps.package.outputs.name }}' typecheck
+      - run: bun run --filter '@shiftlabs/${{ steps.package.outputs.name }}' test
+      - name: Publish to npm
+        working-directory: packages/${{ steps.package.outputs.name }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.SHIFTLABS_NPM_TOKEN }}
+      # Codemode's own release stays the repository's latest.
+      - uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          make_latest: false

@@ -89,12 +89,7 @@ jobs:
           exit 1
       - name: Publish to npm
         working-directory: packages/${{ matrix.package }}
-        run: |
-          if echo "${{ github.ref_name }}" | grep -qE '(rc|alpha|beta)'; then
-            npm publish --tag next --access public
-          else
-            npm publish --access public
-          fi
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets[matrix.token] }}
 

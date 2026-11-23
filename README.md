@@ -90,6 +90,15 @@ bun run --filter '@shiftlabs/codemode-*' test
 bun run check
 ```
 
+A release is cut by pushing a tag. Each package published beside codemode has a version of its own and is released on its own:
+
+| Tag | Publishes |
+|---|---|
+| `v0.47.0` | `@shiftlabs/codemode` and `runline`, both at that version |
+| `codemode-bash@0.2.0` | `@shiftlabs/codemode-bash` at that version, from `packages/codemode-bash` |
+
+Set the version in `package.json` first; the release stops when it differs from the tag.
+
 ## License
 
 MIT
