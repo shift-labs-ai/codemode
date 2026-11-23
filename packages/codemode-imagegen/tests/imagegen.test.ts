@@ -165,11 +165,11 @@ describe("imagegen.create through each provider that answers at once", () => {
     openai: {
       list: [
         "/v1/models",
-        { data: [{ id: "gpt-image-2.5-flare" }, { id: "gpt-6" }] },
+        { data: [{ id: "gpt-image-2.6-flare" }, { id: "gpt-6" }] },
       ],
       url: "https://api.openai.com/v1/images/generations",
       body: {
-        model: "gpt-image-2.5-flare",
+        model: "gpt-image-2.6-flare",
         prompt: "a fox",
         n: 2,
         size: "1600x896",
@@ -206,13 +206,13 @@ describe("imagegen.create through each provider that answers at once", () => {
       list: [
         "/v1/models",
         [
-          { id: "black-forest-labs/FLUX.1-schnell", type: "image" },
+          { id: "black-forest-labs/FLUX.2-dev", type: "image" },
           { id: "meta/llama", type: "chat" },
         ],
       ],
-      url: "https://api.together.xyz/v1/images/generations",
+      url: "https://api.together.ai/v1/images/generations",
       body: {
-        model: "black-forest-labs/FLUX.1-schnell",
+        model: "black-forest-labs/FLUX.2-dev",
         prompt: "a fox",
         n: 2,
         response_format: "base64",
@@ -324,7 +324,7 @@ describe("imagegen.create through each provider that answers at once", () => {
     ]);
     await call<Made>("create", { prompt: "a fox" }, through("openai"));
     assert.deepEqual(made(sent)[0].body, {
-      model: "gpt-image-2.5-flare",
+      model: "gpt-image-2.6-flare",
       prompt: "a fox",
       n: 1,
       output_format: "png",
@@ -348,7 +348,7 @@ describe("imagegen.edit", () => {
     assert.match(request.headers["content-type"], /^multipart\/form-data/);
     const form = String(request.body);
     for (const part of [
-      'name="model"\r\n\r\ngpt-image-2.5-flare',
+      'name="model"\r\n\r\ngpt-image-2.6-flare',
       'name="prompt"\r\n\r\nmake it night',
       'name="image[]"; filename="a.png"',
       'name="image[]"; filename="b.png"',
@@ -363,7 +363,7 @@ describe("imagegen.edit", () => {
     const expected: Record<string, [string, Record<string, unknown>]> = {
       xai: ["https://api.x.ai/v1/images/edits", { image: { url: dataUrl } }],
       together: [
-        "https://api.together.xyz/v1/images/generations",
+        "https://api.together.ai/v1/images/generations",
         { image_url: dataUrl, model: "black-forest-labs/FLUX.1-kontext-pro" },
       ],
       recraft: [
@@ -422,13 +422,13 @@ describe("imagegen.edit", () => {
     writeFileSync(text, "not an image");
     assert.match(
       await refused("edit", { prompt: "p", images: [text] }, through("openai")),
-      /notes\.png is not a PNG, JPEG, WebP or GIF image\./,
+      /notes\.png is not a PNG, JPEG or WebP image\./,
     );
     const svg = join(harness.tmp, "logo.svg");
     writeFileSync(svg, '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
     assert.match(
       await refused("edit", { prompt: "p", images: [svg] }, through("openai")),
-      /logo\.svg is not a PNG, JPEG, WebP or GIF image\./,
+      /logo\.svg is not a PNG, JPEG or WebP image\./,
     );
     assert.match(
       await refused(
@@ -443,6 +443,13 @@ describe("imagegen.edit", () => {
 });
 
 describe("a provider that hosts other people's models", () => {
+  /** What fal answers a queued request: its id, and where to ask about it. */
+  const queued = {
+    request_id: "r-1",
+    status_url: "https://queue.fal.run/fal-ai/flux/requests/r-1/status",
+    response_url: "https://queue.fal.run/fal-ai/flux/requests/r-1",
+  };
+
   const falSchema = (input: Record<string, unknown>, category: string) => ({
     models: [
       {
@@ -482,7 +489,7 @@ describe("a provider that hosts other people's models", () => {
         "/requests/r-1",
         () => ({ images: [{ url: "https://v3.fal.media/files/a.png" }] }),
       ],
-      ["queue.fal.run/fal-ai/flux/schnell", () => ({ request_id: "r-1" })],
+      ["queue.fal.run/fal-ai/flux/schnell", () => queued],
       ["fal.media", () => PNG],
     ]);
     const result = await call<Made>(
@@ -537,7 +544,7 @@ describe("a provider that hosts other people's models", () => {
         "/requests/r-1",
         () => ({ images: [{ url: "https://fal.media/files/a.png" }] }),
       ],
-      ["queue.fal.run", () => ({ request_id: "r-1" })],
+      ["queue.fal.run", () => queued],
       ["fal.media", () => PNG],
     ]);
     const result = await call<Made>(
@@ -549,6 +556,24 @@ describe("a provider that hosts other people's models", () => {
     assert.equal(
       sent.filter(({ url }) => url.includes("expand=openapi")).length,
       1,
+    );
+  });
+
+  it("fal: asks about a request only where fal says to", async () => {
+    serve([
+      [
+        "expand=openapi",
+        () => falSchema({ prompt: { type: "string" } }, "text-to-image"),
+      ],
+      ["api.fal.ai", () => ({ models: [] })],
+      [
+        "queue.fal.run",
+        () => ({ ...queued, status_url: "https://evil.example/r-1/status" }),
+      ],
+    ]);
+    assert.match(
+      await refused("create", { prompt: "p" }, through("fal")),
+      /fal answered no address to ask about the request at\./,
     );
   });
 
@@ -579,7 +604,7 @@ describe("a provider that hosts other people's models", () => {
         "/requests/r-1",
         () => ({ images: [{ url: "https://evil.example/a.png" }] }),
       ],
-      ["queue.fal.run", () => ({ request_id: "r-1" })],
+      ["queue.fal.run", () => queued],
     ]);
     assert.match(
       await refused("create", { prompt: "p" }, through("fal")),
@@ -651,6 +676,67 @@ describe("a provider that hosts other people's models", () => {
   });
 });
 
+describe("replicate", () => {
+  const flux = {
+    owner: "black-forest-labs",
+    name: "flux-schnell",
+    latest_version: {
+      id: "v9",
+      openapi_schema: {
+        components: { schemas: { Input: { properties: { prompt: {} } } } },
+      },
+    },
+  };
+
+  it("ends the wait when a prediction ends without an output", async () => {
+    for (const status of ["failed", "canceled", "aborted"]) {
+      serve([
+        ["/collections/", () => ({ models: [] })],
+        ["/models/", () => flux],
+        ["/predictions", () => ({ id: "p-1", status })],
+      ]);
+      assert.match(
+        await refused("create", { prompt: "p" }, through("replicate")),
+        new RegExp(`replicate prediction p-1 ${status}\\.`),
+      );
+    }
+  });
+
+  it("lists what a search finds by its tags: the image models, and what each does", async () => {
+    serve([
+      ["/collections/", () => ({ models: [] })],
+      [
+        "/search",
+        () => ({
+          models: [
+            {
+              model: { owner: "google", name: "nano-banana" },
+              metadata: { tags: ["text-to-image", "image-editing"] },
+            },
+            {
+              model: { owner: "acme", name: "upscaler" },
+              metadata: { tags: ["image-to-image"] },
+            },
+            {
+              model: { owner: "meta", name: "llama" },
+              metadata: { tags: ["language-model"] },
+            },
+          ],
+        }),
+      ],
+    ]);
+    const found = await call<{ models: unknown[] }>(
+      "models",
+      { query: "banana" },
+      through("replicate"),
+    );
+    assert.deepEqual(found.models, [
+      { id: "google/nano-banana", create: true, edit: true },
+      { id: "acme/upscaler", create: false, edit: true },
+    ]);
+  });
+});
+
 describe("imagegen.models", () => {
   it("lays the provider's own list over the models the package knows, and says each action's default", async () => {
     const sent = serve([
@@ -702,8 +788,8 @@ describe("imagegen.models", () => {
       through("openai"),
     );
     assert.deepEqual(listed.models.map(({ id }) => id).slice(0, 2), [
-      "gpt-image-2.5-flare",
-      "gpt-image-2.5-sunburst",
+      "gpt-image-2.6-flare",
+      "gpt-image-2.6-sunburst",
     ]);
   });
 
@@ -714,7 +800,7 @@ describe("imagegen.models", () => {
       {},
       through("recraft"),
     );
-    assert.equal(all.models.length, 13);
+    assert.equal(all.models.length, 17);
     assert.deepEqual(
       (
         await call<{ models: Array<{ id: string }> }>(
@@ -723,7 +809,12 @@ describe("imagegen.models", () => {
           through("recraft"),
         )
       ).models.map(({ id }) => id),
-      ["recraftv4_1_vector", "recraftv4_1_pro_vector"],
+      [
+        "recraftv4_1_vector",
+        "recraftv4_1_pro_vector",
+        "recraftv4_1_utility_vector",
+        "recraftv4_1_utility_pro_vector",
+      ],
     );
     assert.equal(
       (
@@ -789,7 +880,7 @@ describe("the model a request uses", () => {
       ["generations", () => b64Answer],
       [
         "/models",
-        () => ({ data: [{ id: "gpt-image-2" }, { id: "gpt-image-1" }] }),
+        () => ({ data: [{ id: "gpt-image-2" }, { id: "gpt-image-1.5" }] }),
       ],
     ]);
     const config = { ...through("openai"), createModel: "gpt-image-2" };
@@ -799,15 +890,15 @@ describe("the model a request uses", () => {
     ) => (await call<Made>("create", { prompt: "p", ...input }, c)).model;
     assert.deepEqual(
       [
-        await models({ model: "gpt-image-1" }),
+        await models({ model: "gpt-image-1.5" }),
         await models({}),
         await models({}, through("openai")),
       ],
-      ["gpt-image-1", "gpt-image-2", "gpt-image-2.5-flare"],
+      ["gpt-image-1.5", "gpt-image-2", "gpt-image-2.6-flare"],
     );
     assert.equal(
       (made(sent)[0].body as { model: string }).model,
-      "gpt-image-1",
+      "gpt-image-1.5",
     );
   });
 
@@ -1048,6 +1139,38 @@ describe("a size in pixels", () => {
       JSON.stringify(large),
     );
     assert.ok(large.width <= 3840 && large.width % 16 === 0);
+  });
+
+  it("is kept within a model's bounds whatever is asked for", () => {
+    const bounds = {
+      multiple: 16,
+      maxSide: 3840,
+      minPixels: 655_360,
+      maxPixels: 8_294_400,
+      maxRatio: 3,
+    };
+    assert.deepEqual(fitSize({ width: 4096, height: 256 }, bounds), {
+      width: 1392,
+      height: 480,
+    });
+    for (let width = 256; width <= 4096; width += 96)
+      for (let height = 256; height <= 4096; height += 96) {
+        const fitted = fitSize({ width, height }, bounds);
+        const [longer, shorter] = [
+          Math.max(fitted.width, fitted.height),
+          Math.min(fitted.width, fitted.height),
+        ];
+        const pixels = fitted.width * fitted.height;
+        assert.ok(
+          fitted.width % 16 === 0 &&
+            fitted.height % 16 === 0 &&
+            longer <= bounds.maxSide &&
+            longer <= shorter * bounds.maxRatio &&
+            pixels >= bounds.minPixels &&
+            pixels <= bounds.maxPixels,
+          `${width}x${height} became ${fitted.width}x${fitted.height}`,
+        );
+      }
   });
 });
 

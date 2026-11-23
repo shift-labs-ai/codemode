@@ -172,8 +172,8 @@ function described({ id, name, description, create, edit }: ImageModel) {
   };
 }
 
-/** The types of image a model edits. */
-const SOURCE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/** The types of image every provider documents taking to edit. */
+const SOURCE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 /** Read an image to edit. What it is, its bytes say: a file that is none of the types a model edits is refused. */
 async function sourceImage(path: string): Promise<SourceImage> {
@@ -184,7 +184,7 @@ async function sourceImage(path: string): Promise<SourceImage> {
   });
   const facts = imageFacts(bytes);
   if (!facts || !SOURCE_TYPES.includes(facts.mimeType))
-    throw new Error(`${NAME}: ${path} is not a PNG, JPEG, WebP or GIF image.`);
+    throw new Error(`${NAME}: ${path} is not a PNG, JPEG or WebP image.`);
   return { bytes, mimeType: facts.mimeType, fileName: basename(path) };
 }
 
@@ -488,7 +488,7 @@ export function imagegen(
           images: t.Array(t.String({ minLength: 1 }), {
             minItems: 1,
             maxItems: MAX_SOURCES,
-            description: `Paths of 1 to ${MAX_SOURCES} image files (PNG, JPEG, WebP or GIF) to edit. Some models take one`,
+            description: `Paths of 1 to ${MAX_SOURCES} image files (PNG, JPEG or WebP) to edit. Some models take one`,
           }),
           model: modelInput("edit"),
           ...sizeInputs,

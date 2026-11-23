@@ -19,10 +19,19 @@ interface Listed {
   };
 }
 
+/** The states a prediction ends in without an output. */
+const ENDED = ["failed", "canceled", "aborted"];
+
 interface Prediction {
   id?: string;
   status?: string;
   output?: unknown;
+}
+
+/** A model a search found, with the tags that say what it does. */
+interface Found {
+  model?: Listed;
+  metadata?: { tags?: string[] };
 }
 
 const idOf = ({ owner, name }: Listed) =>
@@ -83,13 +92,18 @@ export const replicate: ImageProvider = {
   // Replicate hosts thousands of models, so a list is its two image collections, or what a search finds.
   async listModels(api, query) {
     if (query) {
-      const { models } = await api.request<{
-        models?: Array<Listed & { model?: Listed }>;
-      }>({ path: "search", query: { query, limit: 50 } });
-      // A search does not say what a model does: the model's schema does, when it is used.
-      return (models ?? []).flatMap((found) =>
-        listed(found.model ?? found, { create: true, edit: true }),
-      );
+      const { models } = await api.request<{ models?: Found[] }>({
+        path: "search",
+        query: { query, limit: 50 },
+      });
+      // A search finds models of every kind: its tags say which make images, and how.
+      return (models ?? []).flatMap(({ model, metadata }) => {
+        const tags = metadata?.tags ?? [];
+        const create = tags.includes("text-to-image");
+        const edit =
+          tags.includes("image-to-image") || tags.includes("image-editing");
+        return model && (create || edit) ? listed(model, { create, edit }) : [];
+      });
     }
     const collections = await Promise.all(
       COLLECTIONS.map(({ slug }) =>
@@ -131,7 +145,7 @@ export const replicate: ImageProvider = {
           });
         asked = true;
         if (prediction.status === "succeeded") return prediction.output ?? null;
-        if (prediction.status === "failed" || prediction.status === "canceled")
+        if (ENDED.includes(prediction.status ?? ""))
           throw new Error(`replicate prediction ${job} ${prediction.status}.`);
         return undefined;
       },

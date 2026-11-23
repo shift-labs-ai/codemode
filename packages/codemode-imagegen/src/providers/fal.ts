@@ -1,4 +1,4 @@
-import { pathSegment, pathSegments } from "@shiftlabs/codemode";
+import { pathSegments } from "@shiftlabs/codemode";
 import { inputFor } from "../schema.js";
 import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
 import { describedModel, finished, hostedModel } from "./hosted.js";
@@ -30,15 +30,17 @@ function listed({ endpoint_id, metadata }: Listed): ImageModel[] {
     : [];
 }
 
+/** Where requests are queued, and what the addresses a queued request answers are beneath. */
+const QUEUE = "https://queue.fal.run/";
+
 /**
- * A queue request is made of the whole model id, and asked about under the
- * application that serves it: the id's first two segments, or three for a
- * workflow.
+ * The path of an address fal answered for a queued request. fal asks about a
+ * request under the model's application, not its whole id, and says where.
  */
-function application(id: string): string {
-  const parts = id.split("/");
-  const count = parts[0] === "workflows" || parts[0] === "comfy" ? 3 : 2;
-  return pathSegments(parts.slice(0, count).join("/"));
+function queuePath(url: string | undefined): string {
+  if (!url?.startsWith(QUEUE))
+    throw new Error("fal answered no address to ask about the request at.");
+  return pathSegments(url.slice(QUEUE.length));
 }
 
 async function findModel(api: ProviderApi, id: string) {
@@ -61,7 +63,7 @@ export const fal: ImageProvider = {
   env: "FAL_KEY",
   key: { header: "Authorization", prefix: "Key " },
   targets: {
-    fal: { baseUrl: "https://queue.fal.run/", methods: ["GET", "POST"] },
+    fal: { baseUrl: QUEUE, methods: ["GET", "POST"] },
     falCatalog: { baseUrl: "https://api.fal.ai/v1/", methods: ["GET"] },
   },
   downloads: ["fal.media"],
@@ -99,17 +101,23 @@ export const fal: ImageProvider = {
     const { fields } = await describedModel(request.model, (found) =>
       findModel(api, found),
     );
-    const { request_id } = await api.request<{ request_id?: string }>({
+    const queued = await api.request<{
+      request_id?: string;
+      status_url?: string;
+      response_url?: string;
+    }>({
       path: pathSegments(id),
       method: "POST",
       headers: JSON_BODY,
       body: new TextEncoder().encode(JSON.stringify(inputFor(fields, request))),
     });
+    const { request_id } = queued;
     if (!request_id) throw new Error("fal answered no request id.");
-    const job = `${application(id)}/requests/${pathSegment(request_id)}`;
+    const status = queuePath(queued.status_url);
+    const result = queuePath(queued.response_url);
     await finished(api, `fal request ${request_id}`, async () => {
       const state = await api.request<{ status?: string; error?: unknown }>({
-        path: `${job}/status`,
+        path: status,
         headers: JSON_BODY,
       });
       if (state.status !== "COMPLETED") return undefined;
@@ -119,7 +127,7 @@ export const fal: ImageProvider = {
     const output = await api.request<{
       images?: Array<{ url?: string }>;
       image?: { url?: string };
-    }>({ path: job, headers: JSON_BODY });
+    }>({ path: result, headers: JSON_BODY });
     return [...(output.images ?? []), output.image ?? {}].flatMap(({ url }) =>
       url ? [{ url }] : [],
     );

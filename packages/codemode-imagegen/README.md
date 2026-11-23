@@ -26,7 +26,7 @@ codemode exec 'return await imagegen.create({ prompt: "a red bicycle on snow", w
 ```json
 {
   "provider": "openai",
-  "model": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.6-flare",
   "images": [
     {
       "path": "/tmp/imagegen-openai-3f9c2a1b7d4e5f60.png",
@@ -59,7 +59,7 @@ await imagegen.edit({
 });
 ```
 
-`images` is 1 to 8 paths of PNG, JPEG, WebP, or GIF files. What a file is, its bytes say: one that is none of these is refused, whatever its name. Some models take one image, and a call that passes more is refused.
+`images` is 1 to 8 paths of PNG, JPEG, or WebP files. What a file is, its bytes say: one that is none of these is refused, whatever its name. Some models take one image, and a call that passes more is refused.
 
 ## Choose a model
 
@@ -86,11 +86,11 @@ The list is the models this package knows of with the provider's own list laid o
 
 | Provider | What a size becomes |
 |---|---|
-| `openai` | The same pixels, with sides rounded to 16, for `gpt-image-2` and later. The nearest of three sizes for earlier models |
+| `openai` | The same pixels, with sides rounded to 16 and the longer side at most three times the shorter, for `gpt-image-2` and later. The nearest of three sizes for the `gpt-image-1` line |
 | `google` | The nearest aspect ratio |
 | `xai` | The nearest aspect ratio, and a resolution of 1k, 1.5k, or 2k |
 | `recraft` | The nearest aspect ratio |
-| `together` | The same pixels, with sides rounded to 16 |
+| `together` | The same pixels, with sides rounded to 16 and at most 1920 |
 | `fal`, `replicate` | What the model's own schema takes: pixels, or the nearest of its sizes or aspect ratios |
 
 A model with no size input refuses a call that sets one.
@@ -101,7 +101,7 @@ The connection chooses the provider, and no action has an input for it. A reques
 
 | Provider | Key | Lists its models | Models |
 |---|---|---|---|
-| `openai` | `OPENAI_API_KEY` | Yes | GPT Image, DALL-E |
+| `openai` | `OPENAI_API_KEY` | Yes | GPT Image |
 | `google` | `GOOGLE_API_KEY` | Yes | Gemini image models (Nano Banana) |
 | `xai` | `XAI_API_KEY` | Yes | Grok Imagine |
 | `recraft` | `RECRAFT_API_KEY` | No | Recraft raster and vector models |
@@ -177,5 +177,6 @@ A provider's error text is not included in the message, because it can repeat th
 - Google's models answer one image a request, so `numImages` is that many requests.
 - Recraft keeps the size of an image it edits, and edits one image.
 - An image is fetched from fal's and Replicate's own file hosts only.
+- An image to edit is sent inside the request. fal and Replicate recommend that for small files only.
 - A request to a provider is not ended when the run ends.
 - The bundled `openai`, `googleImage`, `xai`, `recraft`, `together`, `fal`, and `replicate` plugins are separate from this package, each with its own connection.

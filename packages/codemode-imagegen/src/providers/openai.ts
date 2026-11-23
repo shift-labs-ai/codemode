@@ -3,7 +3,7 @@ import { fitSize, nearestSize, type Size } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
 import { type ImagesAnswer, imagesOf } from "./answer.js";
 
-/** The sizes the first GPT Image line and DALL-E take. */
+/** The sizes the GPT Image 1 line takes. */
 const FIXED_SIZES: Size[] = [
   { width: 1024, height: 1024 },
   { width: 1536, height: 1024 },
@@ -15,12 +15,13 @@ const FREE_SIZES = {
   maxSide: 3840,
   minPixels: 655_360,
   maxPixels: 8_294_400,
+  maxRatio: 3,
 };
 
-const takesFixedSizes = (id: string) => /^(gpt-image-1|dall-e-)/.test(id);
+const takesFixedSizes = (id: string) => id.startsWith("gpt-image-1");
 
 function model(id: string): ImageModel {
-  return { id, create: true, edit: !id.startsWith("dall-e-") };
+  return { id, create: true, edit: true };
 }
 
 function sizeFor(id: string, size: Size): string {
@@ -37,15 +38,13 @@ export const openai: ImageProvider = {
   targets: {
     openai: { baseUrl: "https://api.openai.com/v1/", methods: ["GET", "POST"] },
   },
-  defaults: { create: "gpt-image-2.5-flare", edit: "gpt-image-2.5-flare" },
+  defaults: { create: "gpt-image-2.6-flare", edit: "gpt-image-2.6-flare" },
   models: [
+    "gpt-image-2.6-flare",
+    "gpt-image-2.6-sunburst",
     "gpt-image-2.5-flare",
     "gpt-image-2.5-sunburst",
     "gpt-image-2",
-    "gpt-image-1.5",
-    "gpt-image-1",
-    "gpt-image-1-mini",
-    "dall-e-3",
   ].map(model),
   // The list is of every model the key reaches, of any kind, so the image ones are told by their names.
   async listModels(api) {
@@ -53,7 +52,7 @@ export const openai: ImageProvider = {
       path: "models",
     });
     return (data ?? []).flatMap(({ id }) =>
-      typeof id === "string" && /^(gpt-image-|chatgpt-image-|dall-e-)/.test(id)
+      typeof id === "string" && /^(gpt-image-|chatgpt-image-)/.test(id)
         ? [model(id)]
         : [],
     );
@@ -87,10 +86,7 @@ export const openai: ImageProvider = {
       answer = await api.request({
         path: "images/generations",
         method: "POST",
-        // DALL-E answers a link unless asked for the image itself; GPT Image always answers the image.
-        json: id.startsWith("dall-e-")
-          ? { ...common, response_format: "b64_json" }
-          : { ...common, output_format: "png" },
+        json: { ...common, output_format: "png" },
       });
     return imagesOf(answer);
   },

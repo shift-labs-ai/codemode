@@ -48,7 +48,8 @@ export function nearestRatio(size: Size, ratios: readonly string[]): string {
 /**
  * `size` brought within a model's bounds, keeping its shape as nearly as
  * the bounds allow: each side a multiple of `multiple` and at most
- * `maxSide`, and the area between `minPixels` and `maxPixels`.
+ * `maxSide`, the area between `minPixels` and `maxPixels`, and the longer
+ * side at most `maxRatio` times the shorter.
  */
 export function fitSize(
   size: Size,
@@ -57,9 +58,14 @@ export function fitSize(
     maxSide: number;
     minPixels: number;
     maxPixels: number;
+    maxRatio?: number;
   },
 ): Size {
+  const maxRatio = bounds.maxRatio ?? Number.POSITIVE_INFINITY;
+  const top = bounds.maxSide - (bounds.maxSide % bounds.multiple);
   let { width, height } = size;
+  width = Math.min(width, height * maxRatio);
+  height = Math.min(height, width * maxRatio);
   const scale = (factor: number) => {
     width *= factor;
     height *= factor;
@@ -72,20 +78,30 @@ export function fitSize(
     scale(bounds.maxSide / Math.max(width, height));
   const snap = (side: number) =>
     Math.min(
-      bounds.maxSide - (bounds.maxSide % bounds.multiple),
+      top,
       Math.max(
         bounds.multiple,
         Math.round(side / bounds.multiple) * bounds.multiple,
       ),
     );
   const fitted = { width: snap(width), height: snap(height) };
-  // Rounding can leave the area a step outside its bounds: move the longer side one step back in.
-  const step = (direction: 1 | -1) => {
-    if (fitted.width >= fitted.height)
-      fitted.width += direction * bounds.multiple;
-    else fitted.height += direction * bounds.multiple;
+  // Rounding can leave the shape or the area a step outside its bounds: move one side a step back in.
+  const sides = (): ["width" | "height", "width" | "height"] =>
+    fitted.width >= fitted.height ? ["width", "height"] : ["height", "width"];
+  const tooLong = (longer: number, shorter: number) =>
+    longer > top || longer > shorter * maxRatio;
+  const shrink = () => {
+    fitted[sides()[0]] -= bounds.multiple;
   };
-  while (fitted.width * fitted.height < bounds.minPixels) step(1);
-  while (fitted.width * fitted.height > bounds.maxPixels) step(-1);
+  // The longer side grows unless that passes its own bounds; then the shorter does.
+  const grow = () => {
+    const [longer, shorter] = sides();
+    const grown = fitted[longer] + bounds.multiple;
+    fitted[tooLong(grown, fitted[shorter]) ? shorter : longer] +=
+      bounds.multiple;
+  };
+  while (tooLong(fitted[sides()[0]], fitted[sides()[1]])) shrink();
+  while (fitted.width * fitted.height < bounds.minPixels) grow();
+  while (fitted.width * fitted.height > bounds.maxPixels) shrink();
   return fitted;
 }
