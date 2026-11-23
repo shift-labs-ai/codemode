@@ -45,6 +45,8 @@ export interface HelpInput {
   items?: HelpInput;
   /** Nested field shapes, for object inputs. */
   properties?: Record<string, HelpInput>;
+  /** The shape of every value, for an object whose keys the caller chooses. */
+  values?: HelpInput;
   /**
    * Branches of a union, where at least one carries shape the display
    * type cannot express. Absent for unions of literals or bare scalars.

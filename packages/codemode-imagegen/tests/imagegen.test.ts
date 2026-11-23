@@ -13,7 +13,6 @@ import { fileURLToPath } from "node:url";
 import type { PluginFunction } from "@shiftlabs/codemode";
 import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
-import { imageFacts } from "../src/image.js";
 import { type ImageProvider, imagegen, PROVIDERS } from "../src/index.js";
 import { fieldsOf, inputFor } from "../src/schema.js";
 import { fitSize, nearestRatio, nearestSize } from "../src/size.js";
@@ -1245,54 +1244,6 @@ describe("a size in pixels", () => {
           );
         }
     }
-  });
-});
-
-describe("an image's first bytes", () => {
-  it("tell its type and size", () => {
-    assert.deepEqual(imageFacts(png(640, 480)), {
-      mimeType: "image/png",
-      width: 640,
-      height: 480,
-    });
-    const gif = Buffer.alloc(16);
-    gif.write("GIF89a");
-    gif.writeUInt16LE(320, 6);
-    gif.writeUInt16LE(200, 8);
-    assert.deepEqual(imageFacts(gif), {
-      mimeType: "image/gif",
-      width: 320,
-      height: 200,
-    });
-    const jpeg = Buffer.from([
-      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11,
-      0x08, 0x01, 0xe0, 0x02, 0x80, 0x03, 0x00, 0x00,
-    ]);
-    assert.deepEqual(imageFacts(jpeg), {
-      mimeType: "image/jpeg",
-      width: 640,
-      height: 480,
-    });
-    const webp = Buffer.alloc(30);
-    webp.write("RIFF");
-    webp.write("WEBP", 8);
-    webp.write("VP8X", 12);
-    webp.writeUIntLE(799, 24, 3);
-    webp.writeUIntLE(599, 27, 3);
-    assert.deepEqual(imageFacts(webp), {
-      mimeType: "image/webp",
-      width: 800,
-      height: 600,
-    });
-    assert.deepEqual(
-      imageFacts(
-        Buffer.from(
-          '<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"/>',
-        ),
-      ),
-      { mimeType: "image/svg+xml" },
-    );
-    assert.equal(imageFacts(Buffer.from("plain text, long enough")), undefined);
   });
 });
 

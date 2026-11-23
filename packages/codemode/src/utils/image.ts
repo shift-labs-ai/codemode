@@ -1,21 +1,11 @@
 /**
  * What an image is, read from its first bytes: its type, and its size in
- * pixels where the format states one. And the two forms an API takes an
- * image's bytes in.
+ * pixels where the format states one. And an image file an action input
+ * names, read as what its bytes say it is.
  */
 
-/** An image's bytes in base64, for an API that takes them in JSON. */
-export function base64Of(image: { bytes: Uint8Array }): string {
-  return Buffer.from(image.bytes).toString("base64");
-}
-
-/** An image as a `data:` URL, for an API that takes a link or one of these. */
-export function dataUrlOf(image: {
-  bytes: Uint8Array;
-  mimeType: string;
-}): string {
-  return `data:${image.mimeType};base64,${base64Of(image)}`;
-}
+import { basename } from "node:path";
+import { readLocalFile } from "./local-file.js";
 
 export interface ImageFacts {
   mimeType: string;
@@ -23,14 +13,36 @@ export interface ImageFacts {
   height?: number;
 }
 
-/** The file extension of each type an image provider answers with. */
-export const EXTENSIONS: Readonly<Record<string, string>> = {
+/** The file extension of each type of image `imageFacts` tells. */
+export const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
   "image/png": ".png",
   "image/jpeg": ".jpg",
   "image/webp": ".webp",
   "image/gif": ".gif",
   "image/svg+xml": ".svg",
 };
+
+/** What each type is called in an error. */
+const TYPE_NAMES: Readonly<Record<string, string>> = {
+  "image/png": "PNG",
+  "image/jpeg": "JPEG",
+  "image/webp": "WebP",
+  "image/gif": "GIF",
+  "image/svg+xml": "SVG",
+};
+
+/** An image's bytes in base64, for an API that takes them in JSON. */
+export function imageBase64(image: { bytes: Uint8Array }): string {
+  return Buffer.from(image.bytes).toString("base64");
+}
+
+/** An image as a `data:` URL, for an API that takes a link or one of these. */
+export function imageDataUrl(image: {
+  bytes: Uint8Array;
+  mimeType: string;
+}): string {
+  return `data:${image.mimeType};base64,${imageBase64(image)}`;
+}
 
 function ascii(bytes: Uint8Array, start: number, length: number): string {
   return String.fromCharCode(...bytes.subarray(start, start + length));
@@ -78,7 +90,7 @@ function webpSize(
   return undefined;
 }
 
-/** The type and size of an image, or nothing when the bytes are no image this package writes. */
+/** The type and size of an image, or nothing when the bytes are none of the types in `IMAGE_EXTENSIONS`. */
 export function imageFacts(bytes: Uint8Array): ImageFacts | undefined {
   if (bytes.length < 12) return undefined;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -102,4 +114,35 @@ export function imageFacts(bytes: Uint8Array): ImageFacts | undefined {
   if (start.startsWith("<") && start.includes("<svg"))
     return { mimeType: "image/svg+xml" };
   return undefined;
+}
+
+/** An image read from a file on the codemode host. */
+export interface LocalImage extends ImageFacts {
+  bytes: Buffer<ArrayBuffer>;
+  fileName: string;
+}
+
+/**
+ * Read an image file an action input names. What it is, its bytes say, never
+ * its name: a file that is none of `types` is refused. `subject` is what
+ * errors call the file.
+ */
+export async function readLocalImage(
+  path: string,
+  options: { subject: string; maxBytes: number; types: readonly string[] },
+): Promise<LocalImage> {
+  const { subject, maxBytes, types } = options;
+  const bytes = await readLocalFile(path, {
+    subject,
+    maxBytes,
+    oversize: `${subject} is larger than ${maxBytes / (1024 * 1024)} MiB`,
+  });
+  const facts = imageFacts(bytes);
+  if (!facts || !types.includes(facts.mimeType)) {
+    const names = types.map((type) => TYPE_NAMES[type] ?? type);
+    throw new Error(
+      `${subject} is not a ${[names.slice(0, -1).join(", "), names.at(-1)].filter(Boolean).join(" or ")} image.`,
+    );
+  }
+  return { ...facts, bytes, fileName: basename(path) };
 }

@@ -12,11 +12,12 @@
 
 import {
   type CodemodePluginAPI,
-  type CredentialDeclaration,
-  type CredentialTarget,
   credentialJson,
+  keyedProviders,
+  namedProvider,
   type PluginFunction,
-  staticCredential,
+  routerConnectionFields,
+  routerCredential,
 } from "@shiftlabs/codemode";
 import { packageVersion } from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
@@ -49,66 +50,6 @@ const FILTERS = ["includeDomains", "excludeDomains", "freshness"] as const;
 /** A hostname, such as `duckdb.org`: no scheme, path or spaces. */
 const DOMAIN = "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$";
 
-/** The connection field that holds a provider's key. */
-function keyField(provider: SearchProvider): string {
-  return `${provider.name}ApiKey`;
-}
-
-/** Whether the connection holds a key for the provider. */
-function hasKey(
-  provider: SearchProvider,
-  config: Readonly<Record<string, unknown>>,
-): boolean {
-  return Boolean(config[keyField(provider)]);
-}
-
-/**
- * One credential for every provider: a part per provider, each optional and
- * each placed only on that provider's target, so a connection holds the keys
- * it has and a key is sent to its own provider alone. A target is the
- * provider's address, the method a search uses and the headers it carries.
- */
-function credentialOf(providers: SearchProvider[]): CredentialDeclaration {
-  const names = providers.map((provider) => provider.name);
-  return staticCredential({
-    id: "codemodeWebsearch",
-    auth: {
-      kind: "static",
-      parts: names,
-      optionalParts: names,
-      placements: providers.map(({ name, key }) =>
-        "query" in key
-          ? { in: "query", part: name, name: key.query, targets: [name] }
-          : {
-              in: "header",
-              part: name,
-              name: key.header,
-              ...(key.prefix === undefined ? {} : { prefix: key.prefix }),
-              targets: [name],
-            },
-      ),
-    },
-    local: Object.fromEntries(
-      providers.map((provider) => [provider.name, keyField(provider)]),
-    ),
-    targets: (config) =>
-      Object.fromEntries(
-        providers.map(
-          ({ name, baseUrl, method, headers }): [string, CredentialTarget] => [
-            name,
-            {
-              baseUrl:
-                typeof baseUrl === "function" ? baseUrl(config) : baseUrl,
-              methods: [method],
-              ...(headers ? { allowedHeaders: Object.keys(headers) } : {}),
-              timeoutMs: TIMEOUT_MS,
-            },
-          ],
-        ),
-      ),
-  });
-}
-
 /**
  * The filters of a search that a provider does not apply: those whose
  * removal leaves the request the provider would send unchanged.
@@ -132,9 +73,7 @@ function unapplied(provider: SearchProvider, search: SearchRequest): string[] {
 /**
  * The provider a search goes to. The connection decides, never the call:
  * its `provider` when it names one, else the first provider it has a key
- * for that applies the search's filters. A host that signs requests keeps
- * the keys, so only a connection that signs for itself (`signsItself`) is
- * asked to hold the key of the provider it names.
+ * for that applies the search's filters.
  */
 function chosen(
   providers: SearchProvider[],
@@ -142,14 +81,9 @@ function chosen(
   signsItself: boolean,
   search: SearchRequest,
 ): SearchProvider {
-  const name = config.provider;
-  if (name === undefined) {
-    const keyed = providers.filter((candidate) => hasKey(candidate, config));
-    if (!keyed.length)
-      throw new Error(
-        `${NAME}: no search provider has a key. Set one of ${providers.map((candidate) => candidate.env).join(", ")}, or the connection's "provider" when the host keeps the keys.`,
-      );
-    const able = keyed.find(
+  const provider = namedProvider(NAME, providers, config, signsItself);
+  if (!provider) {
+    const able = keyedProviders(NAME, "search", providers, config).find(
       (candidate) => !unapplied(candidate, search).length,
     );
     if (able) return able;
@@ -158,15 +92,6 @@ function chosen(
       `${NAME}: no provider with a key can filter by ${set.join(" and ")}. Search without one of them.`,
     );
   }
-  const provider = providers.find((candidate) => candidate.name === name);
-  if (!provider)
-    throw new Error(
-      `${NAME}: the connection names the provider ${JSON.stringify(name)}. The providers are ${providers.map((candidate) => candidate.name).join(", ")}.`,
-    );
-  if (signsItself && !hasKey(provider, config))
-    throw new Error(
-      `${NAME}: no key for ${provider.name}, the connection's provider. Set ${provider.env}.`,
-    );
   const refused = unapplied(provider, search);
   if (refused.length)
     throw new Error(
@@ -223,8 +148,19 @@ function defined(params: Record<string, unknown>): Record<string, unknown> {
 export function websearch(
   providers: SearchProvider[] = PROVIDERS,
 ): PluginFunction {
-  const credential = credentialOf(providers);
-  const names = providers.map((provider) => provider.name);
+  // A target is the provider's address, the method a search uses and the headers it carries.
+  const credential = routerCredential(
+    "codemodeWebsearch",
+    providers,
+    ({ name, baseUrl, method, headers }, config) => ({
+      [name]: {
+        baseUrl: typeof baseUrl === "function" ? baseUrl(config) : baseUrl,
+        methods: [method],
+        ...(headers ? { allowedHeaders: Object.keys(headers) } : {}),
+        timeoutMs: TIMEOUT_MS,
+      },
+    }),
+  );
 
   return function plugin(rl: CodemodePluginAPI): void {
     rl.setName(NAME);
@@ -235,23 +171,9 @@ export function websearch(
     rl.setCredential(credential);
     rl.setConnectionSchema(
       t.Object({
-        provider: t.Optional(
-          t.String({
-            enum: names,
-            description:
-              "The provider every search goes to. The default is the first provider with a key that can apply the search's filters",
-          }),
-        ),
-        ...Object.fromEntries(
-          providers.map((provider) => [
-            keyField(provider),
-            t.Optional(
-              t.String({
-                env: provider.env,
-                description: `API key for ${provider.name}`,
-              }),
-            ),
-          ]),
+        ...routerConnectionFields(
+          providers,
+          "The provider every search goes to. The default is the first provider with a key that can apply the search's filters",
         ),
         ...Object.assign({}, ...providers.map((provider) => provider.fields)),
       }),

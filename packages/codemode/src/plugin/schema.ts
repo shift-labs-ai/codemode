@@ -12,6 +12,8 @@ interface SchemaMetadata {
   type?: string;
   properties?: Record<string, SchemaMetadata>;
   items?: SchemaMetadata;
+  patternProperties?: Record<string, SchemaMetadata>;
+  additionalProperties?: boolean | SchemaMetadata;
   required?: string[];
   anyOf?: SchemaMetadata[];
   oneOf?: SchemaMetadata[];
@@ -161,7 +163,8 @@ function describeProperties(
 
 /**
  * Describe one input, following arrays into their item shape, objects
- * into their properties, and unions into each branch.
+ * into their properties or the shape of their values, and unions into each
+ * branch.
  *
  * A parameter typed only as "array" tells an agent nothing about what to
  * put in it, so the shape has to be guessed and the first call is a coin
@@ -185,9 +188,11 @@ function describeField(
   };
 
   const branches = unionBranches(field);
+  const values = valuesOf(field);
   if (depth >= MAX_DESCRIBE_DEPTH) {
     // Only claim truncation where something was actually left unread.
-    if (field.items || field.properties || branches) described.truncated = true;
+    if (field.items || field.properties || values || branches)
+      described.truncated = true;
     return described;
   }
 
@@ -198,12 +203,34 @@ function describeField(
   if (field.properties) {
     described.properties = describeProperties(field, depth + 1);
   }
+  if (values) {
+    // A value under a key the caller chooses is not "required" either.
+    described.values = describeField(values, false, depth + 1);
+  }
   if (branches) {
     described.variants = branches.map((branch) =>
       describeField(branch, false, depth + 1),
     );
   }
   return described;
+}
+
+/**
+ * The schema every value has, for an object whose keys the caller chooses
+ * (a record): its one pattern's schema, or the schema of its additional
+ * properties.
+ */
+function valuesOf(schema: SchemaMetadata): SchemaMetadata | undefined {
+  const patterns = Object.values(schema.patternProperties ?? {});
+  const additional = schema.additionalProperties;
+  const values =
+    patterns.length === 1
+      ? patterns[0]
+      : additional !== null && typeof additional === "object"
+        ? additional
+        : undefined;
+  // A value that may be anything has no shape to describe.
+  return values && Object.keys(values).length ? values : undefined;
 }
 
 /**

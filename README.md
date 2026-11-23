@@ -69,6 +69,7 @@ Codemode is a Bun workspace. It was called runline through 0.45; see [Migrate fr
 | [`packages/codemode-node`](packages/codemode-node) | The `node` plugin as a package, published as `@shiftlabs/codemode-node` |
 | [`packages/codemode-websearch`](packages/codemode-websearch) | The `websearch` plugin as a package, published as `@shiftlabs/codemode-websearch` |
 | [`packages/codemode-imagegen`](packages/codemode-imagegen) | The `imagegen` plugin as a package, published as `@shiftlabs/codemode-imagegen` |
+| [`packages/codemode-decision`](packages/codemode-decision) | The `decision` plugin as a package, published as `@shiftlabs/codemode-decision` |
 | [`packages/package-tests`](packages/package-tests) | What the tests of those packages share. Not published |
 | [`packages/runline`](packages/runline) | The `runline` package on npm, which forwards to codemode until 0.48.0 |
 

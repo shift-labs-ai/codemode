@@ -11,30 +11,31 @@
  * provider's key. Code never names a provider.
  */
 
-import { basename } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   type ActionContext,
   type CodemodePluginAPI,
-  type CredentialDeclaration,
   type CredentialTarget,
   credentialJson,
   downloadResource,
+  IMAGE_EXTENSIONS,
+  imageFacts,
+  keyedProviders,
+  namedProvider,
   type PluginFunction,
-  readLocalFile,
-  staticCredential,
+  readLocalImage,
+  routerConnectionFields,
+  routerCredential,
   writeOutputFile,
 } from "@shiftlabs/codemode";
 import { packageVersion } from "@shiftlabs/codemode/utils/cli";
 import * as t from "typebox";
-import { EXTENSIONS, imageFacts } from "./image.js";
 import { PROVIDERS } from "./providers/index.js";
 import type {
   ImageModel,
   ImageProvider,
   ProducedImage,
   ProviderApi,
-  SourceImage,
 } from "./types.js";
 
 export * from "./providers/index.js";
@@ -57,97 +58,6 @@ const MODELS_TTL_MS = 10 * 60_000;
 
 /** What `create` and `edit` do, by the name of the action. */
 type Kind = "create" | "edit";
-
-/** The connection field that holds a provider's key. */
-function keyField(provider: ImageProvider): string {
-  return `${provider.name}ApiKey`;
-}
-
-/** Whether the connection holds a key for the provider. */
-function hasKey(
-  provider: ImageProvider,
-  config: Readonly<Record<string, unknown>>,
-): boolean {
-  return Boolean(config[keyField(provider)]);
-}
-
-/**
- * One credential for every provider: a part per provider, each optional and
- * each placed only on that provider's targets, so a connection holds the
- * keys it has and a key is sent to its own provider alone.
- */
-function credentialOf(providers: ImageProvider[]): CredentialDeclaration {
-  const names = providers.map((provider) => provider.name);
-  return staticCredential({
-    id: "codemodeImagegen",
-    auth: {
-      kind: "static",
-      parts: names,
-      optionalParts: names,
-      placements: providers.map(({ name, key, targets }) =>
-        "query" in key
-          ? {
-              in: "query",
-              part: name,
-              name: key.query,
-              targets: Object.keys(targets),
-            }
-          : {
-              in: "header",
-              part: name,
-              name: key.header,
-              ...(key.prefix === undefined ? {} : { prefix: key.prefix }),
-              targets: Object.keys(targets),
-            },
-      ),
-    },
-    local: Object.fromEntries(
-      providers.map((provider) => [provider.name, keyField(provider)]),
-    ),
-    targets: Object.fromEntries(
-      providers.flatMap((provider) =>
-        Object.entries(provider.targets).map(
-          ([name, target]): [string, CredentialTarget] => [
-            name,
-            { ...target, timeoutMs: TIMEOUT_MS },
-          ],
-        ),
-      ),
-    ),
-  });
-}
-
-/**
- * The provider a request goes to. The connection decides, never the call:
- * its `provider` when it names one, else the first provider it has a key
- * for. A host that signs requests keeps the keys, so only a connection that
- * signs for itself (`signsItself`) is asked to hold the key of the provider
- * it names.
- */
-function chosen(
-  providers: ImageProvider[],
-  config: Readonly<Record<string, unknown>>,
-  signsItself: boolean,
-): ImageProvider {
-  const name = config.provider;
-  if (name === undefined) {
-    const first = providers.find((candidate) => hasKey(candidate, config));
-    if (first) return first;
-    throw new Error(
-      `${NAME}: no image provider has a key. Set one of ${providers.map((candidate) => candidate.env).join(", ")}, or the connection's "provider" when the host keeps the keys.`,
-    );
-  }
-  const provider = providers.find((candidate) => candidate.name === name);
-  if (!provider)
-    throw new Error(
-      `${NAME}: the connection names the provider ${JSON.stringify(name)}. The providers are ${providers.map((candidate) => candidate.name).join(", ")}.`,
-    );
-  if (signsItself && !hasKey(provider, config))
-    throw new Error(
-      `${NAME}: no key for ${provider.name}, the connection's provider. Set ${provider.env}.`,
-    );
-  return provider;
-}
 
 /** The model an action uses when the call names none: the connection's, else the provider's. */
 function defaultModel(
@@ -174,19 +84,6 @@ function described({ id, name, description, create, edit }: ImageModel) {
 
 /** The types of image every provider documents taking to edit. */
 const SOURCE_TYPES = ["image/png", "image/jpeg", "image/webp"];
-
-/** Read an image to edit. What it is, its bytes say: a file that is none of the types a model edits is refused. */
-async function sourceImage(path: string): Promise<SourceImage> {
-  const bytes = await readLocalFile(path, {
-    subject: `${NAME}: ${path}`,
-    maxBytes: MAX_SOURCE_BYTES,
-    oversize: `${NAME}: ${path} is larger than ${MAX_SOURCE_BYTES / (1024 * 1024)} MiB`,
-  });
-  const facts = imageFacts(bytes);
-  if (!facts || !SOURCE_TYPES.includes(facts.mimeType))
-    throw new Error(`${NAME}: ${path} is not a PNG, JPEG or WebP image.`);
-  return { bytes, mimeType: facts.mimeType, fileName: basename(path) };
-}
 
 const sizeInputs = {
   width: t.Optional(
@@ -252,8 +149,33 @@ const imagesOutput = {
 export function imagegen(
   providers: ImageProvider[] = PROVIDERS,
 ): PluginFunction {
-  const credential = credentialOf(providers);
-  const names = providers.map((provider) => provider.name);
+  const credential = routerCredential(
+    "codemodeImagegen",
+    providers,
+    (provider) =>
+      Object.fromEntries(
+        Object.entries(provider.targets).map(
+          ([name, target]): [string, CredentialTarget] => [
+            name,
+            { ...target, timeoutMs: TIMEOUT_MS },
+          ],
+        ),
+      ),
+  );
+
+  /**
+   * The provider a request goes to. The connection decides, never the call:
+   * its `provider` when it names one, else the first provider it has a key
+   * for.
+   */
+  function chosen(ctx: ActionContext): ImageProvider {
+    const { config } = ctx.connection;
+    return (
+      namedProvider(NAME, providers, config, !ctx.credentials) ??
+      keyedProviders(NAME, "image", providers, config)[0]
+    );
+  }
+
   /** Each provider's models, by the connection that listed them, with when the list was made. */
   const lists = new Map<string, { at: number; models: ImageModel[] }>();
   /** A provider's models, and whether the provider itself could be asked for them. */
@@ -370,9 +292,17 @@ export function imagegen(
   ) {
     if ((input.width === undefined) !== (input.height === undefined))
       throw new Error(`${NAME}: set width and height together, or neither.`);
-    const provider = chosen(providers, ctx.connection.config, !ctx.credentials);
+    const provider = chosen(ctx);
     const model = await modelFor(ctx, provider, input.model, kind);
-    const images = await Promise.all((input.images ?? []).map(sourceImage));
+    const images = await Promise.all(
+      (input.images ?? []).map((path) =>
+        readLocalImage(path, {
+          subject: `${NAME}: ${path}`,
+          maxBytes: MAX_SOURCE_BYTES,
+          types: SOURCE_TYPES,
+        }),
+      ),
+    );
     const produced = await provider.generate(apiOf(ctx, provider), {
       prompt: input.prompt,
       model,
@@ -397,7 +327,7 @@ export function imagegen(
       written.push({
         path: writeOutputFile(
           `${NAME}-${provider.name}`,
-          EXTENSIONS[facts.mimeType],
+          IMAGE_EXTENSIONS[facts.mimeType],
           bytes,
           ctx.outputDir,
         ),
@@ -420,12 +350,9 @@ export function imagegen(
     rl.setCredential(credential);
     rl.setConnectionSchema(
       t.Object({
-        provider: t.Optional(
-          t.String({
-            enum: names,
-            description:
-              "The provider every request goes to. The default is the first provider with a key",
-          }),
+        ...routerConnectionFields(
+          providers,
+          "The provider every request goes to. The default is the first provider with a key",
         ),
         createModel: t.Optional(
           t.String({
@@ -438,17 +365,6 @@ export function imagegen(
             description:
               "The model edit uses when a call names none. The default is the provider's",
           }),
-        ),
-        ...Object.fromEntries(
-          providers.map((provider) => [
-            keyField(provider),
-            t.Optional(
-              t.String({
-                env: provider.env,
-                description: `API key for ${provider.name}`,
-              }),
-            ),
-          ]),
         ),
       }),
     );
@@ -549,7 +465,7 @@ export function imagegen(
       },
       async execute(input, ctx) {
         const { config } = ctx.connection;
-        const provider = chosen(providers, config, !ctx.credentials);
+        const provider = chosen(ctx);
         const words = input.query?.toLowerCase().split(/\s+/).filter(Boolean);
         const matches = (model: ImageModel) =>
           !words ||

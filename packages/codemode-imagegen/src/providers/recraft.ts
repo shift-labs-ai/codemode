@@ -1,4 +1,4 @@
-import { dataUrlOf } from "../image.js";
+import { imageDataUrl } from "@shiftlabs/codemode";
 import { nearestRatio } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
 import { type ImagesAnswer, imagesOf } from "./answer.js";
@@ -81,7 +81,7 @@ export const recraft: ImageProvider = {
             method: "POST",
             json: {
               ...common,
-              image_url: dataUrlOf(images[0]),
+              image_url: imageDataUrl(images[0]),
               strength: EDIT_STRENGTH,
             },
           }

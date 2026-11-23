@@ -3,6 +3,7 @@
  * goes, the models it has, and how one request for images is made of it.
  */
 
+import type { RoutedProvider } from "@shiftlabs/codemode";
 import type { Size } from "./size.js";
 
 /** A model a provider makes images with. */
@@ -69,13 +70,7 @@ export interface ProviderTarget {
 }
 
 /** An image API: where it is, where its key goes, its models, and how it makes images. */
-export interface ImageProvider {
-  /** The name a connection gives as its `provider`, and the stem of the key's connection field. */
-  name: string;
-  /** The environment variable that fills the key. */
-  env: string;
-  /** Where the key goes in a request: a header, or a query parameter. */
-  key: { header: string; prefix?: string } | { query: string };
+export interface ImageProvider extends RoutedProvider {
   /** The addresses the key may be sent beneath, by a name no other provider uses. The first is the default. */
   targets: Record<string, ProviderTarget>;
   /** Hosts its images are fetched from, each with its subdomains. Fetches carry no key. */
