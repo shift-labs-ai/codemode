@@ -67,6 +67,21 @@
         "@shiftlabs/codemode": ">0.46.0",
       },
     },
+    "packages/codemode-decision": {
+      "name": "@shiftlabs/codemode-decision",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@shiftlabs/codemode": "workspace:*",
+        "@types/bun": "^1.2.17",
+        "@types/node": "^25.5.0",
+        "typebox": "^1.1.35",
+        "typescript": "^5.8.0",
+      },
+      "peerDependencies": {
+        "@shiftlabs/codemode": ">0.46.0",
+        "typebox": "*",
+      },
+    },
     "packages/codemode-duckdb": {
       "name": "@shiftlabs/codemode-duckdb",
       "version": "0.1.0",
@@ -299,6 +314,8 @@
     "@shiftlabs/codemode": ["@shiftlabs/codemode@workspace:packages/codemode"],
 
     "@shiftlabs/codemode-bash": ["@shiftlabs/codemode-bash@workspace:packages/codemode-bash"],
+
+    "@shiftlabs/codemode-decision": ["@shiftlabs/codemode-decision@workspace:packages/codemode-decision"],
 
     "@shiftlabs/codemode-duckdb": ["@shiftlabs/codemode-duckdb@workspace:packages/codemode-duckdb"],
 

@@ -1,4 +1,4 @@
-import { dataUrlOf } from "../image.js";
+import { imageDataUrl } from "@shiftlabs/codemode";
 import { fitSize } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
 import { type ImagesAnswer, imagesOf } from "./answer.js";
@@ -89,7 +89,7 @@ export const together: ImageProvider = {
   async generate(api, { prompt, model: { id }, numImages, size, images }) {
     if (takesOneImage(id) && images.length > 1)
       throw new Error(`${id} takes one image. Pass one path in images.`);
-    const urls = images.map(dataUrlOf);
+    const urls = images.map(imageDataUrl);
     const answer = await api.request<ImagesAnswer>({
       path: "images/generations",
       method: "POST",

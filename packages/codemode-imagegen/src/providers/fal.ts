@@ -1,5 +1,4 @@
-import { pathSegments } from "@shiftlabs/codemode";
-import { dataUrlOf } from "../image.js";
+import { imageDataUrl, pathSegments } from "@shiftlabs/codemode";
 import { inputFor } from "../schema.js";
 import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
 import { describedModel, finished, hostedModel } from "./hosted.js";
@@ -112,7 +111,7 @@ export const fal: ImageProvider = {
       headers: JSON_BODY,
       // fal's API takes no upload, so an image to edit goes inside the request.
       body: new TextEncoder().encode(
-        JSON.stringify(await inputFor(fields, request, dataUrlOf)),
+        JSON.stringify(await inputFor(fields, request, imageDataUrl)),
       ),
     });
     const { request_id } = queued;

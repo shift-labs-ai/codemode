@@ -137,6 +137,14 @@ export {
   staticSecretSchema,
   validateCredential,
 } from "./credentials/registry.js";
+export {
+  keyedProviders,
+  namedProvider,
+  providerKeyField,
+  type RoutedProvider,
+  routerConnectionFields,
+  routerCredential,
+} from "./credentials/router.js";
 export type {
   AuthenticatedRequest,
   CredentialBroker,
@@ -332,6 +340,15 @@ export {
   shellRunAction,
   syncExec,
 } from "./utils/cli.js";
+export {
+  IMAGE_EXTENSIONS,
+  type ImageFacts,
+  imageBase64,
+  imageDataUrl,
+  imageFacts,
+  type LocalImage,
+  readLocalImage,
+} from "./utils/image.js";
 export { readLocalFile } from "./utils/local-file.js";
 export {
   ACTION_MEMORY_BYTES,

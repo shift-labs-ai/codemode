@@ -1,11 +1,11 @@
-import { multipartBody, pathSegment, pathSegments } from "@shiftlabs/codemode";
+import {
+  type LocalImage,
+  multipartBody,
+  pathSegment,
+  pathSegments,
+} from "@shiftlabs/codemode";
 import { inputFor } from "../schema.js";
-import type {
-  ImageModel,
-  ImageProvider,
-  ProviderApi,
-  SourceImage,
-} from "../types.js";
+import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
 import { describedModel, finished, hostedModel } from "./hosted.js";
 
 /** Replicate's collections for the two things this package does. */
@@ -58,7 +58,7 @@ function listed(
 }
 
 /** Upload an image to edit as a file, and answer the address a model reads it from. */
-async function uploaded(api: ProviderApi, image: SourceImage): Promise<string> {
+async function uploaded(api: ProviderApi, image: LocalImage): Promise<string> {
   const form = new FormData();
   form.append(
     "content",

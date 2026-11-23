@@ -1,4 +1,4 @@
-import { dataUrlOf } from "../image.js";
+import { imageDataUrl } from "@shiftlabs/codemode";
 import { nearestRatio, type Size } from "../size.js";
 import type { ImageProvider } from "../types.js";
 import { type ImagesAnswer, imagesOf } from "./answer.js";
@@ -61,7 +61,7 @@ export const xai: ImageProvider = {
     );
   },
   async generate(api, { prompt, model, numImages, size, images }) {
-    const sources = images.map((image) => ({ url: dataUrlOf(image) }));
+    const sources = images.map((image) => ({ url: imageDataUrl(image) }));
     const answer = await api.request<ImagesAnswer>({
       path: images.length ? "images/edits" : "images/generations",
       method: "POST",

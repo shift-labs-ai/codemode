@@ -3,6 +3,7 @@
  * goes, the models it has, and how one request for images is made of it.
  */
 
+import type { LocalImage, RoutedProvider } from "@shiftlabs/codemode";
 import type { Size } from "./size.js";
 
 /** A model a provider makes images with. */
@@ -17,13 +18,6 @@ export interface ImageModel {
   edit: boolean;
 }
 
-/** An image read from disk to edit. */
-export interface SourceImage {
-  bytes: Uint8Array<ArrayBuffer>;
-  mimeType: string;
-  fileName: string;
-}
-
 /** One request for images, the same for every provider. */
 export interface ImageRequest {
   prompt: string;
@@ -32,7 +26,7 @@ export interface ImageRequest {
   /** The pixels asked for. A provider gets as close as its model allows. */
   size?: Size;
   /** The images to edit, in order. Empty when the request creates one. */
-  images: SourceImage[];
+  images: LocalImage[];
 }
 
 /** An image as a provider hands it over: its bytes in base64, or where to fetch them. */
@@ -69,13 +63,7 @@ export interface ProviderTarget {
 }
 
 /** An image API: where it is, where its key goes, its models, and how it makes images. */
-export interface ImageProvider {
-  /** The name a connection gives as its `provider`, and the stem of the key's connection field. */
-  name: string;
-  /** The environment variable that fills the key. */
-  env: string;
-  /** Where the key goes in a request: a header, or a query parameter. */
-  key: { header: string; prefix?: string } | { query: string };
+export interface ImageProvider extends RoutedProvider {
   /** The addresses the key may be sent beneath, by a name no other provider uses. The first is the default. */
   targets: Record<string, ProviderTarget>;
   /** Hosts its images are fetched from, each with its subdomains. Fetches carry no key. */

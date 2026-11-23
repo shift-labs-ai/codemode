@@ -4,7 +4,7 @@
  * pure functions; the plugin sends the request.
  */
 
-import { httpsBase } from "@shiftlabs/codemode";
+import { httpsBase, type RoutedProvider } from "@shiftlabs/codemode";
 import * as t from "typebox";
 import {
   BRAVE_COUNTRIES,
@@ -54,13 +54,7 @@ export interface SearchResult {
 }
 
 /** A search API: where it is, where its key goes, and how a search reads to and from it. */
-export interface SearchProvider {
-  /** The name a connection gives as its `provider`, and the stem of the key's connection field. */
-  name: string;
-  /** The environment variable that fills the key. */
-  env: string;
-  /** Where the key goes in a request: a header, or a query parameter. */
-  key: { header: string; prefix?: string } | { query: string };
+export interface SearchProvider extends RoutedProvider {
   /**
    * The HTTPS address the key may be sent beneath, ending in `/`: fixed, or
    * from the connection's config.

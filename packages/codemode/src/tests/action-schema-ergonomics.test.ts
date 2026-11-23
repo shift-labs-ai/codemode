@@ -32,6 +32,47 @@ describe("action schema ergonomics", () => {
       assert.equal(items.properties?.multiline.required, false);
     });
 
+    it("returns the shape of the values of an object whose keys the caller chooses", () => {
+      const schema = t.Object({
+        questions: t.Record(
+          t.String(),
+          t.Object({
+            type: t.String({ enum: ["yesNo", "choice"] }),
+            options: t.Optional(t.Array(t.Object({ value: t.String() }))),
+          }),
+        ),
+        anything: t.Record(t.String(), t.Unknown()),
+        counts: { type: "object", additionalProperties: { type: "number" } },
+      });
+      const fields = helpInputs(schema as never);
+      const values = fields.questions.values;
+      assert.ok(values, "a record must describe the shape of its values");
+      assert.equal(values.required, false);
+      assert.deepEqual(values.properties?.type.enum, ["yesNo", "choice"]);
+      assert.deepEqual(
+        Object.keys(values.properties?.options.items?.properties ?? {}),
+        ["value"],
+      );
+      assert.equal(fields.counts.values?.type, "number");
+      assert.equal(fields.anything.values, undefined);
+    });
+
+    it("keeps the variants of a union one of whose branches is such an object", () => {
+      const schema = t.Object({
+        input: t.Union([
+          t.String(),
+          t.Record(t.String(), t.Object({ id: t.String() })),
+        ]),
+        evidence: t.Union([t.String(), t.Record(t.String(), t.Unknown())]),
+      });
+      const fields = helpInputs(schema);
+      assert.deepEqual(
+        Object.keys(fields.input.variants?.[1].values?.properties ?? {}),
+        ["id"],
+      );
+      assert.equal(fields.evidence.variants, undefined);
+    });
+
     it("returns nested properties for an object input", () => {
       const schema = t.Object({
         filter: t.Object({

@@ -6,8 +6,9 @@
  * images, so one request can be written as that model's input.
  */
 
+import type { LocalImage } from "@shiftlabs/codemode";
 import { nearestRatio, nearestSize, parseSize, type Size } from "./size.js";
-import type { ImageRequest, SourceImage } from "./types.js";
+import type { ImageRequest } from "./types.js";
 
 type Schema = Record<string, unknown>;
 
@@ -123,7 +124,7 @@ function choiceFor(size: Size, choices: string[]): string {
 export async function inputFor(
   fields: ModelFields,
   request: ImageRequest,
-  source: (image: SourceImage) => string | Promise<string>,
+  source: (image: LocalImage) => string | Promise<string>,
 ): Promise<Record<string, unknown>> {
   const { model, size, images, numImages } = request;
   const input: Record<string, unknown> = { [fields.prompt]: request.prompt };

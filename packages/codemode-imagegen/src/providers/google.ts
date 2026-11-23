@@ -1,5 +1,4 @@
-import { pathSegment } from "@shiftlabs/codemode";
-import { base64Of } from "../image.js";
+import { imageBase64, pathSegment } from "@shiftlabs/codemode";
 import { nearestRatio } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
 
@@ -95,7 +94,7 @@ export const google: ImageProvider = {
                 ...images.map((image) => ({
                   inlineData: {
                     mimeType: image.mimeType,
-                    data: base64Of(image),
+                    data: imageBase64(image),
                   },
                 })),
               ],
