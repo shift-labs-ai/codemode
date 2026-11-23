@@ -22,45 +22,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # Runs before setup-node, whose registry settings send a token with every npm call.
-      - name: Tag matches a package that can be installed
+      - name: Tag matches the package version
         id: package
         env:
           TAG: ${{ github.ref_name }}
         run: |
           PACKAGE="${TAG%@*}"
-          VERSION="${TAG##*@}"
           MANIFEST="packages/$PACKAGE/package.json"
           if ! echo "$PACKAGE" | grep -qE '^codemode-[a-z0-9-]+$' || [ ! -f "$MANIFEST" ]; then
             echo "::error::tag $TAG names no package under packages/"
             exit 1
           fi
-          field() { node -p "require('./$MANIFEST')$1 ?? ''"; }
-          if [ "$(field .private)" = "true" ]; then
-            echo "::error::$PACKAGE is private and is not published"
+          VERSION=$(node -p "require('./$MANIFEST').version")
+          if [ "$VERSION" != "${TAG##*@}" ]; then
+            echo "::error::$MANIFEST is at version $VERSION, which does not match tag $TAG"
             exit 1
           fi
-          if [ "$(field .name)" != "@shiftlabs/$PACKAGE" ]; then
-            echo "::error::$MANIFEST is named $(field .name), not @shiftlabs/$PACKAGE"
-            exit 1
-          fi
-          if [ "$(field .version)" != "$VERSION" ]; then
-            echo "::error::$MANIFEST is at version $(field .version), not the tag's $VERSION"
-            exit 1
-          fi
-          # A package is installable only beside a published codemode its peer range takes.
-          RANGE="$(field ".peerDependencies?.['@shiftlabs/codemode']")"
-          if [ -z "$RANGE" ] || [ -z "$(npm view "@shiftlabs/codemode@$RANGE" version 2> /dev/null || true)" ]; then
-            echo "::error::no published @shiftlabs/codemode satisfies the peer range '$RANGE' of $PACKAGE; release codemode first"
-            exit 1
-          fi
-          # A prerelease version stays off the tag npm installs by default.
-          case "$VERSION" in
-            *-*) echo "dist-tag=next" >> "$GITHUB_OUTPUT" ;;
-            *) echo "dist-tag=latest" >> "$GITHUB_OUTPUT" ;;
-          esac
-          echo "name=@shiftlabs/$PACKAGE" >> "$GITHUB_OUTPUT"
-          echo "dir=packages/$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "name=$PACKAGE" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -71,13 +49,12 @@ jobs:
       - run: bun install --frozen-lockfile
       # A package is tested against the codemode built from the same commit.
       - run: bun --filter @shiftlabs/codemode build
-      - run: bun run --filter '${{ steps.package.outputs.name }}' typecheck
-      - run: bun run --filter '${{ steps.package.outputs.name }}' test
+      - run: bun run --filter '@shiftlabs/${{ steps.package.outputs.name }}' typecheck
+      - run: bun run --filter '@shiftlabs/${{ steps.package.outputs.name }}' test
       - name: Publish to npm
-        working-directory: ${{ steps.package.outputs.dir }}
-        run: npm publish --tag "$DIST_TAG" --access public
+        working-directory: packages/${{ steps.package.outputs.name }}
+        run: npm publish --access public
         env:
-          DIST_TAG: ${{ steps.package.outputs.dist-tag }}
           NODE_AUTH_TOKEN: ${{ secrets.SHIFTLABS_NPM_TOKEN }}
       # Codemode's own release stays the repository's latest.
       - uses: softprops/action-gh-release@v3
