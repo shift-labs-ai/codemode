@@ -12,7 +12,7 @@
     },
     "packages/codemode": {
       "name": "@shiftlabs/codemode",
-      "version": "0.46.0",
+      "version": "0.47.0",
       "bin": {
         "codemode": "./dist/main.js",
       },
@@ -190,12 +190,12 @@
     },
     "packages/runline": {
       "name": "runline",
-      "version": "0.46.0",
+      "version": "0.47.0",
       "bin": {
         "runline": "./cli.js",
       },
       "dependencies": {
-        "@shiftlabs/codemode": "0.46.0",
+        "@shiftlabs/codemode": "0.47.0",
       },
       "devDependencies": {
         "typescript": "^5.8.0",
