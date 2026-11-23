@@ -1,10 +1,15 @@
+import { basename } from "node:path";
 import {
   type ActionContext,
   answerFailed,
-  credentialJson,
-  type HttpMethod,
   type CodemodePluginAPI,
+  credentialJson,
+  credentialOk,
+  type HttpMethod,
+  pathWithin,
 } from "@shiftlabs/codemode";
+import { standardBase64 } from "../../_shared/base64.js";
+import { readLocalFile } from "../../_shared/localFile.js";
 import { slackCredential } from "./credentials.js";
 
 async function api(
@@ -23,6 +28,76 @@ async function api(
   })) as Record<string, unknown>;
   if (data.ok === false) throw answerFailed("slack", { code: data.error });
   return data;
+}
+
+/**
+ * A Web API call with a form body. The upload methods
+ * (`files.getUploadURLExternal`, `files.completeUploadExternal`) read
+ * their arguments from a form or the query, not from JSON.
+ */
+async function apiForm(
+  ctx: ActionContext,
+  path: string,
+  form: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const data = (await credentialJson(ctx, slackCredential, "slack", {
+    target: "api",
+    path,
+    method: "POST",
+    form,
+  })) as Record<string, unknown>;
+  if (data.ok === false) throw answerFailed("slack", { code: data.error });
+  return data;
+}
+
+/**
+ * The most one upload carries. Slack accepts up to 1 GB, but the bytes
+ * are sent in one buffered request, which the credential transport
+ * bounds at 64 MiB.
+ */
+const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+const OVERSIZE = "slack: file.upload content exceeds the 64 MiB upload limit";
+
+/** A user ID (`U…`, `W…`), which a file is shared to through its DM. */
+const USER_ID = /^[UW][A-Z0-9]+$/;
+
+/** The bytes and the name of whichever content source the caller gave. */
+async function uploadContent(
+  p: Record<string, unknown>,
+): Promise<{ bytes: Buffer; name?: string }> {
+  const given = ["contentBase64", "contentPath", "content"].filter(
+    (key) => p[key] !== undefined,
+  );
+  if (given.length !== 1)
+    throw new Error(
+      "slack: file.upload takes exactly one of contentBase64, contentPath or content",
+    );
+  let file: { bytes: Buffer; name?: string };
+  if (p.contentBase64 !== undefined) {
+    const base64 =
+      typeof p.contentBase64 === "string"
+        ? standardBase64(p.contentBase64)
+        : undefined;
+    if (base64 === undefined)
+      throw new Error("slack: file.upload contentBase64 is not valid base64");
+    file = { bytes: Buffer.from(base64, "base64") };
+  } else if (p.contentPath !== undefined) {
+    const path = String(p.contentPath);
+    file = {
+      bytes: await readLocalFile(path, {
+        subject: "slack: file.upload contentPath",
+        maxBytes: MAX_UPLOAD_BYTES,
+        oversize: OVERSIZE,
+      }),
+      name: basename(path),
+    };
+  } else {
+    file = { bytes: Buffer.from(String(p.content), "utf8") };
+  }
+  if (file.bytes.length === 0)
+    throw new Error("slack: file.upload content is empty");
+  if (file.bytes.length > MAX_UPLOAD_BYTES) throw new Error(OVERSIZE);
+  return file;
 }
 
 export default function slack(rl: CodemodePluginAPI) {
@@ -620,6 +695,97 @@ export default function slack(rl: CodemodePluginAPI) {
   });
 
   // ── File ────────────────────────────────────────────
+
+  rl.registerAction("file.upload", {
+    access: "write",
+    description:
+      "Upload a file and optionally share it to a channel, a DM or a thread. Give exactly one of contentBase64, contentPath (a file on the codemode host) or content (UTF-8 text). `channel` takes a conversation ID, or a user ID to share in a DM with that user (needs the im:write scope). Without `channel` the file stays private to the uploader. Up to 64 MiB. Returns the uploaded files ({ id, title }).",
+    inputSchema: {
+      channel: {
+        type: "string",
+        required: false,
+        description:
+          "Conversation ID (C…, G…, D…) or user ID (U…, W…) to share in a DM",
+      },
+      filename: {
+        type: "string",
+        required: false,
+        description:
+          "File name, with extension; defaults to contentPath's name, else 'file'",
+      },
+      title: { type: "string", required: false },
+      contentBase64: { type: "string", required: false },
+      contentPath: { type: "string", required: false },
+      content: { type: "string", required: false },
+      initialComment: {
+        type: "string",
+        required: false,
+        description: "Message text posted with the file",
+      },
+      threadTs: {
+        type: "string",
+        required: false,
+        description: "Share as a reply in this thread (needs channel)",
+      },
+      altText: {
+        type: "string",
+        required: false,
+        description: "Description of an image, for screen readers",
+      },
+      snippetType: {
+        type: "string",
+        required: false,
+        description: "Syntax type of a snippet, e.g. python or javascript",
+      },
+    },
+    async execute(input, ctx) {
+      const p = (input ?? {}) as Record<string, unknown>;
+      if (p.threadTs !== undefined && p.channel === undefined)
+        throw new Error("slack: file.upload threadTs needs a channel");
+      const file = await uploadContent(p);
+      const filename = String(p.filename ?? file.name ?? "file");
+
+      let channel = p.channel === undefined ? undefined : String(p.channel);
+      if (channel !== undefined && USER_ID.test(channel)) {
+        const opened = (await api(ctx, "POST", "conversations.open", {
+          users: channel,
+        })) as { channel?: { id?: unknown } };
+        if (typeof opened.channel?.id !== "string")
+          throw new Error("slack: conversations.open returned no channel");
+        channel = opened.channel.id;
+      }
+
+      const ticket = await apiForm(ctx, "files.getUploadURLExternal", {
+        filename,
+        length: file.bytes.length,
+        alt_text: p.altText,
+        snippet_type: p.snippetType,
+      });
+      if (
+        typeof ticket.upload_url !== "string" ||
+        typeof ticket.file_id !== "string"
+      )
+        throw new Error("slack: files.getUploadURLExternal returned no upload");
+
+      await credentialOk(ctx, slackCredential, "slack", {
+        target: "upload",
+        path: pathWithin(ctx, slackCredential, "upload", ticket.upload_url),
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: new Uint8Array(file.bytes),
+      });
+
+      const done = await apiForm(ctx, "files.completeUploadExternal", {
+        files: JSON.stringify([
+          { id: ticket.file_id, title: p.title ?? filename },
+        ]),
+        channel_id: channel,
+        initial_comment: p.initialComment,
+        thread_ts: p.threadTs,
+      });
+      return done.files;
+    },
+  });
 
   rl.registerAction("file.get", {
     access: "read",
