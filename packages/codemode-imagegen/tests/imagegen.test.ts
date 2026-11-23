@@ -294,7 +294,7 @@ describe("imagegen.create through each provider that answers at once", () => {
     assert.equal(requests.length, 2);
     assert.equal(
       requests[0].url,
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=KEY-google",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent?key=KEY-google",
     );
     assert.deepEqual(requests[0].body, {
       contents: [{ parts: [{ text: "a fox" }] }],
@@ -927,7 +927,13 @@ describe("the model a request uses", () => {
       ["generations", () => b64Answer],
       [
         "/models",
-        () => ({ data: [{ id: "gpt-image-2" }, { id: "gpt-image-1.5" }] }),
+        () => ({
+          data: [
+            { id: "gpt-image-2" },
+            { id: "chatgpt-image-latest" },
+            { id: "gpt-image-1.5" },
+          ],
+        }),
       ],
     ]);
     const config = { ...through("openai"), createModel: "gpt-image-2" };
@@ -937,15 +943,19 @@ describe("the model a request uses", () => {
     ) => (await call<Made>("create", { prompt: "p", ...input }, c)).model;
     assert.deepEqual(
       [
-        await models({ model: "gpt-image-1.5" }),
+        await models({ model: "chatgpt-image-latest" }),
         await models({}),
         await models({}, through("openai")),
       ],
-      ["gpt-image-1.5", "gpt-image-2", "gpt-image-2.6-flare"],
+      ["chatgpt-image-latest", "gpt-image-2", "gpt-image-2.6-flare"],
     );
     assert.equal(
       (made(sent)[0].body as { model: string }).model,
-      "gpt-image-1.5",
+      "chatgpt-image-latest",
+    );
+    assert.match(
+      await refused("create", { prompt: "p", model: "gpt-image-1.5" }, config),
+      /gpt-image-1\.5/,
     );
   });
 

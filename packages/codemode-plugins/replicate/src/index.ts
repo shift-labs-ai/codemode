@@ -21,10 +21,11 @@
 import { Buffer } from "node:buffer";
 import {
   type ActionContext,
+  type CodemodePluginAPI,
   credentialJson,
+  imageDataUrl,
   pathSegments,
   pathWithin,
-  type CodemodePluginAPI,
 } from "@shiftlabs/codemode";
 import {
   mediaDir,
@@ -323,7 +324,9 @@ export default function replicate(rl: CodemodePluginAPI) {
         model,
         input: {
           prompt: p.prompt,
-          [imageKey]: imageKey.endsWith("_input") ? [img.dataUri] : img.dataUri,
+          [imageKey]: imageKey.endsWith("_input")
+            ? [imageDataUrl(img)]
+            : imageDataUrl(img),
         },
         timeoutMs: p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         saveDir: mediaDir(p.saveDir, ctx),

@@ -10,7 +10,7 @@ export const togetherCredential = staticCredential({
   local: { secret: "apiKey" },
   targets: {
     api: {
-      baseUrl: "https://api.together.xyz/v1/",
+      baseUrl: "https://api.together.ai/v1/",
       methods: ["POST"],
     },
   },

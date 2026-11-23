@@ -46,6 +46,35 @@ describe("shared media writer", () => {
     assert.ok(out.path.endsWith(".png"));
   });
 
+  it("names an image for what its bytes are, and other media for what it is declared", () => {
+    const jpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11,
+      0x08, 0x01, 0xe0, 0x02, 0x80, 0x03, 0x00, 0x00,
+    ]);
+    const options = { provider: "together", index: 0, saveDir: dir };
+    for (const out of [
+      writeImageFile({ ...options, base64: jpeg.toString("base64") }),
+      writeMediaFile({ ...options, bytes: jpeg, mimeType: "image/webp" }),
+    ]) {
+      assert.equal(out.mimeType, "image/jpeg");
+      assert.ok(out.path.endsWith(".jpg"));
+    }
+    const svg = writeMediaFile({
+      ...options,
+      bytes: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+    });
+    assert.equal(svg.mimeType, "image/svg+xml");
+    assert.ok(svg.path.endsWith(".svg"));
+    // Raw audio samples can open with the bytes a JPEG does.
+    const audio = writeMediaFile({
+      ...options,
+      bytes: jpeg,
+      mimeType: "audio/x-pcm",
+    });
+    assert.equal(audio.mimeType, "audio/x-pcm");
+    assert.ok(audio.path.endsWith(".pcm"));
+  });
+
   it("maps MIME types without allowing paths or prototype keys into extensions", () => {
     for (const [mime, ext] of [
       ["image/jpeg", "jpg"],

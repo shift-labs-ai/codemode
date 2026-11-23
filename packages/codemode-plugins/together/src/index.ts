@@ -4,19 +4,19 @@
  *   await together.image.create({ prompt: "a cyberpunk skyline at dusk" })
  *   await together.image.create({
  *     prompt: "studio product shot, white background",
- *     model: "black-forest-labs/FLUX.1-dev",
+ *     model: "black-forest-labs/FLUX.2-flex",
  *     steps: 28,
  *   })
  *
- * Default model is FLUX.1-schnell — fastest, 4 steps. For better
- * fidelity switch to FLUX.1-dev / Ideogram / Qwen-Image and bump
- * `steps` accordingly (20–30 is typical for non-schnell models).
+ * The default model is FLUX.2 [dev]. `steps` is sent only when a call sets
+ * it, because each model has a default of its own.
  */
 
 import {
   type ActionContext,
-  credentialJson,
   type CodemodePluginAPI,
+  credentialJson,
+  imageDataUrl,
 } from "@shiftlabs/codemode";
 import {
   mediaDir,
@@ -27,6 +27,11 @@ import {
 } from "../../_shared/mediaFile.js";
 import { parseSize } from "../../_shared/parseSize.js";
 import { togetherCredential } from "./credentials.js";
+
+const CREATE_MODEL = "black-forest-labs/FLUX.2-dev";
+const EDIT_MODEL = "black-forest-labs/FLUX.1-kontext-pro";
+const STEPS_DESCRIPTION =
+  "Number of generation steps: more is slower and usually better. Omit for the model's own default.";
 
 function generate(
   ctx: ActionContext,
@@ -94,8 +99,7 @@ export default function together(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          "Together model id, e.g. black-forest-labs/FLUX.1-schnell (default), black-forest-labs/FLUX.1-dev, ideogram/ideogram-3.0, Qwen/Qwen-Image",
+        description: `Together model id, e.g. ${CREATE_MODEL} (default), black-forest-labs/FLUX.2-pro, ideogram/ideogram-4.0, Qwen/Qwen-Image`,
       },
       size: {
         type: "string",
@@ -105,8 +109,7 @@ export default function together(rl: CodemodePluginAPI) {
       steps: {
         type: "number",
         required: false,
-        description:
-          "Inference steps (default: 4 for FLUX.1-schnell). Use 20–30 for FLUX.1-dev or Ideogram.",
+        description: STEPS_DESCRIPTION,
       },
       n: {
         type: "number",
@@ -120,7 +123,7 @@ export default function together(rl: CodemodePluginAPI) {
         throw new Error("together: prompt is required");
       }
 
-      const model = p.model ?? "black-forest-labs/FLUX.1-schnell";
+      const model = p.model ?? CREATE_MODEL;
       const { width, height } = parseSize(p.size, "together");
 
       const data = await generate(ctx, {
@@ -128,7 +131,7 @@ export default function together(rl: CodemodePluginAPI) {
         prompt: p.prompt,
         width,
         height,
-        steps: p.steps ?? 4,
+        ...(p.steps === undefined ? {} : { steps: p.steps }),
         n: Math.min(p.n ?? 1, 4),
         response_format: "base64",
       });
@@ -136,7 +139,6 @@ export default function together(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) =>
         writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "together",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),
@@ -170,13 +172,12 @@ export default function together(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          "Edit-capable model, e.g. black-forest-labs/FLUX.1-kontext-pro (default), black-forest-labs/FLUX.1-kontext-max",
+        description: `Edit-capable model, e.g. ${EDIT_MODEL} (default), black-forest-labs/FLUX.1-kontext-max`,
       },
       steps: {
         type: "number",
         required: false,
-        description: "Inference steps (default: 28)",
+        description: STEPS_DESCRIPTION,
       },
       n: {
         type: "number",
@@ -191,13 +192,13 @@ export default function together(rl: CodemodePluginAPI) {
       }
       const img = await readImageInput(p.imagePath, "together");
 
-      const model = p.model ?? "black-forest-labs/FLUX.1-kontext-pro";
+      const model = p.model ?? EDIT_MODEL;
 
       const data = await generate(ctx, {
         model,
         prompt: p.prompt,
-        image_url: img.dataUri,
-        steps: p.steps ?? 28,
+        image_url: imageDataUrl(img),
+        ...(p.steps === undefined ? {} : { steps: p.steps }),
         n: Math.min(p.n ?? 1, 4),
         response_format: "base64",
       });
@@ -205,7 +206,6 @@ export default function together(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) =>
         writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "together",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),

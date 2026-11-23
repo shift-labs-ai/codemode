@@ -9,7 +9,11 @@
  * the API does the math.
  */
 
-import { credentialJson, type CodemodePluginAPI } from "@shiftlabs/codemode";
+import {
+  type CodemodePluginAPI,
+  credentialJson,
+  imageDataUrl,
+} from "@shiftlabs/codemode";
 import {
   mediaDir,
   readImageInput,
@@ -19,8 +23,7 @@ import {
 } from "../../_shared/mediaFile.js";
 import { xaiCredential } from "./credentials.js";
 
-const MODEL = "grok-imagine-image";
-const EDIT_MODEL = "grok-imagine-image-2.0";
+const MODEL = "grok-imagine-image-2.0";
 
 interface CreateInput {
   prompt: string;
@@ -76,7 +79,7 @@ export default function xai(rl: CodemodePluginAPI) {
         type: "string",
         required: false,
         description:
-          "1:1 | 16:9 | 9:16 | 4:3 | 3:4 | 3:2 | 2:3 | auto (default: auto)",
+          "1:1 | 16:9 | 9:16 | 4:3 | 3:4 | 3:2 | 2:3 | 2:1 | 1:2 | 21:9 | 20:9 | 9:20 | 19.5:9 | 9:19.5 | 5:2 | auto (default: auto)",
       },
       n: {
         type: "number",
@@ -143,7 +146,7 @@ export default function xai(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description: "Edit-capable model (default: grok-imagine-image-2.0)",
+        description: `Edit-capable model (default: ${MODEL})`,
       },
       n: {
         type: "number",
@@ -158,7 +161,7 @@ export default function xai(rl: CodemodePluginAPI) {
       }
       const img = await readImageInput(p.imagePath, "xai");
 
-      const model = p.model ?? EDIT_MODEL;
+      const model = p.model ?? MODEL;
 
       const data = (await credentialJson(ctx, xaiCredential, "xai", {
         target: "api",
@@ -167,7 +170,7 @@ export default function xai(rl: CodemodePluginAPI) {
         json: {
           model,
           prompt: p.prompt,
-          image: { url: img.dataUri },
+          image: { url: imageDataUrl(img) },
           n: Math.min(p.n ?? 1, 10),
           response_format: "b64_json",
         },

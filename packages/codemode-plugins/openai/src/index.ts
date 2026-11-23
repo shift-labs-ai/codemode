@@ -1,7 +1,7 @@
 /**
  * OpenAI image generation for codemode.
  *
- * Wraps the GPT Image / DALL-E line: `image.create` at
+ * Wraps the GPT Image line: `image.create` at
  * /v1/images/generations, `image.edit` at /v1/images/edits. Generated
  * images are written to disk and the action returns their file `path`s
  * (plus the optional revised prompt) — never raw base64, which bloats the
@@ -16,7 +16,11 @@
  *   // images[0].path -> "/tmp/openai-image-….png"
  */
 
-import { credentialJson, multipartBody, type CodemodePluginAPI } from "@shiftlabs/codemode";
+import {
+  type CodemodePluginAPI,
+  credentialJson,
+  multipartBody,
+} from "@shiftlabs/codemode";
 import {
   mediaDir,
   readImageInput,
@@ -27,15 +31,17 @@ import {
 import { openaiCredential } from "./credentials.js";
 
 /**
- * Newest GPT Image model; override per call or via the connection.
+ * The default model; override per call or via the connection.
  *
- * The GPT Image 2.5 line ships as two models: `gpt-image-2.5-flare`
- * (OpenAI's own default — gpt-image-2 quality at up to half the latency)
- * and `gpt-image-2.5-sunburst` (precision editing). Both widen the
- * quality range and take custom sizes; see QUALITY_RULE and SIZE_RULE.
- * Pin `gpt-image-2` via `defaultModel` to stay on the older line.
+ * Each GPT Image line from 2.5 ships as two models: Flare, the faster one,
+ * and Sunburst, for detailed work and precise edits. Pin an earlier model
+ * via `defaultModel` to stay on it.
  */
-const DEFAULT_MODEL = "gpt-image-2.5-flare";
+const DEFAULT_MODEL = "gpt-image-2.6-flare";
+
+/** The models the inputs name. The API takes any GPT Image model the key reaches. */
+const MODELS =
+  "gpt-image-2.6-flare | gpt-image-2.6-sunburst | gpt-image-2.5-flare | gpt-image-2.5-sunburst | gpt-image-2";
 
 /**
  * The size contract, shared by create and edit so the two cannot drift apart.
@@ -44,18 +50,18 @@ const DEFAULT_MODEL = "gpt-image-2.5-flare";
  * surprises, because 512x512 satisfies every other rule and still 400s.
  */
 const SIZE_RULE =
-  "gpt-image-2 and gpt-image-2.5-* take any WIDTHxHEIGHT with both sides multiples of 16, aspect between 1:3 and 3:1, " +
+  "Any WIDTHxHEIGHT with both sides multiples of 16, aspect between 1:3 and 3:1, " +
   "no edge over 3840, and a total between 655,360 and 8,294,400 pixels — so 512x512 is too small and 1536x864 is fine; " +
-  "above 2560x1440 is experimental. gpt-image-1* and dall-e-* take 1024x1024 | 1536x1024 | 1024x1536.";
+  "above 2560x1440 is experimental. 1024x1024 | 1536x1024 | 1024x1536 work on every model.";
 
-/** Quality tiers, likewise shared. `auto` is what the 2.5 models pick by default. */
+/** Quality tiers, likewise shared. `auto` is the API's default. */
 const QUALITY_RULE =
   "low | medium | high | auto, plus xhigh | max on gpt-image-2.5-*";
 
 /**
  * Model precedence, shared by create and edit: the call wins, then the
- * connection's `defaultModel` (or OPENAI_IMAGE_MODEL), then the newest
- * model.
+ * connection's `defaultModel` (or OPENAI_IMAGE_MODEL), then
+ * `DEFAULT_MODEL`.
  */
 function resolveModel(
   explicit: string | undefined,
@@ -71,7 +77,6 @@ interface CreateInput {
   model?: string;
   size?: string;
   quality?: string;
-  style?: string;
   n?: number;
   saveDir?: string;
 }
@@ -107,8 +112,7 @@ export default function openai(rl: CodemodePluginAPI) {
     defaultModel: {
       type: "string",
       required: false,
-      description:
-        "Default image model when a call omits `model` — e.g. gpt-image-2 to pin the older line. Defaults to gpt-image-2.5-flare.",
+      description: `Default image model when a call omits \`model\` — e.g. gpt-image-2 to pin an earlier line. Defaults to ${DEFAULT_MODEL}.`,
       env: "OPENAI_IMAGE_MODEL",
     },
   });
@@ -116,7 +120,7 @@ export default function openai(rl: CodemodePluginAPI) {
   rl.registerAction("image.create", {
     access: "write",
     description:
-      "Generate an image with OpenAI (GPT Image / DALL-E). Writes the PNG(s) to disk and returns their file `path`s (plus any revised prompt) — not base64. Deliver each image to the user with send_file using its `path`.",
+      "Generate an image with OpenAI (GPT Image). Writes the PNG(s) to disk and returns their file `path`s (plus any revised prompt) — not base64. Deliver each image to the user with send_file using its `path`.",
     inputSchema: {
       prompt: {
         type: "string",
@@ -131,8 +135,7 @@ export default function openai(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          "gpt-image-2.5-flare | gpt-image-2.5-sunburst | gpt-image-2 | gpt-image-1 | gpt-image-1-mini | dall-e-3 | dall-e-2. Omit to use the connection default.",
+        description: `${MODELS}. Omit to use the connection default.`,
       },
       size: {
         type: "string",
@@ -142,12 +145,7 @@ export default function openai(rl: CodemodePluginAPI) {
       quality: {
         type: "string",
         required: false,
-        description: `${QUALITY_RULE}; standard | hd (dall-e-3)`,
-      },
-      style: {
-        type: "string",
-        required: false,
-        description: "vivid | natural — DALL-E 3 only",
+        description: QUALITY_RULE,
       },
       n: {
         type: "number",
@@ -168,16 +166,9 @@ export default function openai(rl: CodemodePluginAPI) {
         prompt: p.prompt,
         n: Math.min(p.n ?? 1, 4),
         size: p.size ?? "1024x1024",
+        output_format: "png",
       };
-      // gpt-image-* uses output_format; dall-e-* uses response_format.
-      // Sending the wrong key 400s, so the model name decides.
-      if (model.startsWith("dall-e")) {
-        body.response_format = "b64_json";
-      } else {
-        body.output_format = "png";
-      }
       if (p.quality) body.quality = p.quality;
-      if (p.style) body.style = p.style;
 
       const data = (await credentialJson(ctx, openaiCredential, "openai", {
         target: "api",
@@ -189,7 +180,6 @@ export default function openai(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) => ({
         ...writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "openai-image",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),
@@ -231,8 +221,7 @@ export default function openai(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          "gpt-image-2.5-flare | gpt-image-2.5-sunburst | gpt-image-2 | gpt-image-1 | gpt-image-1-mini. Omit to use the connection default.",
+        description: `${MODELS}. Omit to use the connection default.`,
       },
       size: {
         type: "string",
@@ -294,7 +283,6 @@ export default function openai(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) => ({
         ...writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "openai-image",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),

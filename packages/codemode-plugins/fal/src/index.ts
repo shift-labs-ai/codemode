@@ -1,4 +1,4 @@
-import type { CodemodePluginAPI } from "@shiftlabs/codemode";
+import { type CodemodePluginAPI, imageDataUrl } from "@shiftlabs/codemode";
 import * as t from "typebox";
 import { mediaDir, readImageInput } from "../../_shared/mediaFile.js";
 import { parseSize } from "../../_shared/parseSize.js";
@@ -183,7 +183,9 @@ export default function fal(rl: CodemodePluginAPI): void {
         p.model ?? EDIT_MODEL,
         {
           prompt: p.prompt,
-          [key]: key.endsWith("_urls") ? [image.dataUri] : image.dataUri,
+          [key]: key.endsWith("_urls")
+            ? [imageDataUrl(image)]
+            : imageDataUrl(image),
         },
         "images",
       );

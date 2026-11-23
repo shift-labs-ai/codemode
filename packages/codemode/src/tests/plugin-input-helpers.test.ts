@@ -18,6 +18,7 @@ import { responseFailed } from "../credentials/plugin.js";
 import { type CodemodePluginAPI, createPluginAPI } from "../plugin/api.js";
 import type { ActionContext } from "../plugin/types.js";
 import { readLocalFile } from "../utils/local-file.js";
+import { png } from "./helpers/image.js";
 import { getAction, stubFetch } from "./helpers/plugin.js";
 
 const dir = mkdtempSync(join(tmpdir(), "plugin-input-test-"));
@@ -133,20 +134,30 @@ describe("readLocalFile", () => {
 });
 
 describe("readImageInput", () => {
-  it("loads an image as bytes, base64 and a data URI", async () => {
-    const file = join(dir, "pixel.png");
-    writeFileSync(file, Buffer.from("png"));
+  it("loads an image with the type its bytes say, whatever its name", async () => {
+    const file = join(dir, "pixel.jpg");
+    writeFileSync(file, png(640, 480));
     const image = await readImageInput(file, "fal");
     assert.equal(image.mimeType, "image/png");
-    assert.equal(image.dataUri, `data:image/png;base64,${image.base64}`);
-    assert.equal(image.fileName, "pixel.png");
+    assert.equal(image.fileName, "pixel.jpg");
+    assert.deepEqual(image.bytes, png(640, 480));
+  });
+  it("refuses a file that is no image, and a missing path", async () => {
+    const text = join(dir, "notes.png");
+    writeFileSync(text, "not an image at all");
+    await assert.rejects(() => readImageInput(text, "fal"), {
+      message: "fal: imagePath is not a PNG, JPEG, WebP or GIF image.",
+    });
+    await assert.rejects(() => readImageInput(" ", "fal"), {
+      message: "fal: imagePath is required",
+    });
   });
   it("bounds the read at 50 MiB", async () => {
     const big = join(dir, "huge.png");
     writeFileSync(big, "");
     truncateSync(big, 50 * 1024 * 1024 + 1);
     await assert.rejects(() => readImageInput(big, "xai"), {
-      message: "xai: imagePath exceeds 50 MiB",
+      message: "xai: imagePath is larger than 50 MiB",
     });
   });
 });

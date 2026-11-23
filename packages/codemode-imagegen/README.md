@@ -86,7 +86,7 @@ The list is the models this package knows of with the provider's own list laid o
 
 | Provider | What a size becomes |
 |---|---|
-| `openai` | The same pixels, with sides rounded to 16 and the longer side at most three times the shorter, for `gpt-image-2` and later. The nearest of three sizes for the `gpt-image-1` line |
+| `openai` | The same pixels, with sides rounded to 16 and the longer side at most three times the shorter |
 | `google` | The nearest aspect ratio |
 | `xai` | The nearest aspect ratio, and a resolution of 1k, 1.5k, or 2k |
 | `recraft` | The nearest aspect ratio |
