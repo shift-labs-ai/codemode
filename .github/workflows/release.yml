@@ -89,12 +89,12 @@ jobs:
           exit 1
       - name: Publish to npm
         working-directory: packages/${{ matrix.package }}
+        # A prerelease version stays off the tag npm installs by default.
         run: |
-          if echo "${{ github.ref_name }}" | grep -qE '(rc|alpha|beta)'; then
-            npm publish --tag next --access public
-          else
-            npm publish --access public
-          fi
+          case "$GITHUB_REF_NAME" in
+            *-*) npm publish --tag next --access public ;;
+            *) npm publish --tag latest --access public ;;
+          esac
         env:
           NODE_AUTH_TOKEN: ${{ secrets[matrix.token] }}
 

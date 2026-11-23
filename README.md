@@ -97,7 +97,7 @@ A release is cut by pushing a tag. Each package published beside codemode has a 
 | `v0.47.0` | `@shiftlabs/codemode` and `runline`, both at that version |
 | `codemode-bash@0.2.0` | `@shiftlabs/codemode-bash` at that version, from `packages/codemode-bash` |
 
-Set the version in the package's `package.json` first; the release stops when it differs from the tag. A package release also stops when no published codemode satisfies the package's peer range, so release codemode before a package that needs it. A version with `rc`, `alpha` or `beta` in it is published under the `next` tag.
+Set the version in the package's `package.json` first; the release stops when it differs from the tag. A package release also stops when no published codemode satisfies the package's peer range, so release codemode before a package that needs it. A prerelease version, such as `0.47.0-rc.1`, is published under the `next` tag.
 
 ## License
 
