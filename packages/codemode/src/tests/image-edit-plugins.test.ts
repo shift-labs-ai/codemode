@@ -78,6 +78,58 @@ describe("image.edit is registered on every image plugin", () => {
   }
 });
 
+describe("default models", () => {
+  // Each plugin answers in its own shape; one reply carries them all.
+  const reply = {
+    data: [{ b64_json: B64_RESULT }],
+    candidates: [
+      { content: { parts: [{ inlineData: { data: B64_RESULT } }] } },
+    ],
+  };
+  const cases: Array<
+    [string, (api: CodemodePluginAPI) => void, string, string, string]
+  > = [
+    ["xai", xai, "image.create", "grok-imagine-image-2.0", "body"],
+    ["xai", xai, "image.edit", "grok-imagine-image-2.0", "body"],
+    ["recraft", recraft, "image.create", "recraftv4_1", "body"],
+    ["recraft", recraft, "image.edit", "recraftv4_1", "form"],
+    [
+      "googleImage",
+      googleImage,
+      "image.create",
+      "gemini-nano-banana-2.1",
+      "url",
+    ],
+    ["googleImage", googleImage, "image.edit", "gemini-nano-banana-2.1", "url"],
+  ];
+  for (const [name, fn, actionName, model, where] of cases) {
+    it(`${name} ${actionName} asks for ${model} and reports it`, async () => {
+      let sent = "";
+      stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (where === "url") sent = String(input);
+        else if (where === "form")
+          sent = String((await multipartForm(init)).get("model"));
+        else sent = JSON.parse(String(init?.body)).model;
+        return Response.json(reply);
+      });
+
+      const result = (await getAction(makePlugin(name, fn), actionName).execute(
+        {
+          prompt: "a fox",
+          saveDir: dir,
+          ...(actionName === "image.edit" ? { imagePath: sourcePath } : {}),
+        },
+        ctx({ apiKey: "test" }),
+      )) as { model: string };
+
+      assert.equal(result.model, model);
+      if (where === "url")
+        assert.ok(sent.includes(`/models/${model}:generateContent`), sent);
+      else assert.equal(sent, model);
+    });
+  }
+});
+
 describe("openai image.edit", () => {
   it("POSTs multipart form to /v1/images/edits with image file and prompt", async () => {
     const action = getAction(makePlugin("openai", openai), "image.edit");

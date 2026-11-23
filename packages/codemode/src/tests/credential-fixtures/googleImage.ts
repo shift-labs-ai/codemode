@@ -11,6 +11,6 @@ export default {
   response: { candidates: [] },
   target: "api",
   wire: {
-    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=g_secret",
+    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent?key=g_secret",
   },
 } satisfies CredentialFixture;

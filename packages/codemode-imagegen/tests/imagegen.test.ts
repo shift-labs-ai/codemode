@@ -294,7 +294,7 @@ describe("imagegen.create through each provider that answers at once", () => {
     assert.equal(requests.length, 2);
     assert.equal(
       requests[0].url,
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=KEY-google",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent?key=KEY-google",
     );
     assert.deepEqual(requests[0].body, {
       contents: [{ parts: [{ text: "a fox" }] }],

@@ -9,12 +9,16 @@
  *   })
  *
  * Recraft is the design-oriented provider: vector output, brand-
- * consistent style libraries, typography-aware. V4 models drop the
- * legacy `style` knob — pass `styleId` against your own custom
- * style if you've set one up.
+ * consistent style libraries, typography-aware. The default model is
+ * Recraft V4.1. Only V2 and V3 models take a curated `style`; a V4 or V4.1
+ * model takes a `styleId` of your own instead.
  */
 
-import { credentialJson, multipartBody, type CodemodePluginAPI } from "@shiftlabs/codemode";
+import {
+  type CodemodePluginAPI,
+  credentialJson,
+  multipartBody,
+} from "@shiftlabs/codemode";
 import {
   IMAGE_TYPES,
   mediaDir,
@@ -24,6 +28,9 @@ import {
   writeImageFile,
 } from "../../_shared/mediaFile.js";
 import { recraftCredential } from "./credentials.js";
+
+/** The model Recraft's API itself defaults to, for creating and for editing. */
+const MODEL = "recraftv4_1";
 
 /** Recraft edits a vector image as well as a raster one. */
 const EDIT_TYPES = [...IMAGE_TYPES, "image/svg+xml"];
@@ -85,14 +92,13 @@ export default function recraft(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          "recraftv3 (default) | recraftv3_vector | recraftv4 | recraftv4_pro | recraftv4_vector | recraftv4_pro_vector",
+        description: `${MODEL} (default) | recraftv4_1_pro | recraftv4_1_vector | recraftv4_1_pro_vector | recraftv4_1_flash_v2 | recraftv4 | recraftv4_pro | recraftv4_vector | recraftv4_pro_vector | recraftv3 | recraftv3_vector. A _vector model writes SVG.`,
       },
       style: {
         type: "string",
         required: false,
         description:
-          "V2/V3 only — Photorealism | Illustration | Vector art | Hand-drawn | Icon | Recraft V3 Raw",
+          "V2/V3 models only — Photorealism | Illustration | Vector art | Hand-drawn | Icon | Recraft V3 Raw",
       },
       styleId: {
         type: "string",
@@ -102,7 +108,8 @@ export default function recraft(rl: CodemodePluginAPI) {
       size: {
         type: "string",
         required: false,
-        description: "WxH (default: 1024x1024). E.g. 1280x1024, 1024x1280",
+        description:
+          "Aspect ratio (1:1 | 16:9 | 9:16 | 4:3 | 3:4 | 3:2 | 2:3 | 2:1 | 1:2) or an exact WxH the model lists; 1024x1024 works on every model. Omit for the model's default.",
       },
       n: {
         type: "number",
@@ -116,7 +123,7 @@ export default function recraft(rl: CodemodePluginAPI) {
         throw new Error("recraft: prompt is required");
       }
 
-      const model = p.model ?? "recraftv3";
+      const model = p.model ?? MODEL;
 
       const body: Record<string, unknown> = {
         prompt: p.prompt,
@@ -162,7 +169,7 @@ export default function recraft(rl: CodemodePluginAPI) {
         type: "string",
         required: true,
         description:
-          "Path to the source image file (PNG, JPG, WEBP, or SVG; max 10 MB)",
+          "Path to the source image file (PNG, JPG, WEBP, or SVG; under 20 MB, up to 16 MP, sides 256–4096 px)",
       },
       strength: {
         type: "number",
@@ -178,19 +185,19 @@ export default function recraft(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          "Any Recraft V3 / V4 / V4.1 model, raster or vector (e.g. recraftv3, recraftv4_pro, recraftv4_1_vector). API default: recraftv4_1.",
+        description: `Any Recraft V3 / V4 / V4.1 model, raster or vector (e.g. recraftv3, recraftv4_pro, recraftv4_1_vector). Default: ${MODEL}.`,
       },
       style: {
         type: "string",
         required: false,
         description:
-          "Photorealism | Illustration | Vector art | Hand-drawn | Icon | Recraft V3 Raw",
+          "V3 models only — Photorealism | Illustration | Vector art | Hand-drawn | Recraft V3 Raw",
       },
       styleId: {
         type: "string",
         required: false,
-        description: "ID of a custom style created in your Recraft account",
+        description:
+          "V3 models only — ID of a custom style created in your Recraft account",
       },
       n: {
         type: "number",
@@ -215,7 +222,8 @@ export default function recraft(rl: CodemodePluginAPI) {
       form.append("strength", String(p.strength ?? 0.2));
       form.append("response_format", "b64_json");
       form.append("n", String(Math.min(p.n ?? 1, 6)));
-      if (p.model) form.append("model", p.model);
+      const model = p.model ?? MODEL;
+      form.append("model", model);
       if (p.style) form.append("style", p.style);
       if (p.styleId) form.append("style_id", p.styleId);
 
@@ -237,13 +245,7 @@ export default function recraft(rl: CodemodePluginAPI) {
           stamp,
         }),
       );
-      // The imageToImage endpoint's own default model is recraftv4_1.
-      return {
-        provider: "recraft",
-        model: p.model ?? "recraftv4_1",
-        images,
-        note: SEND_FILE_NOTE,
-      };
+      return { provider: "recraft", model, images, note: SEND_FILE_NOTE };
     },
   });
 }

@@ -37,6 +37,10 @@ import {
 import { STRICT } from "../../_shared/schemas.js";
 import { googleImageCredential } from "./credentials.js";
 
+/** Nano Banana 2.1, the model Google recommends for new work. */
+const MODEL = "gemini-nano-banana-2.1";
+const MODEL_DESCRIPTION = `Gemini image model ID, e.g. gemini-3.1-flash-lite-image (fastest and cheapest) or gemini-3-pro-image. Defaults to ${MODEL}.`;
+
 /** The model as one path segment before the fixed :generateContent verb. */
 function generateContent(
   ctx: ActionContext,
@@ -113,8 +117,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
         model: t.Optional(
           t.String({
             minLength: 1,
-            description:
-              "Gemini image model ID. Defaults to gemini-2.5-flash-image.",
+            description: MODEL_DESCRIPTION,
           }),
         ),
         saveDir: t.Optional(t.String({ description: SAVE_DIR_DESCRIPTION })),
@@ -122,7 +125,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
       STRICT,
     ),
     async execute(p, ctx) {
-      const model = p.model ?? "gemini-2.5-flash-image";
+      const model = p.model ?? MODEL;
       const data = await generateContent(ctx, model, {
         contents: [{ parts: [{ text: p.prompt }] }],
         generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
@@ -149,8 +152,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
         model: t.Optional(
           t.String({
             minLength: 1,
-            description:
-              "Gemini image model ID. Defaults to gemini-2.5-flash-image.",
+            description: MODEL_DESCRIPTION,
           }),
         ),
         saveDir: t.Optional(t.String({ description: SAVE_DIR_DESCRIPTION })),
@@ -160,7 +162,7 @@ export default function googleImage(rl: CodemodePluginAPI) {
     async execute(p, ctx) {
       const img = await readImageInput(p.imagePath, "googleImage");
 
-      const model = p.model ?? "gemini-2.5-flash-image";
+      const model = p.model ?? MODEL;
       const data = await generateContent(ctx, model, {
         contents: [
           {

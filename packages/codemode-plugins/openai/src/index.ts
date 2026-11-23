@@ -16,7 +16,11 @@
  *   // images[0].path -> "/tmp/openai-image-….png"
  */
 
-import { credentialJson, multipartBody, type CodemodePluginAPI } from "@shiftlabs/codemode";
+import {
+  type CodemodePluginAPI,
+  credentialJson,
+  multipartBody,
+} from "@shiftlabs/codemode";
 import {
   mediaDir,
   readImageInput,
@@ -108,8 +112,7 @@ export default function openai(rl: CodemodePluginAPI) {
     defaultModel: {
       type: "string",
       required: false,
-      description:
-        `Default image model when a call omits \`model\` — e.g. gpt-image-2 to pin an earlier line. Defaults to ${DEFAULT_MODEL}.`,
+      description: `Default image model when a call omits \`model\` — e.g. gpt-image-2 to pin an earlier line. Defaults to ${DEFAULT_MODEL}.`,
       env: "OPENAI_IMAGE_MODEL",
     },
   });

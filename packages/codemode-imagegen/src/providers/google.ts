@@ -49,8 +49,8 @@ export const google: ImageProvider = {
     },
   },
   defaults: {
-    create: "gemini-2.5-flash-image",
-    edit: "gemini-2.5-flash-image",
+    create: "gemini-nano-banana-2.1",
+    edit: "gemini-nano-banana-2.1",
   },
   models: [
     model("gemini-2.5-flash-image", "Nano Banana"),

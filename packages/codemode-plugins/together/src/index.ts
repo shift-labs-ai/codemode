@@ -99,8 +99,7 @@ export default function together(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          `Together model id, e.g. ${CREATE_MODEL} (default), black-forest-labs/FLUX.2-pro, ideogram/ideogram-4.0, Qwen/Qwen-Image`,
+        description: `Together model id, e.g. ${CREATE_MODEL} (default), black-forest-labs/FLUX.2-pro, ideogram/ideogram-4.0, Qwen/Qwen-Image`,
       },
       size: {
         type: "string",
@@ -173,8 +172,7 @@ export default function together(rl: CodemodePluginAPI) {
       model: {
         type: "string",
         required: false,
-        description:
-          `Edit-capable model, e.g. ${EDIT_MODEL} (default), black-forest-labs/FLUX.1-kontext-max`,
+        description: `Edit-capable model, e.g. ${EDIT_MODEL} (default), black-forest-labs/FLUX.1-kontext-max`,
       },
       steps: {
         type: "number",
