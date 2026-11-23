@@ -1200,35 +1200,51 @@ describe("a size in pixels", () => {
   });
 
   it("is kept within a model's bounds whatever is asked for", () => {
-    const bounds = {
-      multiple: 16,
-      maxSide: 3840,
-      minPixels: 655_360,
-      maxPixels: 8_294_400,
-      maxRatio: 3,
-    };
-    assert.deepEqual(fitSize({ width: 4096, height: 256 }, bounds), {
-      width: 1392,
-      height: 480,
-    });
-    for (let width = 256; width <= 4096; width += 96)
-      for (let height = 256; height <= 4096; height += 96) {
-        const fitted = fitSize({ width, height }, bounds);
-        const [longer, shorter] = [
-          Math.max(fitted.width, fitted.height),
-          Math.min(fitted.width, fitted.height),
-        ];
-        const pixels = fitted.width * fitted.height;
-        assert.ok(
-          fitted.width % 16 === 0 &&
-            fitted.height % 16 === 0 &&
-            longer <= bounds.maxSide &&
-            longer <= shorter * bounds.maxRatio &&
-            pixels >= bounds.minPixels &&
-            pixels <= bounds.maxPixels,
-          `${width}x${height} became ${fitted.width}x${fitted.height}`,
-        );
-      }
+    const cases = [
+      {
+        // OpenAI's: the longer side at most three times the shorter.
+        bounds: {
+          multiple: 16,
+          maxSide: 3840,
+          minPixels: 655_360,
+          maxPixels: 8_294_400,
+          maxRatio: 3,
+        },
+        widest: { width: 1392, height: 480 },
+      },
+      {
+        // Together's: both sides from 256 to 1920.
+        bounds: {
+          multiple: 16,
+          maxSide: 1920,
+          minPixels: 65_536,
+          maxPixels: 3_686_400,
+          maxRatio: 1920 / 256,
+        },
+        widest: { width: 1920, height: 256 },
+      },
+    ];
+    for (const { bounds, widest } of cases) {
+      assert.deepEqual(fitSize({ width: 4096, height: 256 }, bounds), widest);
+      for (let width = 256; width <= 4096; width += 96)
+        for (let height = 256; height <= 4096; height += 96) {
+          const fitted = fitSize({ width, height }, bounds);
+          const [longer, shorter] = [
+            Math.max(fitted.width, fitted.height),
+            Math.min(fitted.width, fitted.height),
+          ];
+          const pixels = fitted.width * fitted.height;
+          assert.ok(
+            fitted.width % 16 === 0 &&
+              fitted.height % 16 === 0 &&
+              longer <= bounds.maxSide &&
+              longer <= shorter * bounds.maxRatio &&
+              pixels >= bounds.minPixels &&
+              pixels <= bounds.maxPixels,
+            `${width}x${height} became ${fitted.width}x${fitted.height}`,
+          );
+        }
+    }
   });
 });
 

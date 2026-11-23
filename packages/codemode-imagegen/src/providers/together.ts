@@ -3,12 +3,17 @@ import { fitSize } from "../size.js";
 import type { ImageModel, ImageProvider } from "../types.js";
 import { type ImagesAnswer, imagesOf } from "./answer.js";
 
-/** Together documents sides from 256 to 1920 for the FLUX.2 line; every model is held to them. */
+/**
+ * Together documents sides from 256 to 1920 for the FLUX.2 line; every model
+ * is held to them. The ratio keeps the shorter side at 256 or more when the
+ * longer is brought down to 1920.
+ */
 const SIZES = {
   multiple: 16,
   maxSide: 1920,
   minPixels: 65_536,
   maxPixels: 3_686_400,
+  maxRatio: 1920 / 256,
 };
 
 /** Whether a model takes images to edit: the Kontext and FLUX.2 lines, and Google's. */

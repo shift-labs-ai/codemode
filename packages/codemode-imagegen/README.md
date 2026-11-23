@@ -90,7 +90,7 @@ The list is the models this package knows of with the provider's own list laid o
 | `google` | The nearest aspect ratio |
 | `xai` | The nearest aspect ratio, and a resolution of 1k, 1.5k, or 2k |
 | `recraft` | The nearest aspect ratio |
-| `together` | The same pixels, with sides rounded to 16 and at most 1920 |
+| `together` | The same pixels, with sides rounded to 16 and kept from 256 to 1920 |
 | `fal`, `replicate` | What the model's own schema takes: pixels, or the nearest of its sizes or aspect ratios |
 
 A model with no size input refuses a call that sets one.
@@ -162,6 +162,7 @@ The list's order is the order a provider is chosen in. A provider that lists its
 | Outcome | Result |
 |---|---|
 | No provider has a key | The call rejects and names the environment variables |
+| A file in `images` is not a PNG, JPEG, or WebP image | The call rejects before anything is made |
 | The provider has no such model, or the model cannot do what the action does | The call rejects and points to `imagegen.models` |
 | The model has no input for the size, the count, or the images a call sets | The call rejects and says what to leave out |
 | The provider refuses the request | The call rejects with `imagegen.<provider>: request failed (HTTP <status>)` |
