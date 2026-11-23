@@ -177,6 +177,6 @@ A provider's error text is not included in the message, because it can repeat th
 - Google's models answer one image a request, so `numImages` is that many requests.
 - Recraft keeps the size of an image it edits, and edits one image.
 - An image is fetched from fal's and Replicate's own file hosts only.
-- An image to edit is sent inside the request. fal and Replicate recommend that for small files only.
+- On Replicate, an image to edit is uploaded as a file first, which Replicate keeps until it expires. On fal it is sent inside the request, which fal recommends for small files only.
 - A request to a provider is not ended when the run ends.
 - The bundled `openai`, `googleImage`, `xai`, `recraft`, `together`, `fal`, and `replicate` plugins are separate from this package, each with its own connection.

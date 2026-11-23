@@ -702,6 +702,64 @@ describe("replicate", () => {
     }
   });
 
+  it("uploads an image to edit as a file, and gives the model its address", async () => {
+    const sent = serve([
+      ["/collections/", () => ({ models: [] })],
+      [
+        "/models/",
+        () => ({
+          latest_version: {
+            id: "v2",
+            openapi_schema: {
+              components: {
+                schemas: {
+                  Input: {
+                    properties: {
+                      prompt: {},
+                      input_image: { type: "string" },
+                    },
+                    required: ["prompt", "input_image"],
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      [
+        "/files",
+        () => ({ urls: { get: "https://api.replicate.com/v1/files/f-1" } }),
+      ],
+      [
+        "/predictions",
+        () => ({
+          id: "p-1",
+          status: "succeeded",
+          output: "https://replicate.delivery/x/out.png",
+        }),
+      ],
+      ["replicate.delivery", () => PNG],
+    ]);
+    await call<Made>(
+      "edit",
+      { prompt: "make it night", images: [source("street.png")] },
+      through("replicate"),
+    );
+    const [upload, prediction] = made(sent);
+    assert.equal(upload.url, "https://api.replicate.com/v1/files");
+    assert.match(upload.headers["content-type"], /^multipart\/form-data/);
+    assert.ok(
+      String(upload.body).includes('name="content"; filename="street.png"'),
+    );
+    assert.deepEqual(prediction.body, {
+      version: "black-forest-labs/flux-kontext-pro:v2",
+      input: {
+        prompt: "make it night",
+        input_image: "https://api.replicate.com/v1/files/f-1",
+      },
+    });
+  });
+
   it("lists what a search finds by its tags: the image models, and what each does", async () => {
     serve([
       ["/collections/", () => ({ models: [] })],
@@ -1236,6 +1294,7 @@ describe("a hosted model's schema", () => {
     fileName: "a.png",
   };
   const dataUrl = "data:image/png;base64,AA==";
+  const asDataUrl = () => dataUrl;
 
   it("says which fields take the count, the size and the images", () => {
     assert.deepEqual(
@@ -1262,13 +1321,13 @@ describe("a hosted model's schema", () => {
     assert.equal(fieldsOf({ properties: { text: {} } }, {}), undefined);
   });
 
-  it("writes a request as the model's input", () => {
+  it("writes a request as the model's input", async () => {
     const pair = fieldsOf(
       { properties: { prompt: {}, n: {}, width: {}, height: {} } },
       {},
     );
     assert.ok(pair);
-    assert.deepEqual(inputFor(pair, request), {
+    assert.deepEqual(await inputFor(pair, request, asDataUrl), {
       prompt: "p",
       n: 2,
       width: 1600,
@@ -1281,47 +1340,53 @@ describe("a hosted model's schema", () => {
       {},
     );
     assert.ok(sizes);
-    assert.deepEqual(inputFor(sizes, { ...request, numImages: 1 }), {
-      prompt: "p",
-      size: "1536x1024",
-    });
+    assert.deepEqual(
+      await inputFor(sizes, { ...request, numImages: 1 }, asDataUrl),
+      { prompt: "p", size: "1536x1024" },
+    );
     const many = fieldsOf(
       { properties: { prompt: {}, image_urls: { type: "array" } } },
       {},
     );
     assert.ok(many);
     assert.deepEqual(
-      inputFor(many, {
-        ...request,
-        numImages: 1,
-        size: undefined,
-        images: [image, image],
-      }),
+      await inputFor(
+        many,
+        { ...request, numImages: 1, size: undefined, images: [image, image] },
+        asDataUrl,
+      ),
       { prompt: "p", image_urls: [dataUrl, dataUrl] },
     );
   });
 
-  it("refuses a part of a request the model has no field for", () => {
+  it("refuses a part of a request the model has no field for, before an image is asked for", async () => {
+    let asked = 0;
+    const counted = () => {
+      asked++;
+      return dataUrl;
+    };
     const bare = fieldsOf(
       { properties: { prompt: {}, image_url: { type: "string" } } },
       {},
     );
     assert.ok(bare);
-    assert.throws(() => inputFor(bare, request), /m makes one image a request/);
-    assert.throws(
-      () => inputFor(bare, { ...request, numImages: 1 }),
+    await assert.rejects(
+      inputFor(bare, request, counted),
+      /m makes one image a request/,
+    );
+    await assert.rejects(
+      inputFor(bare, { ...request, numImages: 1 }, counted),
       /m takes no size/,
     );
-    assert.throws(
-      () =>
-        inputFor(bare, {
-          ...request,
-          numImages: 1,
-          size: undefined,
-          images: [image, image],
-        }),
+    await assert.rejects(
+      inputFor(
+        bare,
+        { ...request, numImages: 1, size: undefined, images: [image, image] },
+        counted,
+      ),
       /m takes one image/,
     );
+    assert.equal(asked, 0);
   });
 });
 

@@ -1,4 +1,5 @@
 import { pathSegments } from "@shiftlabs/codemode";
+import { dataUrlOf } from "../image.js";
 import { inputFor } from "../schema.js";
 import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
 import { describedModel, finished, hostedModel } from "./hosted.js";
@@ -109,7 +110,10 @@ export const fal: ImageProvider = {
       path: pathSegments(id),
       method: "POST",
       headers: JSON_BODY,
-      body: new TextEncoder().encode(JSON.stringify(inputFor(fields, request))),
+      // fal's API takes no upload, so an image to edit goes inside the request.
+      body: new TextEncoder().encode(
+        JSON.stringify(await inputFor(fields, request, dataUrlOf)),
+      ),
     });
     const { request_id } = queued;
     if (!request_id) throw new Error("fal answered no request id.");

@@ -1,6 +1,11 @@
-import { pathSegment, pathSegments } from "@shiftlabs/codemode";
+import { multipartBody, pathSegment, pathSegments } from "@shiftlabs/codemode";
 import { inputFor } from "../schema.js";
-import type { ImageModel, ImageProvider, ProviderApi } from "../types.js";
+import type {
+  ImageModel,
+  ImageProvider,
+  ProviderApi,
+  SourceImage,
+} from "../types.js";
 import { describedModel, finished, hostedModel } from "./hosted.js";
 
 /** Replicate's collections for the two things this package does. */
@@ -50,6 +55,26 @@ function listed(
         },
       ]
     : [];
+}
+
+/** Upload an image to edit as a file, and answer the address a model reads it from. */
+async function uploaded(api: ProviderApi, image: SourceImage): Promise<string> {
+  const form = new FormData();
+  form.append(
+    "content",
+    new Blob([image.bytes], { type: image.mimeType }),
+    image.fileName,
+  );
+  const { body, contentType } = await multipartBody(form);
+  const file = await api.request<{ urls?: { get?: string } }>({
+    path: "files",
+    method: "POST",
+    body,
+    headers: { "Content-Type": contentType },
+  });
+  if (!file.urls?.get)
+    throw new Error("replicate answered no address for an uploaded image.");
+  return file.urls.get;
 }
 
 async function findModel(api: ProviderApi, id: string) {
@@ -122,6 +147,9 @@ export const replicate: ImageProvider = {
     const { fields, version } = await describedModel(request.model, (found) =>
       findModel(api, found),
     );
+    const input = await inputFor(fields, request, (image) =>
+      uploaded(api, image),
+    );
     // The request waits up to a minute for the model, and answers a running job past that.
     let prediction = await api.request<Prediction>({
       path: "predictions",
@@ -129,7 +157,7 @@ export const replicate: ImageProvider = {
       headers: { Prefer: "wait" },
       json: {
         version: version ? `${id}:${version}` : id,
-        input: inputFor(fields, request),
+        input,
       },
     });
     const { id: job } = prediction;

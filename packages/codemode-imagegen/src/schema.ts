@@ -6,9 +6,8 @@
  * images, so one request can be written as that model's input.
  */
 
-import { dataUrlOf } from "./image.js";
 import { nearestRatio, nearestSize, parseSize, type Size } from "./size.js";
-import type { ImageRequest } from "./types.js";
+import type { ImageRequest, SourceImage } from "./types.js";
 
 type Schema = Record<string, unknown>;
 
@@ -115,11 +114,17 @@ function choiceFor(size: Size, choices: string[]): string {
   }) as string;
 }
 
-/** A request written as one model's input. Throws when the model has no field for a part the request sets. */
-export function inputFor(
+/**
+ * A request written as one model's input. Rejects when the model has no
+ * field for a part the request sets. `source` gives the form the host takes
+ * an image to edit in, a link or a `data:` URL, and is asked only once the
+ * request is known to fit the model.
+ */
+export async function inputFor(
   fields: ModelFields,
   request: ImageRequest,
-): Record<string, unknown> {
+  source: (image: SourceImage) => string | Promise<string>,
+): Promise<Record<string, unknown>> {
   const { model, size, images, numImages } = request;
   const input: Record<string, unknown> = { [fields.prompt]: request.prompt };
   if (fields.count) input[fields.count] = numImages;
@@ -138,7 +143,7 @@ export function inputFor(
     if (!fields.images) throw new Error(`${model.id} takes no images.`);
     if (!fields.images.many && images.length > 1)
       throw new Error(`${model.id} takes one image. Pass one path in images.`);
-    const urls = images.map(dataUrlOf);
+    const urls = await Promise.all(images.map(source));
     input[fields.images.name] = fields.images.many ? urls : urls[0];
   }
   return input;
