@@ -16,6 +16,7 @@
 
 import { credentialJson, multipartBody, type CodemodePluginAPI } from "@shiftlabs/codemode";
 import {
+  IMAGE_TYPES,
   mediaDir,
   readImageInput,
   SAVE_DIR_DESCRIPTION,
@@ -23,6 +24,9 @@ import {
   writeImageFile,
 } from "../../_shared/mediaFile.js";
 import { recraftCredential } from "./credentials.js";
+
+/** Recraft edits a vector image as well as a raster one. */
+const EDIT_TYPES = [...IMAGE_TYPES, "image/svg+xml"];
 
 interface CreateInput {
   prompt: string;
@@ -134,7 +138,6 @@ export default function recraft(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) =>
         writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "recraft",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),
@@ -200,7 +203,7 @@ export default function recraft(rl: CodemodePluginAPI) {
       if (typeof p.prompt !== "string" || p.prompt.length === 0) {
         throw new Error("recraft: prompt is required");
       }
-      const img = await readImageInput(p.imagePath, "recraft");
+      const img = await readImageInput(p.imagePath, "recraft", EDIT_TYPES);
 
       const form = new FormData();
       form.append(
@@ -228,7 +231,6 @@ export default function recraft(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) =>
         writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "recraft",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),

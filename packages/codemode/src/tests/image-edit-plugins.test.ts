@@ -137,7 +137,7 @@ describe("openai image.edit", () => {
     assert.deepEqual(models, ["gpt-image-2.5-sunburst", "gpt-image-2"]);
   });
 
-  it("forwards the 2.5-only quality and size values untouched", async () => {
+  it("forwards the gpt-image-2.5 quality tiers and a custom size untouched", async () => {
     const action = getAction(makePlugin("openai", openai), "image.edit");
     let captured: RequestInit | undefined;
     stubFetch(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -245,7 +245,7 @@ describe("openai image.create", () => {
     }
   });
 
-  it("forwards the 2.5-only quality and size values untouched", async () => {
+  it("forwards the gpt-image-2.5 quality tiers and a custom size untouched", async () => {
     const action = getAction(makePlugin("openai", openai), "image.create");
     const bodies = captureBodies();
 
@@ -437,6 +437,33 @@ describe("recraft image.edit", () => {
     assert.equal(form.get("prompt"), "winter");
     assert.equal(form.get("strength"), "0.4");
     assert.ok(form.get("image") instanceof Blob, "image should be a file part");
+  });
+});
+
+describe("recraft image.edit source types", () => {
+  it("takes an SVG, which the other plugins refuse", async () => {
+    const svgPath = join(dir, "logo.svg");
+    writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    let sent: FormData | undefined;
+    stubFetch(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent = await multipartForm(init);
+      return Response.json({ data: [{ b64_json: B64_RESULT }] });
+    });
+
+    await getAction(makePlugin("recraft", recraft), "image.edit").execute(
+      { prompt: "thicker lines", imagePath: svgPath, saveDir: dir },
+      ctx({ apiKey: "r-test" }),
+    );
+    assert.equal((sent?.get("image") as Blob).type, "image/svg+xml");
+
+    await assert.rejects(
+      () =>
+        getAction(makePlugin("xai", xai), "image.edit").execute(
+          { prompt: "thicker lines", imagePath: svgPath, saveDir: dir },
+          ctx({ apiKey: "x-test" }),
+        ),
+      { message: "xai: imagePath is not a PNG, JPEG, WebP or GIF image." },
+    );
   });
 });
 

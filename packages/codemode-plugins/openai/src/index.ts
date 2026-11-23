@@ -50,14 +50,14 @@ const SIZE_RULE =
   "no edge over 3840, and a total between 655,360 and 8,294,400 pixels — so 512x512 is too small and 1536x864 is fine; " +
   "above 2560x1440 is experimental. 1024x1024 | 1536x1024 | 1024x1536 work on every model.";
 
-/** Quality tiers, likewise shared. `auto` is what the Flare and Sunburst models pick by default. */
+/** Quality tiers, likewise shared. `auto` is the API's default. */
 const QUALITY_RULE =
-  "low | medium | high | auto, plus xhigh | max on the Flare and Sunburst models";
+  "low | medium | high | auto, plus xhigh | max on gpt-image-2.5-*";
 
 /**
  * Model precedence, shared by create and edit: the call wins, then the
- * connection's `defaultModel` (or OPENAI_IMAGE_MODEL), then the newest
- * model.
+ * connection's `defaultModel` (or OPENAI_IMAGE_MODEL), then
+ * `DEFAULT_MODEL`.
  */
 function resolveModel(
   explicit: string | undefined,
@@ -177,7 +177,6 @@ export default function openai(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) => ({
         ...writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "openai-image",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),
@@ -281,7 +280,6 @@ export default function openai(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) => ({
         ...writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "openai-image",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),

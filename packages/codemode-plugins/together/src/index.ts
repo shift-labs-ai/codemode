@@ -9,8 +9,7 @@
  *   })
  *
  * The default model is FLUX.2 [dev]. `steps` is sent only when a call sets
- * it: FLUX.2 [dev] and [flex] and the Kontext line take it, FLUX.2 [pro] and
- * FLUX1.1 [pro] do not, and each model has a default of its own.
+ * it, because each model has a default of its own.
  */
 
 import {
@@ -32,7 +31,7 @@ import { togetherCredential } from "./credentials.js";
 const CREATE_MODEL = "black-forest-labs/FLUX.2-dev";
 const EDIT_MODEL = "black-forest-labs/FLUX.1-kontext-pro";
 const STEPS_DESCRIPTION =
-  "Inference steps, for a model that takes them (FLUX.2 dev and flex, FLUX.1 Kontext). The default is the model's";
+  "Number of generation steps: more is slower and usually better. Omit for the model's own default.";
 
 function generate(
   ctx: ActionContext,
@@ -141,7 +140,6 @@ export default function together(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) =>
         writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "together",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),
@@ -210,7 +208,6 @@ export default function together(rl: CodemodePluginAPI) {
       const images = (data.data ?? []).map((d, i) =>
         writeImageFile({
           base64: d.b64_json,
-          mimeType: "image/png",
           provider: "together",
           index: i,
           saveDir: mediaDir(p.saveDir, ctx),

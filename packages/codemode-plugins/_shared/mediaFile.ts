@@ -63,7 +63,9 @@ export function mediaDir(
 
 /**
  * Write media bytes to an output file of their own in `saveDir`, which an
- * action takes from `mediaDir()`.
+ * action takes from `mediaDir()`. What an image is, its bytes say:
+ * `mimeType` names the type of other media, and of an image whose bytes
+ * tell none.
  */
 export function writeMediaFile(opts: {
   bytes: Uint8Array;
@@ -73,7 +75,10 @@ export function writeMediaFile(opts: {
   saveDir?: string;
   stamp?: number;
 }): SavedMedia {
-  const mimeType = opts.mimeType ?? "image/png";
+  const declared = opts.mimeType ?? "image/png";
+  const mimeType = /^image\//i.test(declared)
+    ? (imageFacts(opts.bytes)?.mimeType ?? declared)
+    : declared;
   const stamp = opts.stamp ?? Date.now();
   if (!/^[\w-]+$/.test(opts.provider))
     throw new Error("invalid media provider name");
@@ -86,10 +91,7 @@ export function writeMediaFile(opts: {
   return { path, mimeType, byteLength: opts.bytes.byteLength };
 }
 
-/**
- * Decode an image a provider answers in base64 and write it. What the image
- * is, its bytes say: `mimeType` is used only when they tell no type.
- */
+/** Decode an image a provider answers in base64 and write it. */
 export function writeImageFile(opts: {
   base64: string;
   mimeType?: string;
@@ -98,12 +100,10 @@ export function writeImageFile(opts: {
   saveDir?: string;
   stamp?: number;
 }): SavedMedia {
-  const { base64, mimeType, ...rest } = opts;
-  const bytes = Buffer.from(base64 ?? "", "base64");
+  const { base64, ...rest } = opts;
   return writeMediaFile({
     ...rest,
-    bytes,
-    mimeType: imageFacts(bytes)?.mimeType ?? mimeType,
+    bytes: Buffer.from(base64 ?? "", "base64"),
   });
 }
 
@@ -112,17 +112,23 @@ export const SEND_FILE_NOTE =
 
 /** Larger than any provider accepts inline; an image past it only fails remotely. */
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
-/** The types of image an `image.edit` call takes. */
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/** The types of image an `image.edit` call takes, unless its plugin names its own. */
+export const IMAGE_TYPES: readonly string[] = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+];
 
 /**
  * Read a local image for an `image.edit` call. What it is, its bytes say,
- * never its name. Errors carry the plugin's name so they point at the right
- * tool.
+ * never its name, and one that is none of `types` is refused. Errors carry
+ * the plugin's name so they point at the right tool.
  */
 export async function readImageInput(
   imagePath: string,
   pluginName: string,
+  types: readonly string[] = IMAGE_TYPES,
 ): Promise<LocalImage> {
   if (typeof imagePath !== "string" || imagePath.trim().length === 0) {
     throw new Error(`${pluginName}: imagePath is required`);
@@ -130,6 +136,6 @@ export async function readImageInput(
   return readLocalImage(imagePath, {
     subject: `${pluginName}: imagePath`,
     maxBytes: MAX_IMAGE_BYTES,
-    types: IMAGE_TYPES,
+    types,
   });
 }
