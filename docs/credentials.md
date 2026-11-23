@@ -67,6 +67,7 @@ Find what the API requires in the first column:
 | One token or key, in `Authorization: Bearer`, a named header, a query parameter, or Basic auth | `staticCredential` with `bearer`, `apiKey`, `queryKey` or `basic` | [A key or token](#a-key-or-token) |
 | Several values (a key and a secret, a token per API), or a secret in the path, the body, a signed JWT, an HMAC of the query | `staticCredential` with `kind: "static"` | [Several parts](#several-parts-or-an-unusual-placement) |
 | A key that is optional: the API answers without one, with lower limits | `staticCredential({ …, optional: true })` | [An optional key](#an-optional-key) |
+| Several providers behind one plugin, each with a key of its own | `routerCredential`, with `routerConnectionFields`, `namedProvider` and `keyedProviders` | [A key per provider](#a-key-per-provider) |
 | A host the user configures (self-hosted, a subdomain, a region) | `targets` as a function of config, with `httpsBase`, `hostLabel`, `configChoice` | [A host from config](#a-host-from-config) |
 | OAuth where a person consents in a browser, then a refresh token | an `oauth2` declaration, `renewal: "refresh"`, plus `setOAuth` | [OAuth with consent](#oauth-with-a-persons-consent) |
 | OAuth with no person: client credentials, a username and password, a service account's JWT | an `oauth2` declaration, `renewal: "clientCredentials"`, `"password"` or `"jwtBearer"` | [OAuth without a person](#oauth-without-a-person) |
@@ -201,6 +202,30 @@ staticCredential({
 ```
 
 `optional: true` adds a `none` method that sends requests unsigned, held to the same targets. A connection signs when it holds the `local` fields (the CLI), or when its public config says `authenticated: true` (a host that stores the key). Use `optional: { targets: { … } }` when the provider serves unsigned requests from different hosts.
+
+### A key per provider
+
+A plugin that routes to one of several providers declares one credential for all of them with `routerCredential`:
+
+<!-- check: {"acmeApiKey": "a-1"} -->
+```typescript
+const PROVIDERS = [
+  { name: "acme", env: "ACME_API_KEY", key: { header: "Authorization", prefix: "Bearer " } },
+  { name: "globex", env: "GLOBEX_API_KEY", key: { query: "api_key" } },
+];
+const BASES: Record<string, string> = {
+  acme: "https://api.acme.example/v1/",
+  globex: "https://api.globex.example/",
+};
+
+const credential = routerCredential("acmeOrGlobex", PROVIDERS, ({ name }) => ({
+  [name]: { baseUrl: BASES[name], methods: ["GET"] },
+}));
+```
+
+Each provider's key is a part of its own, optional, and placed only on that provider's targets, so a connection holds the keys it has and a key is sent to its own provider alone. A provider's key is the connection field `<name>ApiKey`.
+
+The connection chooses the provider. `routerConnectionFields(PROVIDERS, description)` gives the connection schema its `provider` field and a key field per provider, each filled from the provider's `env`. In an action, `namedProvider(plugin, PROVIDERS, config, !ctx.credentials)` answers the provider the connection names, or nothing, and `keyedProviders(plugin, kind, PROVIDERS, config)` answers those it holds a key for, in order. Both reject with what to set when the connection has no key to use.
 
 ### A host from config
 

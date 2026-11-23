@@ -254,6 +254,7 @@ function hasShape(schema: SchemaMetadata): boolean {
   return Boolean(
     schema.properties ||
       schema.items ||
+      valuesOf(schema) ||
       branchesOf(schema) ||
       schema.enum?.length ||
       schema.description,

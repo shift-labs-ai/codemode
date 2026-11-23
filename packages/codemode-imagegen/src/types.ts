@@ -3,7 +3,7 @@
  * goes, the models it has, and how one request for images is made of it.
  */
 
-import type { RoutedProvider } from "@shiftlabs/codemode";
+import type { LocalImage, RoutedProvider } from "@shiftlabs/codemode";
 import type { Size } from "./size.js";
 
 /** A model a provider makes images with. */
@@ -18,13 +18,6 @@ export interface ImageModel {
   edit: boolean;
 }
 
-/** An image read from disk to edit. */
-export interface SourceImage {
-  bytes: Uint8Array<ArrayBuffer>;
-  mimeType: string;
-  fileName: string;
-}
-
 /** One request for images, the same for every provider. */
 export interface ImageRequest {
   prompt: string;
@@ -33,7 +26,7 @@ export interface ImageRequest {
   /** The pixels asked for. A provider gets as close as its model allows. */
   size?: Size;
   /** The images to edit, in order. Empty when the request creates one. */
-  images: SourceImage[];
+  images: LocalImage[];
 }
 
 /** An image as a provider hands it over: its bytes in base64, or where to fetch them. */

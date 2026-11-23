@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { png } from "../../codemode/src/tests/helpers/image.js";
 import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
 import decisionPlugin, {
@@ -78,17 +79,6 @@ async function refused(
   const { error } = await run(input, config);
   assert.ok(error, "the call should fail");
   return error.split("\n")[0];
-}
-
-/** The first bytes of a PNG of this size: all that tells an image's type and size. */
-function png(width: number, height: number): Buffer {
-  const bytes = Buffer.alloc(33);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
-  bytes.writeUInt32BE(13, 8);
-  bytes.write("IHDR", 12);
-  bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(height, 20);
-  return bytes;
 }
 
 function image(name: string, width = 640, height = 480): string {

@@ -57,6 +57,22 @@ describe("action schema ergonomics", () => {
       assert.equal(fields.anything.values, undefined);
     });
 
+    it("keeps the variants of a union one of whose branches is such an object", () => {
+      const schema = t.Object({
+        input: t.Union([
+          t.String(),
+          t.Record(t.String(), t.Object({ id: t.String() })),
+        ]),
+        evidence: t.Union([t.String(), t.Record(t.String(), t.Unknown())]),
+      });
+      const fields = helpInputs(schema);
+      assert.deepEqual(
+        Object.keys(fields.input.variants?.[1].values?.properties ?? {}),
+        ["id"],
+      );
+      assert.equal(fields.evidence.variants, undefined);
+    });
+
     it("returns nested properties for an object input", () => {
       const schema = t.Object({
         filter: t.Object({

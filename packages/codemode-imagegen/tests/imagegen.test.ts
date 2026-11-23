@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { PluginFunction } from "@shiftlabs/codemode";
+import { png } from "../../codemode/src/tests/helpers/image.js";
 import { stubFetch } from "../../codemode/src/tests/helpers/plugin.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
 import { type ImageProvider, imagegen, PROVIDERS } from "../src/index.js";
@@ -18,17 +19,6 @@ import { fieldsOf, inputFor } from "../src/schema.js";
 import { fitSize, nearestRatio, nearestSize } from "../src/size.js";
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
-
-/** The first bytes of a PNG of this size: all that tells an image's type and size. */
-function png(width: number, height: number): Buffer {
-  const bytes = Buffer.alloc(33);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
-  bytes.writeUInt32BE(13, 8);
-  bytes.write("IHDR", 12);
-  bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(height, 20);
-  return bytes;
-}
 
 const PNG = png(1024, 768);
 const B64 = PNG.toString("base64");
@@ -1256,7 +1246,7 @@ describe("a hosted model's schema", () => {
     images: [],
   };
   const image = {
-    bytes: new Uint8Array([0]),
+    bytes: Buffer.from([0]),
     mimeType: "image/png",
     fileName: "a.png",
   };
