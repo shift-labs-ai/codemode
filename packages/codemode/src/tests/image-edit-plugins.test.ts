@@ -19,7 +19,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-// A real 1x1 transparent PNG so readImageInput has bytes to load.
+// A real 1x1 transparent PNG, which readImageInput reads as one from its bytes.
 const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
   "base64",
@@ -101,7 +101,7 @@ describe("openai image.edit", () => {
     assert.equal(seen.url, "https://api.openai.com/v1/images/edits");
     const form = await multipartForm(seen.init);
     assert.equal(form.get("prompt"), "make the sky red");
-    assert.equal(form.get("model"), "gpt-image-2.5-flare");
+    assert.equal(form.get("model"), "gpt-image-2.6-flare");
     const file = form.get("image[]");
     assert.ok(file instanceof Blob, "image[] should be a file part");
     assert.equal(result.images.length, 1);
@@ -195,7 +195,7 @@ describe("openai image.create", () => {
     return bodies;
   }
 
-  it("defaults to gpt-image-2.5-flare", async () => {
+  it("defaults to gpt-image-2.6-flare", async () => {
     const action = getAction(makePlugin("openai", openai), "image.create");
     const bodies = captureBodies();
 
@@ -204,8 +204,8 @@ describe("openai image.create", () => {
       ctx({ apiKey: "sk-test" }),
     )) as { model: string };
 
-    assert.equal(bodies[0]?.model, "gpt-image-2.5-flare");
-    assert.equal(result.model, "gpt-image-2.5-flare");
+    assert.equal(bodies[0]?.model, "gpt-image-2.6-flare");
+    assert.equal(result.model, "gpt-image-2.6-flare");
   });
 
   it("prefers the per-call model, then the connection default", async () => {
@@ -227,11 +227,11 @@ describe("openai image.create", () => {
     );
   });
 
-  it("treats both gpt-image-2.5 models as the gpt-image line (output_format, not response_format)", async () => {
+  it("asks every model for a PNG, and sends no input of the retired DALL-E line", async () => {
     const action = getAction(makePlugin("openai", openai), "image.create");
     const bodies = captureBodies();
 
-    for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+    for (const model of ["gpt-image-2.6-flare", "gpt-image-2"]) {
       await action.execute(
         { prompt: "x", model, saveDir: dir },
         ctx({ apiKey: "sk-test" }),
@@ -241,6 +241,7 @@ describe("openai image.create", () => {
     for (const body of bodies) {
       assert.equal(body.output_format, "png");
       assert.equal(body.response_format, undefined);
+      assert.equal(body.style, undefined);
     }
   });
 
@@ -269,32 +270,30 @@ describe("openai image.create", () => {
     assert.equal(bodies[1]?.size, "auto");
   });
 
-  it("still speaks response_format to the dall-e line", async () => {
-    const action = getAction(makePlugin("openai", openai), "image.create");
-    const bodies = captureBodies();
-
-    await action.execute(
-      { prompt: "x", model: "dall-e-3", saveDir: dir },
-      ctx({ apiKey: "sk-test" }),
-    );
-
-    assert.equal(bodies[0]?.response_format, "b64_json");
-    assert.equal(bodies[0]?.output_format, undefined);
-  });
-
-  it("documents both gpt-image-2.5 models on the model inputs", () => {
+  it("documents the current models on the model inputs, and none that are shut down", () => {
     const plugin = makePlugin("openai", openai);
     for (const name of ["image.create", "image.edit"]) {
       const schema = getAction(plugin, name).inputSchema as Record<
         string,
         { description?: string }
       >;
-      for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+      for (const model of [
+        "gpt-image-2.6-flare",
+        "gpt-image-2.6-sunburst",
+        "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst",
+        "| gpt-image-2.",
+      ]) {
         assert.ok(
           schema.model?.description?.includes(model),
           `${name}.model should mention ${model}`,
         );
       }
+      assert.doesNotMatch(
+        JSON.stringify(schema),
+        /dall-e|gpt-image-1\b/i,
+        `${name} should name no model that is shut down`,
+      );
       assert.ok(schema.quality?.description?.includes("xhigh"));
       assert.ok(schema.quality?.description?.includes("max"));
       // Three of the four size rules let 512x512 through; only the total-pixel
@@ -441,6 +440,31 @@ describe("recraft image.edit", () => {
   });
 });
 
+describe("together image.create", () => {
+  it("asks its current address for the default model, with steps only when a call sets them", async () => {
+    const action = getAction(makePlugin("together", together), "image.create");
+    const sent: Array<{ url: string; body: Record<string, unknown> }> = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+      return Response.json({ data: [{ b64_json: B64_RESULT }] });
+    });
+
+    await action.execute(
+      { prompt: "a fox", saveDir: dir },
+      ctx({ apiKey: "t-test" }),
+    );
+    await action.execute(
+      { prompt: "a fox", steps: 12, saveDir: dir },
+      ctx({ apiKey: "t-test" }),
+    );
+
+    assert.equal(sent[0].url, "https://api.together.ai/v1/images/generations");
+    assert.equal(sent[0].body.model, "black-forest-labs/FLUX.2-dev");
+    assert.ok(!("steps" in sent[0].body));
+    assert.equal(sent[1].body.steps, 12);
+  });
+});
+
 describe("together image.edit", () => {
   it("sends image_url data URI to the generations endpoint with a Kontext default", async () => {
     const action = getAction(makePlugin("together", together), "image.edit");
@@ -463,7 +487,7 @@ describe("together image.edit", () => {
 
     assert.equal(body.model, "black-forest-labs/FLUX.1-kontext-pro");
     assert.ok(String(body.image_url).startsWith("data:image/png;base64,"));
-    assert.equal(body.steps, 28);
+    assert.ok(!("steps" in body));
   });
 });
 

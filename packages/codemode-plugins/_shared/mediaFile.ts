@@ -8,8 +8,12 @@
  * send_file/attachment tool. Plugins load in-process via jiti, so node:fs is
  * available (same pattern as googleDrive/googleSlides).
  */
-import { basename, extname } from "node:path";
-import { readLocalFile, writeOutputFile } from "@shiftlabs/codemode";
+import {
+  imageFacts,
+  type LocalImage,
+  readLocalImage,
+  writeOutputFile,
+} from "@shiftlabs/codemode";
 
 const MIME_EXT: Record<string, string> = {
   "image/png": "png",
@@ -83,8 +87,8 @@ export function writeMediaFile(opts: {
 }
 
 /**
- * Decode base64 media bytes and write them, for the providers that answer
- * with base64 rather than a URL to download.
+ * Decode an image a provider answers in base64 and write it. What the image
+ * is, its bytes say: `mimeType` is used only when they tell no type.
  */
 export function writeImageFile(opts: {
   base64: string;
@@ -94,60 +98,38 @@ export function writeImageFile(opts: {
   saveDir?: string;
   stamp?: number;
 }): SavedMedia {
-  const { base64, ...rest } = opts;
+  const { base64, mimeType, ...rest } = opts;
+  const bytes = Buffer.from(base64 ?? "", "base64");
   return writeMediaFile({
     ...rest,
-    bytes: Buffer.from(base64 ?? "", "base64"),
+    bytes,
+    mimeType: imageFacts(bytes)?.mimeType ?? mimeType,
   });
 }
 
 export const SEND_FILE_NOTE =
   "File(s) written to disk. Deliver each to the user with send_file using its `path`.";
 
-const EXT_MIME: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  webp: "image/webp",
-  gif: "image/gif",
-};
-
-export interface LoadedImage {
-  bytes: Buffer<ArrayBuffer>;
-  base64: string;
-  mimeType: string;
-  dataUri: string;
-  fileName: string;
-}
-
-/** Larger than any provider accepts inline; a data URI past it only fails remotely. */
+/** Larger than any provider accepts inline; an image past it only fails remotely. */
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
+/** The types of image an `image.edit` call takes. */
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 /**
- * Read a local image for an `image.edit` call: bytes + base64 + mime
- * (from the extension) + a `data:` URI for JSON APIs. Errors carry the
- * plugin's name so they point at the right tool.
+ * Read a local image for an `image.edit` call. What it is, its bytes say,
+ * never its name. Errors carry the plugin's name so they point at the right
+ * tool.
  */
 export async function readImageInput(
   imagePath: string,
   pluginName: string,
-): Promise<LoadedImage> {
+): Promise<LocalImage> {
   if (typeof imagePath !== "string" || imagePath.trim().length === 0) {
     throw new Error(`${pluginName}: imagePath is required`);
   }
-  const bytes = await readLocalFile(imagePath, {
+  return readLocalImage(imagePath, {
     subject: `${pluginName}: imagePath`,
     maxBytes: MAX_IMAGE_BYTES,
-    oversize: `${pluginName}: imagePath exceeds ${MAX_IMAGE_BYTES / (1024 * 1024)} MiB`,
+    types: IMAGE_TYPES,
   });
-  const ext = extname(imagePath).slice(1).toLowerCase();
-  const mimeType = EXT_MIME[ext] ?? "image/png";
-  const base64 = bytes.toString("base64");
-  return {
-    bytes,
-    base64,
-    mimeType,
-    dataUri: `data:${mimeType};base64,${base64}`,
-    fileName: basename(imagePath),
-  };
 }

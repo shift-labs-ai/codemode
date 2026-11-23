@@ -9,7 +9,11 @@
  * the API does the math.
  */
 
-import { credentialJson, type CodemodePluginAPI } from "@shiftlabs/codemode";
+import {
+  type CodemodePluginAPI,
+  credentialJson,
+  imageDataUrl,
+} from "@shiftlabs/codemode";
 import {
   mediaDir,
   readImageInput,
@@ -167,7 +171,7 @@ export default function xai(rl: CodemodePluginAPI) {
         json: {
           model,
           prompt: p.prompt,
-          image: { url: img.dataUri },
+          image: { url: imageDataUrl(img) },
           n: Math.min(p.n ?? 1, 10),
           response_format: "b64_json",
         },

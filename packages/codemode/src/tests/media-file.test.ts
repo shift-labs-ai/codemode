@@ -46,6 +46,22 @@ describe("shared media writer", () => {
     assert.ok(out.path.endsWith(".png"));
   });
 
+  it("names an image for what its bytes are, not what it was called", () => {
+    const jpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11,
+      0x08, 0x01, 0xe0, 0x02, 0x80, 0x03, 0x00, 0x00,
+    ]);
+    const out = writeImageFile({
+      base64: jpeg.toString("base64"),
+      mimeType: "image/png",
+      provider: "together",
+      index: 0,
+      saveDir: dir,
+    });
+    assert.equal(out.mimeType, "image/jpeg");
+    assert.ok(out.path.endsWith(".jpg"));
+  });
+
   it("maps MIME types without allowing paths or prototype keys into extensions", () => {
     for (const [mime, ext] of [
       ["image/jpeg", "jpg"],

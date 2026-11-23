@@ -11,7 +11,7 @@ export default {
   response: { data: [] },
   target: "api",
   wire: {
-    url: "https://api.together.xyz/v1/images/generations",
+    url: "https://api.together.ai/v1/images/generations",
     header: ["authorization", "Bearer tg_secret"],
   },
 } satisfies CredentialFixture;

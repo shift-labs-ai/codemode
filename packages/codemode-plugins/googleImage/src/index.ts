@@ -22,6 +22,7 @@ import {
   type ActionContext,
   type CodemodePluginAPI,
   credentialJson,
+  imageBase64,
   pathSegment,
 } from "@shiftlabs/codemode";
 import * as t from "typebox";
@@ -165,7 +166,9 @@ export default function googleImage(rl: CodemodePluginAPI) {
           {
             parts: [
               { text: p.prompt },
-              { inlineData: { mimeType: img.mimeType, data: img.base64 } },
+              {
+                inlineData: { mimeType: img.mimeType, data: imageBase64(img) },
+              },
             ],
           },
         ],
