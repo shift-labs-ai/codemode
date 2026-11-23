@@ -66,6 +66,7 @@ import {
   jsonAnswer,
   pathSegment,
   rangedDownload,
+  readLocalFile,
 } from "@shiftlabs/codemode";
 import * as t from "typebox";
 import { standardBase64 } from "../../_shared/base64.js";
@@ -86,7 +87,6 @@ import {
   StringMap,
   StringOrStringArray,
 } from "../../_shared/googleSchemas.js";
-import { readLocalFile } from "../../_shared/localFile.js";
 import {
   atLeastOne,
   exactlyOne,

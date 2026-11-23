@@ -11,13 +11,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { standardBase64 } from "../../../codemode-plugins/_shared/base64.js";
-import { readLocalFile } from "../../../codemode-plugins/_shared/localFile.js";
 import { readImageInput } from "../../../codemode-plugins/_shared/mediaFile.js";
 import googleDrive from "../../../codemode-plugins/googleDrive/src/index.js";
 import microsoftFiles from "../../../codemode-plugins/microsoftFiles/src/index.js";
 import { responseFailed } from "../credentials/plugin.js";
 import { type CodemodePluginAPI, createPluginAPI } from "../plugin/api.js";
 import type { ActionContext } from "../plugin/types.js";
+import { readLocalFile } from "../utils/local-file.js";
 import { getAction, stubFetch } from "./helpers/plugin.js";
 
 const dir = mkdtempSync(join(tmpdir(), "plugin-input-test-"));

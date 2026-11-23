@@ -1,7 +1,10 @@
 import { basename, extname } from "node:path";
-import { type CodemodePluginAPI, pathSegment } from "@shiftlabs/codemode";
+import {
+  type CodemodePluginAPI,
+  pathSegment,
+  readLocalFile,
+} from "@shiftlabs/codemode";
 import * as t from "typebox";
-import { readLocalFile } from "../../_shared/localFile.js";
 import { type Ctx, STRICT_OBJECT } from "../../_shared/shiftCloud.js";
 import {
   putThroughGrant,

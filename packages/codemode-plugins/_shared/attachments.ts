@@ -1,7 +1,7 @@
 import { basename } from "node:path";
+import { readLocalFile } from "@shiftlabs/codemode";
 import * as t from "typebox";
 import { DownloadedFile, standardBase64 } from "./base64.js";
-import { readLocalFile } from "./localFile.js";
 import { STRICT } from "./schemas.js";
 
 const id = t.String({ minLength: 1, pattern: "\\S" });

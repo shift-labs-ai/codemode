@@ -1,7 +1,7 @@
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname } from "node:path";
-import { readLocalFile } from "./localFile.js";
+import { readLocalFile } from "@shiftlabs/codemode";
 
 /**
  * The Shift cloud signed-grant upload arc, shared by every plugin that

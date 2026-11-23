@@ -5,11 +5,11 @@ import {
   brokerFor,
   multipartBody,
   pathSegment,
+  readLocalFile,
   responseFailed,
 } from "@shiftlabs/codemode";
 import * as t from "typebox";
 import { Check } from "typebox/value";
-import { readLocalFile } from "../../_shared/localFile.js";
 import {
   mediaDir,
   SEND_FILE_NOTE,

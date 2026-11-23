@@ -332,6 +332,7 @@ export {
   shellRunAction,
   syncExec,
 } from "./utils/cli.js";
+export { readLocalFile } from "./utils/local-file.js";
 export {
   ACTION_MEMORY_BYTES,
   OutputFileWriter,

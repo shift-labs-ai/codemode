@@ -2,7 +2,7 @@
 
 Codemode ships with plugins for SaaS, DevOps, productivity, and image-generation APIs. They are part of the `codemode` package and need no installation.
 
-Host capabilities are separate packages to install: [`codemode-node`](../packages/codemode-node/README.md) for Node.js scripts, [`codemode-bash`](../packages/codemode-bash/README.md) and [`codemode-powershell`](../packages/codemode-powershell/README.md) for commands, and [`codemode-duckdb`](../packages/codemode-duckdb/README.md) for SQL. Web search across providers is the [`codemode-websearch`](../packages/codemode-websearch/README.md) package.
+Host capabilities are separate packages to install: [`codemode-node`](../packages/codemode-node/README.md) for Node.js scripts, [`codemode-bash`](../packages/codemode-bash/README.md) and [`codemode-powershell`](../packages/codemode-powershell/README.md) for commands, and [`codemode-duckdb`](../packages/codemode-duckdb/README.md) for SQL. Web search across providers is the [`codemode-websearch`](../packages/codemode-websearch/README.md) package, and image generation across providers is [`codemode-imagegen`](../packages/codemode-imagegen/README.md).
 
 A bundled plugin becomes available to `codemode exec` once it has a connection. The last column lists each required connection field and, in parentheses, the environment variable that can supply it:
 

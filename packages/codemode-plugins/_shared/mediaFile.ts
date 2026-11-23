@@ -9,8 +9,7 @@
  * available (same pattern as googleDrive/googleSlides).
  */
 import { basename, extname } from "node:path";
-import { writeOutputFile } from "@shiftlabs/codemode";
-import { readLocalFile } from "./localFile.js";
+import { readLocalFile, writeOutputFile } from "@shiftlabs/codemode";
 
 const MIME_EXT: Record<string, string> = {
   "image/png": "png",

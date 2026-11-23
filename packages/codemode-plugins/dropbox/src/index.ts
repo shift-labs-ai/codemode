@@ -13,10 +13,10 @@ import {
   type CredentialCall,
   credentialRequest,
   jsonAnswer,
+  readLocalFile,
   responseFailed,
 } from "@shiftlabs/codemode";
 import * as t from "typebox";
-import { readLocalFile } from "../../_shared/localFile.js";
 import { stringEnum } from "../../_shared/schemas.js";
 import {
   DROPBOX_AUTH_URL,

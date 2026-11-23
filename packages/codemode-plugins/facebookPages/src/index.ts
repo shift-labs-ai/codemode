@@ -15,9 +15,9 @@ import {
   type CodemodePluginAPI,
   multipartBody,
   pathSegment,
+  readLocalFile,
 } from "@shiftlabs/codemode";
 import * as t from "typebox";
-import { readLocalFile } from "../../_shared/localFile.js";
 import {
   fields,
   metaGraph,
