@@ -103,6 +103,7 @@ const STAND_IN_HOST = "codemode-lint.invalid";
  */
 const WRITE_METHODS = new Set(["PUT", "PATCH", "DELETE"]);
 const SOURCE_FILE = /\.(c|m)?(j|t)sx?$/;
+const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
 
 /**
  * Check a plugin package against what a plugin must be to run for other
@@ -138,8 +139,8 @@ export async function lintPackage(
   for (const file of sourceFiles(dir)) {
     const lines = readFileSync(join(dir, file), "utf8").split("\n");
     lines.forEach((text, index) => {
-      if (/^\s*(\/\/|\*|\/\*)/.test(text)) return;
-      if (BUILT_AUTH_HEADER.test(text))
+      // A comment may show a header as an example; a secret is leaked wherever it is written.
+      if (!COMMENT_LINE.test(text) && BUILT_AUTH_HEADER.test(text))
         add({
           rule: "source/auth-header",
           level: "error",
@@ -165,7 +166,7 @@ export async function lintPackage(
     manifest = readPackageManifest(dir, dir);
   } catch (error) {
     add({ rule: "load/failed", level: "error", message: messageOf(error) });
-    return report(findings, []);
+    return report(findings, [], allowances(pkg));
   }
   for (const module of manifest.bundledHostModules)
     add({
@@ -185,11 +186,14 @@ export async function lintPackage(
   // ── load and run ───────────────────────────────────────
   const outputDir = mkdtempSync(join(tmpdir(), "codemode-lint-"));
   const workingDir = process.cwd();
-  process.chdir(outputDir);
-  const probe = startProbe(dir);
+  let probe: ReturnType<typeof startProbe> | undefined;
   const plugins: LintedPlugin[] = [];
   try {
+    process.chdir(outputDir);
+    probe = startProbe(dir);
     for (const path of manifest.pluginPaths) {
+      probe.record.requests.length = 0;
+      probe.record.envReads.clear();
       const file = relative(dir, path) || path;
       let plugin: PluginDef;
       try {
@@ -206,9 +210,9 @@ export async function lintPackage(
         });
         continue;
       }
-      checkDeclarations(plugin, reserved, add);
-      const config = connectionConfig(plugin);
-      await runActions(plugin, config, probe, {
+      const connection = connectionConfig(plugin);
+      checkDeclarations(plugin, connection.config, reserved, add);
+      await runActions(plugin, connection.config, probe, {
         outputDir,
         timeoutMs: options.actionTimeoutMs ?? 3_000,
       });
@@ -218,26 +222,14 @@ export async function lintPackage(
         actions: plugin.actions.length,
         read: plugin.actions.filter((a) => a.access === "read").length,
         write: plugin.actions.filter((a) => a.access === "write").length,
-        hosts: checkRequests(plugin, config, probe.record, add),
+        hosts: checkRequests(plugin, connection, probe.record, add),
       });
-      probe.record.requests.length = 0;
+      checkEnvReads(plugin.name, probe.record, add);
     }
   } finally {
-    probe.stop();
+    probe?.stop();
     process.chdir(workingDir);
     rmSync(outputDir, { recursive: true, force: true });
-  }
-  for (const [action, read] of probe.record.envReads) {
-    const keys = [...read].filter((key) => !OS_LOCATIONS.has(key));
-    if (keys.length === 0) continue;
-    add({
-      rule: "run/env-read",
-      level: "error",
-      ...(action ? { actions: [action] } : {}),
-      message: keys.includes("*")
-        ? "Stop reading the whole environment; take configuration from connection fields"
-        : `Stop reading ${keys.map((k) => `process.env.${k}`).join(", ")}; take each from a connection field (\`env: "NAME"\` on the field supplies it)`,
-    });
   }
   return report(findings, plugins, allowances(pkg));
 }
@@ -301,6 +293,7 @@ function allowances(pkg: PackageJson | undefined): Map<string, string> {
 /** What a plugin says about itself once loaded. */
 function checkDeclarations(
   plugin: PluginDef,
+  config: Record<string, unknown>,
   reserved: ReadonlySet<string>,
   add: (finding: LintFinding) => void,
 ): void {
@@ -366,7 +359,7 @@ function checkDeclarations(
       });
   }
 
-  for (const url of declaredTargets(plugin, connectionConfig(plugin).config))
+  for (const url of declaredTargets(plugin, config))
     if (!/^(https|wss):\/\//.test(url))
       add({
         ...at,
@@ -407,14 +400,7 @@ function connectionConfig(plugin: PluginDef): {
         const sentinel = `codemode-lint-secret-${name}`;
         config[name] = sentinel;
         secrets.set(sentinel, name);
-      } else
-        config[name] =
-          field.default ??
-          (field.type === "number"
-            ? 1
-            : field.type === "boolean"
-              ? false
-              : "codemode-lint");
+      } else config[name] = standIn(field);
     }
     return { config, secrets };
   };
@@ -426,7 +412,7 @@ function connectionConfig(plugin: PluginDef): {
 
 async function runActions(
   plugin: PluginDef,
-  { config }: { config: Record<string, unknown> },
+  config: Record<string, unknown>,
   probe: ReturnType<typeof startProbe>,
   { outputDir, timeoutMs }: { outputDir: string; timeoutMs: number },
 ): Promise<void> {
@@ -530,6 +516,27 @@ function checkRequests(
     .sort();
 }
 
+/** The environment variables a plugin's own code read while it loaded and ran. */
+function checkEnvReads(
+  plugin: string,
+  record: ProbeRecord,
+  add: (finding: LintFinding) => void,
+): void {
+  for (const [action, read] of record.envReads) {
+    const keys = [...read].filter((key) => !OS_LOCATIONS.has(key));
+    if (keys.length === 0) continue;
+    add({
+      plugin,
+      rule: "run/env-read",
+      level: "error",
+      ...(action ? { actions: [action] } : {}),
+      message: keys.includes("*")
+        ? "Stop reading the whole environment; take configuration from connection fields"
+        : `Stop reading ${keys.map((k) => `process.env.${k}`).join(", ")}; take each from a connection field (\`env: "NAME"\` on the field supplies it)`,
+    });
+  }
+}
+
 /** A valid input for a schema, or undefined when none can be made. */
 function inputFor(
   schema: PluginDef["actions"][number]["inputSchema"],
@@ -544,19 +551,25 @@ function inputFor(
   }
   const input: Record<string, unknown> = {};
   for (const [name, field] of Object.entries(legacyFields(schema)))
-    if (field.required)
-      input[name] =
-        field.default ??
-        (field.type === "number"
-          ? 1
-          : field.type === "boolean"
-            ? false
-            : field.type === "array"
-              ? []
-              : field.type === "object"
-                ? {}
-                : "codemode-lint");
+    if (field.required) input[name] = standIn(field);
   return input;
+}
+
+/** A value of a field's type, or its default, for a field the lint fills. */
+function standIn(field: { type?: string; default?: unknown }): unknown {
+  if (field.default !== undefined) return field.default;
+  switch (field.type) {
+    case "number":
+      return 1;
+    case "boolean":
+      return false;
+    case "array":
+      return [];
+    case "object":
+      return {};
+    default:
+      return "codemode-lint";
+  }
 }
 
 function declaredTargets(

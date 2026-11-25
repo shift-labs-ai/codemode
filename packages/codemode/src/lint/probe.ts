@@ -112,7 +112,7 @@ export function startProbe(packageDir: string): {
       method: request.method,
       to: request.url,
       headers: Object.fromEntries(request.headers),
-      body: typeof init?.body === "string" ? init.body : "",
+      body: await request.text(),
     });
     return EMPTY_JSON();
   }) as typeof fetch;

