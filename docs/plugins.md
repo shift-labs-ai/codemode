@@ -284,7 +284,7 @@ codemode lint ./orders
 
 1. It reads the files: no install script, no secret written in the code, no `Authorization` header built from a variable, and `@shiftlabs/codemode` and `typebox` as peers.
 2. It loads the plugin and reads what it registered: every action has `access`, a verb that changes something is `write`, every action has a description, and every input is closed.
-3. It runs every action against a stand-in network that answers `{}`, with a stand-in value in each connection field. It reports a secret sent around the credential layer and an environment variable the plugin's own code reads.
+3. It runs every action against a stand-in network that answers `{}`, with a stand-in value in each connection field. It reports a secret sent around the credential layer and an environment variable the plugin's own code reads, and names every action it could not run.
 
 A plugin passes when each person's secret comes from their connection and reaches the API through the credential helpers, as [Authenticate requests](#authenticate-requests) describes. That is what lets every person use their own account.
 
@@ -304,10 +304,12 @@ A plugin passes when each person's secret comes from their connection and reache
 | `run/env-read` | error | The plugin's own code reads `process.env`. Variables that only locate the operating system's programs, such as `PATH` and `SystemRoot`, are allowed |
 | `action/input-legacy` | warning | An input uses the legacy field map instead of TypeBox |
 | `credential/undeclared` | warning | A connection field looks like a secret, and the plugin declares no credential |
+| `credential/unresolved` | warning | The credential chooses its targets from connection config the stand-in values do not satisfy, so the targets are not checked |
+| `run/not-run` | warning | No input could be made for an action's schema, such as a string with a `pattern` or `format` and no default, so what it sends is not checked |
 | `run/read-sends-write` | warning | A `read` action sends PUT, PATCH or DELETE |
 | `package/peer-range` | warning | The package's peer range excludes the codemode that loads it |
 
-Each finding names its rule, the plugin, the actions or the file and line, and what to change. `--json` prints the report, which also lists each plugin's actions and every host it sends to.
+Each finding names its rule, the plugin, the actions or the file and line, and what to change. `--json` prints the report, which also lists, for each plugin, what `codemode install` shows (its actions by access and its credential's targets) and every host it sends to.
 
 A package that must break a rule says why in its `package.json`. The finding is then a warning that carries the reason:
 

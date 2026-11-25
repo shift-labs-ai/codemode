@@ -2,7 +2,11 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Create } from "typebox/value";
-import { bundledPluginNames, type PluginReport } from "../packages/manager.js";
+import {
+  bundledPluginNames,
+  type PluginReport,
+  reportPlugin,
+} from "../packages/manager.js";
 import { readPackageManifest } from "../packages/manifest.js";
 import { loadPluginFromPath } from "../plugin/loader.js";
 import {
@@ -32,11 +36,8 @@ export interface LintFinding {
   line?: number;
 }
 
-/** What one plugin of the package declares and did: install's counts, and where it sent. */
-export type LintedPlugin = Pick<
-  PluginReport,
-  "name" | "version" | "actions" | "read" | "write"
-> & {
+/** What one plugin of the package declares, as `codemode install` reports it, and where it sent. */
+export type LintedPlugin = PluginReport & {
   /** Every host its requests went to while it was linted, and every host its credential is declared for. */
   hosts: string[];
 };
@@ -207,18 +208,30 @@ export async function lintPackage(
         continue;
       }
       const connection = standInConnection(plugin);
-      checkDeclarations(plugin, connection.config, reserved, add);
-      await runActions(plugin, connection.config, standIn, {
+      const declared = reportPlugin(plugin, connection.config);
+      checkDeclarations(plugin, declared, reserved, add);
+      const notRun = await runActions(plugin, connection.config, standIn, {
         outputDir: scratchDir,
         timeoutMs: options.actionTimeoutMs ?? 3_000,
       });
+      if (notRun.length > 0)
+        add({
+          plugin: plugin.name,
+          actions: notRun,
+          rule: "run/not-run",
+          level: "warning",
+          message:
+            "Not run, so what it sends is unchecked: no input could be made for its schema; give each string with a pattern or format a default",
+        });
       plugins.push({
-        name: plugin.name,
-        version: plugin.version,
-        actions: plugin.actions.length,
-        read: plugin.actions.filter((a) => a.access === "read").length,
-        write: plugin.actions.filter((a) => a.access === "write").length,
-        hosts: checkRequests(plugin, connection, standIn.record, add),
+        ...declared,
+        hosts: checkRequests(
+          plugin,
+          declared,
+          connection.secrets,
+          standIn.record,
+          add,
+        ),
       });
       checkEnvReads(plugin.name, standIn.record, add);
     }
@@ -289,7 +302,7 @@ function allowances(pkg: PackageJson | undefined): Map<string, string> {
 /** What a plugin says about itself once loaded. */
 function checkDeclarations(
   plugin: PluginDef,
-  config: Record<string, unknown>,
+  declared: PluginReport,
   reserved: ReadonlySet<string>,
   add: (finding: LintFinding) => void,
 ): void {
@@ -355,7 +368,7 @@ function checkDeclarations(
       });
   }
 
-  for (const url of declaredTargets(plugin, config))
+  for (const url of declared.credential?.targets ?? [])
     if (!/^(https|wss):\/\//.test(url))
       add({
         ...at,
@@ -363,6 +376,14 @@ function checkDeclarations(
         level: "error",
         message: `The credential is declared for ${url}; send it over https or wss only`,
       });
+  if (declared.credentialNote)
+    add({
+      ...at,
+      rule: "credential/unresolved",
+      level: "warning",
+      message:
+        "The credential chooses its targets from connection config the stand-in values do not satisfy, so they are not checked for https or wss",
+    });
   const secrets = Object.keys(
     connectionFields(plugin.connectionConfigSchema),
   ).filter((f) => SECRET_FIELD.test(f));
@@ -411,10 +432,14 @@ async function runActions(
   config: Record<string, unknown>,
   standIn: ReturnType<typeof startStandIn>,
   { outputDir, timeoutMs }: { outputDir: string; timeoutMs: number },
-): Promise<void> {
+): Promise<string[]> {
+  const notRun: string[] = [];
   for (const action of plugin.actions) {
     const input = inputFor(action.inputSchema);
-    if (input === undefined) continue;
+    if (input === undefined) {
+      notRun.push(action.name);
+      continue;
+    }
     const controller = new AbortController();
     const ctx: ActionContext = {
       connection: {
@@ -444,6 +469,7 @@ async function runActions(
       standIn.running(undefined);
     }
   }
+  return notRun;
 }
 
 /**
@@ -452,14 +478,12 @@ async function runActions(
  */
 function checkRequests(
   plugin: PluginDef,
-  {
-    config,
-    secrets,
-  }: { config: Record<string, unknown>; secrets: Map<string, string> },
+  declared: PluginReport,
+  secrets: Map<string, string>,
   record: StandInRecord,
   add: (finding: LintFinding) => void,
 ): string[] {
-  const hosts = new Set(declaredTargets(plugin, config).map(hostOf));
+  const hosts = new Set((declared.credential?.targets ?? []).map(hostOf));
   const readsSending = new Set<string>();
   for (const request of record.requests) {
     const at = {
@@ -566,16 +590,6 @@ function standInValue(field: { type?: string; default?: unknown }): unknown {
     default:
       return "codemode-lint";
   }
-}
-
-function declaredTargets(
-  plugin: PluginDef,
-  config: Record<string, unknown>,
-): string[] {
-  const selection = selectionOf(plugin, config);
-  if (!selection) return [];
-  const targets = selection.type.methods[selection.method]?.targets ?? {};
-  return Object.values(targets).map((t) => t.baseUrl);
 }
 
 function declaredSecretFields(
