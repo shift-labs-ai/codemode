@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Create } from "typebox/value";
-import { bundledPluginNames } from "../packages/manager.js";
+import { bundledPluginNames, type PluginReport } from "../packages/manager.js";
 import { readPackageManifest } from "../packages/manifest.js";
 import { loadPluginFromPath } from "../plugin/loader.js";
 import {
@@ -11,7 +11,7 @@ import {
   legacyFields,
 } from "../plugin/schema.js";
 import type { ActionContext, PluginDef } from "../plugin/types.js";
-import { type ProbeRecord, startProbe } from "./probe.js";
+import { STAND_IN_HOST, type StandInRecord, startStandIn } from "./stand-in.js";
 import { MUTATING_VERBS, verbOf } from "./verbs.js";
 
 export type LintLevel = "error" | "warning";
@@ -32,16 +32,14 @@ export interface LintFinding {
   line?: number;
 }
 
-/** What one plugin of the package declares and did. */
-export interface LintedPlugin {
-  name: string;
-  version: string;
-  actions: number;
-  read: number;
-  write: number;
+/** What one plugin of the package declares and did: install's counts, and where it sent. */
+export type LintedPlugin = Pick<
+  PluginReport,
+  "name" | "version" | "actions" | "read" | "write"
+> & {
   /** Every host its requests went to while it was linted, and every host its credential is declared for. */
   hosts: string[];
-}
+};
 
 export interface LintReport {
   /** No finding is an error. */
@@ -95,8 +93,6 @@ const OS_LOCATIONS = new Set([
   "PATHEXT",
 ]);
 const INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "prepare"];
-/** The address an address field is given while the plugin runs. */
-const STAND_IN_HOST = "codemode-lint.invalid";
 /**
  * Methods a read never sends. POST is not among them: searches, GraphQL
  * queries and logins read with it.
@@ -184,16 +180,16 @@ export async function lintPackage(
     });
 
   // ── load and run ───────────────────────────────────────
-  const outputDir = mkdtempSync(join(tmpdir(), "codemode-lint-"));
-  const workingDir = process.cwd();
-  let probe: ReturnType<typeof startProbe> | undefined;
+  const scratchDir = mkdtempSync(join(tmpdir(), "codemode-lint-"));
+  const callerDir = process.cwd();
+  let standIn: ReturnType<typeof startStandIn> | undefined;
   const plugins: LintedPlugin[] = [];
   try {
-    process.chdir(outputDir);
-    probe = startProbe(dir);
+    process.chdir(scratchDir);
+    standIn = startStandIn(dir);
     for (const path of manifest.pluginPaths) {
-      probe.record.requests.length = 0;
-      probe.record.envReads.clear();
+      standIn.record.requests.length = 0;
+      standIn.record.envReads.clear();
       const file = relative(dir, path) || path;
       let plugin: PluginDef;
       try {
@@ -210,10 +206,10 @@ export async function lintPackage(
         });
         continue;
       }
-      const connection = connectionConfig(plugin);
+      const connection = standInConnection(plugin);
       checkDeclarations(plugin, connection.config, reserved, add);
-      await runActions(plugin, connection.config, probe, {
-        outputDir,
+      await runActions(plugin, connection.config, standIn, {
+        outputDir: scratchDir,
         timeoutMs: options.actionTimeoutMs ?? 3_000,
       });
       plugins.push({
@@ -222,14 +218,14 @@ export async function lintPackage(
         actions: plugin.actions.length,
         read: plugin.actions.filter((a) => a.access === "read").length,
         write: plugin.actions.filter((a) => a.access === "write").length,
-        hosts: checkRequests(plugin, connection, probe.record, add),
+        hosts: checkRequests(plugin, connection, standIn.record, add),
       });
-      checkEnvReads(plugin.name, probe.record, add);
+      checkEnvReads(plugin.name, standIn.record, add);
     }
   } finally {
-    probe?.stop();
-    process.chdir(workingDir);
-    rmSync(outputDir, { recursive: true, force: true });
+    standIn?.stop();
+    process.chdir(callerDir);
+    rmSync(scratchDir, { recursive: true, force: true });
   }
   return report(findings, plugins, allowances(pkg));
 }
@@ -386,7 +382,7 @@ function checkDeclarations(
  * which fields are its secret; for one that declares none, a field is a
  * secret by its name.
  */
-function connectionConfig(plugin: PluginDef): {
+function standInConnection(plugin: PluginDef): {
   config: Record<string, unknown>;
   secrets: Map<string, string>;
 } {
@@ -400,7 +396,7 @@ function connectionConfig(plugin: PluginDef): {
         const sentinel = `codemode-lint-secret-${name}`;
         config[name] = sentinel;
         secrets.set(sentinel, name);
-      } else config[name] = standIn(field);
+      } else config[name] = standInValue(field);
     }
     return { config, secrets };
   };
@@ -413,7 +409,7 @@ function connectionConfig(plugin: PluginDef): {
 async function runActions(
   plugin: PluginDef,
   config: Record<string, unknown>,
-  probe: ReturnType<typeof startProbe>,
+  standIn: ReturnType<typeof startStandIn>,
   { outputDir, timeoutMs }: { outputDir: string; timeoutMs: number },
 ): Promise<void> {
   for (const action of plugin.actions) {
@@ -426,13 +422,13 @@ async function runActions(
         plugin: plugin.name,
         config: { ...config },
       },
-      credentials: probe.broker(action.name),
+      credentials: standIn.broker(action.name),
       signal: controller.signal,
       outputDir,
       log: { info() {}, warn() {}, error() {} },
       async updateConnection() {},
     };
-    probe.running(action.name);
+    standIn.running(action.name);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       // An action answering the stand-in `{}` may fail on its shape; only what it sent is judged.
@@ -445,7 +441,7 @@ async function runActions(
     } finally {
       clearTimeout(timer);
       controller.abort();
-      probe.running(undefined);
+      standIn.running(undefined);
     }
   }
 }
@@ -460,7 +456,7 @@ function checkRequests(
     config,
     secrets,
   }: { config: Record<string, unknown>; secrets: Map<string, string> },
-  record: ProbeRecord,
+  record: StandInRecord,
   add: (finding: LintFinding) => void,
 ): string[] {
   const hosts = new Set(declaredTargets(plugin, config).map(hostOf));
@@ -519,7 +515,7 @@ function checkRequests(
 /** The environment variables a plugin's own code read while it loaded and ran. */
 function checkEnvReads(
   plugin: string,
-  record: ProbeRecord,
+  record: StandInRecord,
   add: (finding: LintFinding) => void,
 ): void {
   for (const [action, read] of record.envReads) {
@@ -551,12 +547,12 @@ function inputFor(
   }
   const input: Record<string, unknown> = {};
   for (const [name, field] of Object.entries(legacyFields(schema)))
-    if (field.required) input[name] = standIn(field);
+    if (field.required) input[name] = standInValue(field);
   return input;
 }
 
 /** A value of a field's type, or its default, for a field the lint fills. */
-function standIn(field: { type?: string; default?: unknown }): unknown {
+function standInValue(field: { type?: string; default?: unknown }): unknown {
   if (field.default !== undefined) return field.default;
   switch (field.type) {
     case "number":

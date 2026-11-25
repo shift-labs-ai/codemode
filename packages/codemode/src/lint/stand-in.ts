@@ -17,8 +17,11 @@ export interface SentRequest {
   body: string;
 }
 
-/** What one probe saw. */
-export interface ProbeRecord {
+/** The address the stand-in network answers for: an address field's value, and every socket URL. */
+export const STAND_IN_HOST = "codemode-lint.invalid";
+
+/** What one stand-in saw. */
+export interface StandInRecord {
   requests: SentRequest[];
   /**
    * Environment variables the package's own code read, by the action that
@@ -43,12 +46,12 @@ const EMPTY_JSON = () =>
  * by real path. A read a dependency or the module loader makes, even on the
  * plugin's behalf, is not counted against the plugin.
  *
- * The probe replaces `globalThis.fetch` and `process.env` for the whole
+ * The stand-in replaces `globalThis.fetch` and `process.env` for the whole
  * process until `stop()`. Run it in a process of its own: other code in
  * that process would be recorded too, and would get no network.
  */
-export function startProbe(packageDir: string): {
-  record: ProbeRecord;
+export function startStandIn(packageDir: string): {
+  record: StandInRecord;
   /** The broker an action's `ctx.credentials` is given. */
   broker(action: string): CredentialBroker;
   /** Name the action whose calls follow. */
@@ -56,7 +59,7 @@ export function startProbe(packageDir: string): {
   stop(): void;
 } {
   const root = withSep(realpathSync(packageDir));
-  const record: ProbeRecord = { requests: [], envReads: new Map() };
+  const record: StandInRecord = { requests: [], envReads: new Map() };
   let current: string | undefined;
 
   const realFetch = globalThis.fetch;
@@ -154,7 +157,7 @@ export function startProbe(packageDir: string): {
           return { outcome: "unverified" };
         },
         async socketUrl() {
-          return "wss://codemode-lint.invalid/";
+          return `wss://${STAND_IN_HOST}/`;
         },
       };
     },
