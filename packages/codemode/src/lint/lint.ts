@@ -399,9 +399,8 @@ function checkDeclarations(
 /**
  * A connection config the actions can run with: an address for each
  * address field, a value no real secret has for each secret field, and a
- * plain value for the rest. A plugin that declares its credential says
- * which fields are its secret; for one that declares none, a field is a
- * secret by its name.
+ * plain value for the rest. A credential that resolves says which fields
+ * are its secret; otherwise a field is a secret by its name.
  */
 function standInConnection(plugin: PluginDef): {
   config: Record<string, unknown>;
@@ -422,9 +421,8 @@ function standInConnection(plugin: PluginDef): {
     return { config, secrets };
   };
   const byName = build((name) => SECRET_FIELD.test(name));
-  if (!plugin.credential) return byName;
   const declared = declaredSecretFields(plugin, byName.config);
-  return build((name) => declared.has(name));
+  return declared ? build((name) => declared.has(name)) : byName;
 }
 
 async function runActions(
@@ -592,10 +590,13 @@ function standInValue(field: { type?: string; default?: unknown }): unknown {
   }
 }
 
+/** The fields a resolved credential names as its secret, or undefined when none resolves. */
 function declaredSecretFields(
   plugin: PluginDef,
   config: Record<string, unknown>,
-): Set<string> {
+): Set<string> | undefined {
+  const selection = selectionOf(plugin, config);
+  if (!selection) return undefined;
   const fields = new Set<string>();
   const collect = (value: unknown) => {
     if (!value || typeof value !== "object") return;
@@ -603,7 +604,7 @@ function declaredSecretFields(
     if (typeof field === "string") fields.add(field);
     for (const nested of Object.values(value)) collect(nested);
   };
-  collect(selectionOf(plugin, config)?.localSecret);
+  collect(selection.localSecret);
   return fields;
 }
 

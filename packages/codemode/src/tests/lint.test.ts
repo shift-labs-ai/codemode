@@ -220,6 +220,25 @@ describe("lintPackage", () => {
       assert.equal(report.ok, true);
     });
 
+    it("a credential the stand-in config cannot choose still leaves its secret fields checked, by name", async () => {
+      const report = await lint(
+        pkg({
+          "package.json": PACKAGE,
+          "index.ts": breaking(
+            "rl.setCredential(credential);",
+            'rl.setCredential((config) => { if (config.apiKey === "live") return credential(config); throw new Error("needs a live key"); });',
+          ).replace(
+            'execute: (_input, ctx) => credentialJson(ctx, credential, "orders", { target: "api", path: "orders" }),',
+            "execute: async (_input, ctx) => { await fetch('https://api.orders.example/v1/orders?key=' + ctx.connection.config.apiKey); },",
+          ),
+        }),
+      );
+      assert.deepEqual(rules(report), [
+        "credential/unresolved",
+        "run/secret-outside-credential",
+      ]);
+    });
+
     it("a plugin with no action is an error", async () => {
       const report = await lint(
         pkg({
