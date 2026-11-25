@@ -14,28 +14,28 @@ import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import {
+  type BinaryArtifact,
+  type BinaryDeclaration,
+  binaryPlatform,
+  packageBinaries,
+  parseBinaries,
+} from "../binaries/declaration.js";
+import { BinaryError, BinaryManager } from "../binaries/manager.js";
 import { PackageManager } from "../packages/manager.js";
 import { MemoryPackageStore } from "../packages/store.js";
 import type { PluginFunction } from "../plugin/api.js";
 import { Codemode } from "../sdk.js";
-import {
-  packageTools,
-  parseTools,
-  type ToolArtifact,
-  type ToolDeclaration,
-  toolPlatform,
-} from "../tools/declaration.js";
-import { ToolError, ToolManager } from "../tools/manager.js";
 import { commandExists } from "../utils/cli.js";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "codemode-tools-")));
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "codemode-binaries-")));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 /** The programs here are shell scripts. */
 const skip = process.platform === "win32";
-const here = toolPlatform();
-const URL_A = "https://downloads.test/a/tool";
-const URL_B = "https://mirror.test/b/tool";
+const here = binaryPlatform();
+const URL_A = "https://downloads.test/a/binary";
+const URL_B = "https://mirror.test/b/binary";
 
 /**
  * A program that greets. `ok` is its check, which passes only without the
@@ -61,7 +61,7 @@ function archive(kind: "tar.gz" | "zip"): Buffer {
   const source = fresh("source");
   mkdirSync(join(source, "bin"));
   writeFileSync(join(source, "bin", "hello"), SCRIPT, { mode: 0o755 });
-  const out = join(fresh("archive"), `tool.${kind}`);
+  const out = join(fresh("archive"), `binary.${kind}`);
   if (kind === "zip")
     execFileSync("zip", ["-q", "-r", out, "bin"], { cwd: source });
   else execFileSync("tar", ["-czf", out, "-C", source, "bin"]);
@@ -70,9 +70,9 @@ function archive(kind: "tar.gz" | "zip"): Buffer {
 
 function artifact(
   bytes: Buffer,
-  rest: Pick<ToolArtifact, "path" | "format">,
+  rest: Pick<BinaryArtifact, "path" | "format">,
   urls = [URL_A],
-): ToolArtifact {
+): BinaryArtifact {
   return {
     size: bytes.length,
     hash: "sha256",
@@ -83,10 +83,10 @@ function artifact(
 }
 
 function declare(
-  build: ToolArtifact,
+  build: BinaryArtifact,
   check?: string[],
   platform = here,
-): ToolDeclaration {
+): BinaryDeclaration {
   return { ...(check ? { check } : {}), platforms: { [platform]: build } };
 }
 
@@ -107,29 +107,29 @@ function serving(bodies: Record<string, Buffer | number>) {
 function managerFor(bodies: Record<string, Buffer | number>) {
   const store = fresh("store");
   const { fetch, asked } = serving(bodies);
-  return { store, asked, manager: new ToolManager({ dir: store, fetch }) };
+  return { store, asked, manager: new BinaryManager({ dir: store, fetch }) };
 }
 
 const run = (program: string, arg: string) =>
   execFileSync(program, [arg], { encoding: "utf8" }).trim();
 
-describe("a tools declaration", () => {
+describe("a binaries declaration", () => {
   const valid = {
     size: 12,
     hash: "sha256",
     digest: "a".repeat(64),
     format: "tar.gz",
-    path: "bin/tool",
-    providers: [{ url: "https://example.com/tool.tar.gz" }],
+    path: "bin/binary",
+    providers: [{ url: "https://example.com/binary.tar.gz" }],
   };
   const block = (entry: unknown) => ({
-    tool: { platforms: { "linux-x86_64": entry } },
+    binary: { platforms: { "linux-x86_64": entry } },
   });
 
   it("keeps the fields of a DotSlash entry that codemode reads", () => {
-    const tools = parseTools(
+    const binaries = parseBinaries(
       {
-        tool: {
+        binary: {
           check: ["--version"],
           platforms: {
             "linux-x86_64": {
@@ -145,13 +145,13 @@ describe("a tools declaration", () => {
       },
       "package.json",
     );
-    assert.deepEqual(tools, {
-      tool: { check: ["--version"], platforms: { "linux-x86_64": valid } },
+    assert.deepEqual(binaries, {
+      binary: { check: ["--version"], platforms: { "linux-x86_64": valid } },
     });
   });
 
   it("names the field that is wrong", () => {
-    const at = "package.json: codemode.tools.tool.platforms.linux-x86_64";
+    const at = "package.json: codemode.binaries.binary.platforms.linux-x86_64";
     for (const [entry, message] of [
       [{ ...valid, hash: "blake3" }, `${at}.hash must be "sha256"`],
       [
@@ -167,26 +167,29 @@ describe("a tools declaration", () => {
         `${at}.format must be one of gz, tar, tar.gz, tar.bz2, tar.xz, tar.zst, zip`,
       ],
       [
-        { ...valid, path: "../tool" },
+        { ...valid, path: "../binary" },
         `${at}.path must be a relative path inside the artifact`,
       ],
       [
-        { ...valid, path: "/usr/bin/tool" },
+        { ...valid, path: "/usr/bin/binary" },
         `${at}.path must be a relative path inside the artifact`,
       ],
       [
-        { ...valid, providers: [{ url: "http://example.com/tool" }] },
+        { ...valid, providers: [{ url: "http://example.com/binary" }] },
         `${at}.providers must hold at least one { "url": "https://…" }`,
       ],
     ] as const)
-      assert.throws(() => parseTools(block(entry), "package.json"), {
+      assert.throws(() => parseBinaries(block(entry), "package.json"), {
         message,
       });
-    assert.throws(() => parseTools({ tool: { platforms: {} } }, "p.json"), {
-      message:
-        "p.json: codemode.tools.tool.platforms must name at least one platform",
-    });
-    assert.throws(() => parseTools({ "-x": {} }, "p.json"), /usable name/);
+    assert.throws(
+      () => parseBinaries({ binary: { platforms: {} } }, "p.json"),
+      {
+        message:
+          "p.json: codemode.binaries.binary.platforms must name at least one platform",
+      },
+    );
+    assert.throws(() => parseBinaries({ "-x": {} }, "p.json"), /usable name/);
   });
 
   it("is read from the package.json above a plugin's module", () => {
@@ -196,45 +199,46 @@ describe("a tools declaration", () => {
       return pathToFileURL(join(pkg, "src", "index.js")).href;
     };
     assert.deepEqual(
-      packageTools(moduleOf({ codemode: { tools: block(valid) } })),
+      packageBinaries(moduleOf({ codemode: { binaries: block(valid) } })),
       block(valid),
     );
-    assert.deepEqual(packageTools(moduleOf({ name: "no-tools" })), {});
+    assert.deepEqual(packageBinaries(moduleOf({ name: "no-binaries" })), {});
     assert.throws(
-      () => packageTools(moduleOf({ codemode: { tools: { tool: {} } } })),
-      /package\.json: codemode\.tools\.tool\.platforms must name at least one platform/,
+      () =>
+        packageBinaries(moduleOf({ codemode: { binaries: { binary: {} } } })),
+      /package\.json: codemode\.binaries\.binary\.platforms must name at least one platform/,
     );
   });
 
   it("names this host as DotSlash files do", () => {
-    assert.equal(toolPlatform("darwin", "arm64"), "macos-aarch64");
-    assert.equal(toolPlatform("linux", "x64"), "linux-x86_64");
-    assert.equal(toolPlatform("win32", "x64"), "windows-x86_64");
-    assert.equal(toolPlatform("freebsd", "riscv64"), "freebsd-riscv64");
+    assert.equal(binaryPlatform("darwin", "arm64"), "macos-aarch64");
+    assert.equal(binaryPlatform("linux", "x64"), "linux-x86_64");
+    assert.equal(binaryPlatform("win32", "x64"), "windows-x86_64");
+    assert.equal(binaryPlatform("freebsd", "riscv64"), "freebsd-riscv64");
   });
 });
 
-describe("installing a tool", { skip }, () => {
+describe("installing a binary", { skip }, () => {
   it("downloads, verifies and unpacks an archive, once", async () => {
     const bytes = archive("tar.gz");
-    const tool = declare(
+    const binary = declare(
       artifact(bytes, { format: "tar.gz", path: "bin/hello" }),
     );
     const { manager, asked, store } = managerFor({ [URL_A]: bytes });
 
-    assert.deepEqual(manager.status(tool), {
+    assert.deepEqual(manager.status(binary), {
       platform: here,
       supported: true,
       hosts: ["downloads.test"],
       size: bytes.length,
       installed: false,
     });
-    const program = await manager.install("hello", tool);
+    const program = await manager.install("hello", binary);
     assert.equal(run(program, "there"), "hello there");
-    assert.equal(manager.status(tool).path, program);
-    assert.equal(await manager.install("hello", tool), program);
+    assert.equal(manager.status(binary).path, program);
+    assert.equal(await manager.install("hello", binary), program);
     assert.deepEqual(asked, [URL_A]);
-    // Nothing is left beside the tool's own folder.
+    // Nothing is left beside the binary's own folder.
     assert.equal(readdirSync(store).length, 1);
   });
 
@@ -284,27 +288,27 @@ describe("installing a tool", { skip }, () => {
       ],
     ] as const) {
       const { manager, store } = managerFor({ [URL_A]: bytes });
-      const tool = declare(build);
-      await assert.rejects(() => manager.install("hello", tool), {
+      const binary = declare(build);
+      await assert.rejects(() => manager.install("hello", binary), {
         code: "download_failed",
         message: `Could not download hello. ${reason}`,
       });
-      assert.equal(manager.status(tool).installed, false);
+      assert.equal(manager.status(binary).installed, false);
       assert.deepEqual(readdirSync(store), []);
     }
   });
 
   it("takes the first source that answers the declared bytes", async () => {
     const bytes = archive("tar.gz");
-    const tool = declare(
+    const binary = declare(
       artifact(bytes, { format: "tar.gz", path: "bin/hello" }, [URL_A, URL_B]),
     );
     const { manager, asked } = managerFor({ [URL_A]: 503, [URL_B]: bytes });
-    assert.equal(run(await manager.install("hello", tool), "b"), "hello b");
+    assert.equal(run(await manager.install("hello", binary), "b"), "hello b");
     assert.deepEqual(asked, [URL_A, URL_B]);
 
     const none = managerFor({ [URL_A]: 503 });
-    await assert.rejects(() => none.manager.install("hello", tool), {
+    await assert.rejects(() => none.manager.install("hello", binary), {
       message:
         "Could not download hello. downloads.test: HTTP 503; mirror.test: HTTP 404",
     });
@@ -337,13 +341,13 @@ describe("installing a tool", { skip }, () => {
       await passing.manager.install("hello", declare(build, ["ok"]));
 
       const failing = managerFor({ [URL_A]: bytes });
-      const tool = declare(build, ["fail"]);
-      await assert.rejects(() => failing.manager.install("hello", tool), {
+      const binary = declare(build, ["fail"]);
+      await assert.rejects(() => failing.manager.install("hello", binary), {
         code: "check_failed",
         message:
           "hello was not installed: it does not run on this host. needs a newer libc",
       });
-      assert.equal(failing.manager.status(tool).installed, false);
+      assert.equal(failing.manager.status(binary).installed, false);
       assert.deepEqual(readdirSync(failing.store), []);
     } finally {
       delete process.env.CODEMODE_TEST_SECRET;
@@ -354,7 +358,7 @@ describe("installing a tool", { skip }, () => {
     const bytes = archive("tar.gz");
     const build = artifact(bytes, { format: "tar.gz", path: "bin/hello" });
     const { fetch, asked } = serving({ [URL_A]: bytes });
-    const offline = new ToolManager({
+    const offline = new BinaryManager({
       dir: fresh("store"),
       fetch,
       offline: true,
@@ -363,7 +367,7 @@ describe("installing a tool", { skip }, () => {
       code: "offline",
     });
 
-    const online = new ToolManager({ dir: fresh("store"), fetch });
+    const online = new BinaryManager({ dir: fresh("store"), fetch });
     const elsewhere = declare(build, undefined, "plan9-mips");
     assert.deepEqual(online.status(elsewhere), {
       platform: here,
@@ -378,24 +382,24 @@ describe("installing a tool", { skip }, () => {
     assert.deepEqual(asked, []);
   });
 
-  it("removes an installed tool", async () => {
+  it("removes an installed binary", async () => {
     const bytes = archive("tar.gz");
-    const tool = declare(
+    const binary = declare(
       artifact(bytes, { format: "tar.gz", path: "bin/hello" }),
     );
     const { manager, store } = managerFor({ [URL_A]: bytes });
-    assert.equal(await manager.remove(tool), false);
-    await manager.install("hello", tool);
-    assert.equal(await manager.remove(tool), true);
-    assert.equal(manager.status(tool).installed, false);
+    assert.equal(await manager.remove(binary), false);
+    await manager.install("hello", binary);
+    assert.equal(await manager.remove(binary), true);
+    assert.equal(manager.status(binary).installed, false);
     assert.deepEqual(readdirSync(store), []);
   });
 
   it("describes the artifact at a URL for a declaration's author", async () => {
     const bytes = archive("tar.gz");
-    const url = "https://downloads.test/v1/tool_linux_amd64.tar.gz";
+    const url = "https://downloads.test/v1/binary_linux_amd64.tar.gz";
     const { fetch } = serving({ [url]: bytes });
-    const manager = new ToolManager({ dir: fresh("store"), fetch });
+    const manager = new BinaryManager({ dir: fresh("store"), fetch });
     assert.deepEqual(await manager.describe(url), {
       ...artifact(bytes, { format: "tar.gz", path: "" }, [url]),
     });
@@ -406,52 +410,52 @@ describe("installing a tool", { skip }, () => {
       });
   });
 
-  it("names its folder only when a tool is asked about", () => {
+  it("names its folder only when a binary is asked about", () => {
     const store = fresh("store");
     let named = 0;
-    const manager = new ToolManager({
+    const manager = new BinaryManager({
       dir: () => {
         named++;
         return store;
       },
     });
     assert.equal(named, 0);
-    const tool = declare(artifact(SCRIPT, { path: "greet" }));
-    manager.status(tool);
-    manager.status(tool);
+    const binary = declare(artifact(SCRIPT, { path: "greet" }));
+    manager.status(binary);
+    manager.status(binary);
     assert.equal(named, 1);
   });
 });
 
-describe("a plugin's tools", { skip }, () => {
+describe("a plugin's binaries", { skip }, () => {
   const bytes = archive("tar.gz");
   const hello = declare(
     artifact(bytes, { format: "tar.gz", path: "bin/hello" }),
   );
   const demo: PluginFunction = (rl) => {
     rl.setName("demo");
-    rl.setTools({ hello });
+    rl.setBinaries({ hello });
     rl.registerAction("where", {
-      execute: (_input, ctx) => ctx.tool("hello"),
+      execute: (_input, ctx) => ctx.binary("hello"),
     });
     rl.registerAction("other", {
-      execute: (_input, ctx) => ctx.tool("undeclared"),
+      execute: (_input, ctx) => ctx.binary("undeclared"),
     });
   };
 
   it("reach an action only once the host has installed them", async () => {
     const { manager, asked } = managerFor({ [URL_A]: bytes });
-    const codemode = Codemode.create({ plugins: [demo], tools: manager });
+    const codemode = Codemode.create({ plugins: [demo], binaries: manager });
     try {
       const before = await codemode.execute("return await demo.where()");
       assert.match(
         before.error ?? "",
-        /demo: the program "hello" is not installed\. Run: codemode tools install hello/,
+        /demo: the binary "hello" is not installed\. Run: codemode binaries install hello/,
       );
-      // An action asking for a tool never fetches it.
+      // An action asking for a binary never fetches it.
       assert.deepEqual(asked, []);
       assert.deepEqual(
-        codemode.tools.list().map(({ plugin, name, installed }) => ({
+        codemode.binaries.list().map(({ plugin, name, installed }) => ({
           plugin,
           name,
           installed,
@@ -459,7 +463,7 @@ describe("a plugin's tools", { skip }, () => {
         [{ plugin: "demo", name: "hello", installed: false }],
       );
 
-      const [installed] = await codemode.tools.install();
+      const [installed] = await codemode.binaries.install();
       assert.equal(installed.installed, true);
       const afterwards = await codemode.execute("return await demo.where()");
       assert.equal(afterwards.result, installed.path);
@@ -467,18 +471,18 @@ describe("a plugin's tools", { skip }, () => {
       const other = await codemode.execute("return await demo.other()");
       assert.match(
         other.error ?? "",
-        /demo declares no tool named "undeclared"/,
+        /demo declares no binary named "undeclared"/,
       );
 
-      assert.equal(await codemode.tools.remove("hello"), true);
-      assert.equal(await codemode.tools.remove("hello"), false);
-      assert.equal(codemode.tools.list()[0].installed, false);
+      assert.equal(await codemode.binaries.remove("hello"), true);
+      assert.equal(await codemode.binaries.remove("hello"), false);
+      assert.equal(codemode.binaries.list()[0].installed, false);
       await assert.rejects(
-        () => codemode.tools.install("nope"),
+        () => codemode.binaries.install("nope"),
         (error) =>
-          error instanceof ToolError &&
+          error instanceof BinaryError &&
           error.code === "not_declared" &&
-          error.message === 'No loaded plugin declares a tool named "nope"',
+          error.message === 'No loaded plugin declares a binary named "nope"',
       );
     } finally {
       codemode.dispose();
@@ -499,11 +503,11 @@ describe("a plugin's tools", { skip }, () => {
         name: "demo",
         version: "1.0.0",
         actions: [{ name: "where", execute: () => null }],
-        tools: { hello },
+        binaries: { hello },
       }),
     });
     const report = await packages.inspect(pkg);
-    assert.deepEqual(report.plugins[0].tools, [
+    assert.deepEqual(report.plugins[0].binaries, [
       {
         name: "hello",
         platform: here,

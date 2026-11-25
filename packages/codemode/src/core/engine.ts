@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Worker } from "node:worker_threads";
+import { type BinaryManager, pluginBinaryPath } from "../binaries/manager.js";
 import type { CodemodeConfig } from "../config/types.js";
 import { MemoryConnectionProvider } from "../connections/memory.js";
 import {
@@ -29,7 +30,6 @@ import type {
   PluginDef,
   TypedInputSchema,
 } from "../plugin/types.js";
-import { pluginToolPath, type ToolManager } from "../tools/manager.js";
 import { notifyObserver } from "../utils/observer.js";
 import { ACTION_MEMORY_BYTES } from "../utils/output-files.js";
 import {
@@ -38,6 +38,7 @@ import {
   type OutputLimitSetting,
   resolveOutputLimit,
 } from "../utils/output-limit.js";
+import { bindSpawnHook, type SpawnHook } from "../utils/spawn.js";
 import { MAX_TIMEOUT_MS } from "../utils/timers.js";
 import { boundRun, type RunOutput } from "./run-output.js";
 
@@ -103,10 +104,16 @@ export interface EngineHooks {
    */
   onAction?: (info: ActionInvocation) => void | Promise<void>;
   /**
-   * Where the programs plugins declare are installed: what `ctx.tool`
-   * answers from. Absent, `ctx.tool` rejects.
+   * Where the programs plugins declare are installed: what `ctx.binary`
+   * answers from. Absent, `ctx.binary` rejects.
    */
-  tools?: ToolManager;
+  binaries?: BinaryManager;
+  /**
+   * Shapes how every command an action starts is launched: the scripts of
+   * the shell packages and the binaries plugins declare. Absent, a command
+   * is started as the action asks.
+   */
+  spawnHook?: SpawnHook;
 }
 
 // Messages worker → host. Every message carries the `runId` it belongs to so
@@ -644,10 +651,10 @@ export class ExecutionEngine {
         ? {}
         : { outputDir: output.outputDir }),
       maxOutputBytes: output.maxOutputBytes,
-      tool: async (name) => {
-        if (!this.hooks.tools)
-          throw new Error(`${plugin.name}: this host installs no tools`);
-        return pluginToolPath(this.hooks.tools, plugin, name);
+      binary: async (name) => {
+        if (!this.hooks.binaries)
+          throw new Error(`${plugin.name}: this host installs no binaries`);
+        return pluginBinaryPath(this.hooks.binaries, plugin, name);
       },
       ...(this.hooks.credentialBroker && plugin.credential
         ? {
@@ -676,6 +683,13 @@ export class ExecutionEngine {
         connection.config = structuredClone(committed.config);
       },
     };
+
+    if (this.hooks.spawnHook)
+      bindSpawnHook(ctx, this.hooks.spawnHook, {
+        plugin: plugin.name,
+        action: action.name,
+        context,
+      });
 
     const started = performance.now();
     try {

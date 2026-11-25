@@ -61,7 +61,12 @@ export function commandExists(name: string): boolean {
   return commandPath(name) !== undefined;
 }
 
-export { packageTools } from "../tools/declaration.js";
+export { packageBinaries } from "../binaries/declaration.js";
+export {
+  type BinaryResult,
+  type RunBinaryOptions,
+  runBinary,
+} from "./binary.js";
 export { packageVersion } from "./package-version.js";
 export {
   isShellError,
@@ -79,4 +84,5 @@ export {
   shellConnectionSchema,
   shellRunAction,
 } from "./shell-action.js";
+export type { SpawnCall, SpawnCommand, SpawnHook } from "./spawn.js";
 export { MAX_TIMEOUT_MS } from "./timers.js";

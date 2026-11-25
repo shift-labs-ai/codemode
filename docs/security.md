@@ -100,7 +100,15 @@ A package's plugins run with the same permissions as any other plugin.
 
 Review a package's source before installing it, and a project's `.codemode/plugins/` folder before trusting it. Pin an exact version or a commit when a package must not change underneath you. See [Packages](packages.md).
 
-A package can declare [tools](tools.md): programs that codemode downloads when you run `codemode tools install`, never when the package is installed or an action runs. The install prompt names each one and the host it comes from. Codemode refuses a download whose size or SHA-256 differs from the declaration, which shows that the bytes are the ones the package's author pinned, not that the program is safe. An installed tool runs with the permissions of the codemode process.
+A package can declare [binaries](binaries.md): programs that codemode downloads when you run `codemode binaries install`, never when the package is installed or an action runs. The install prompt names each one and the host it comes from. Codemode refuses a download whose size or SHA-256 differs from the declaration, which shows that the bytes are the ones the package's author pinned, not that the program is safe. An installed binary runs with the permissions of the codemode process.
+
+## Control the commands actions start
+
+The shell packages run a script with the permissions and the whole environment of the codemode process. A declared binary gets a short list of the host's variables and what its plugin names.
+
+A host that embeds codemode sets `spawnHook` to replace a command's environment and working directory, start it through another program, or refuse it. See [Shape how commands start](sdk.md#shape-how-commands-start).
+
+The hook covers the shell packages and `runBinary`. A plugin that starts a process itself is not covered, and plugin code can do so, because it runs in the host process. The hook is not a sandbox: a command it lets through can do whatever its user can.
 
 ## Review MCP servers before adding them
 

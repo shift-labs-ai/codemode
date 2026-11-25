@@ -4,10 +4,11 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { Codemode } from "@shiftlabs/codemode";
 import type { ShellResult } from "@shiftlabs/codemode/utils/cli";
 import { ends, pidIn } from "../../codemode/src/tests/helpers/processes.js";
 import { describePackage, pluginHarness } from "../../package-tests/harness.js";
@@ -112,6 +113,45 @@ describe("bash.run", () => {
       `bash.run({ command: "head -c 1500000 /dev/zero | tr '\\\\0' a; echo END; exit 4" })`,
     ),
   );
+
+  posix("is started as the host's spawnHook says, or not at all", async () => {
+    const host = Codemode.create({
+      plugins: [bash],
+      connections: [
+        { name: "bash", plugin: "bash", config: { env: { NAMED: "named" } } },
+      ],
+      spawnHook: (command, call) => {
+        if (command.script?.includes("rm -rf"))
+          throw new Error("Refused by the host");
+        return {
+          ...command,
+          cwd: harness.tmp,
+          env: {
+            PATH: process.env.PATH ?? "",
+            HOSTED: "hosted",
+            ...call.added,
+          },
+        };
+      },
+    });
+    try {
+      const ran = await host.execute(
+        'return await bash.run({ command: "pwd -P; echo $HOSTED $NAMED $HOME." })',
+      );
+      assert.equal(ran.error, undefined);
+      const [cwd, variables] = (ran.result as ShellResult).output
+        .trim()
+        .split("\n");
+      assert.equal(realpathSync(cwd), realpathSync(harness.tmp));
+      assert.equal(variables, "hosted named .");
+      const refused = await host.execute(
+        'return await bash.run({ command: "rm -rf /tmp/codemode-nothing" })',
+      );
+      assert.match(refused.error ?? "", /Refused by the host/);
+    } finally {
+      host.dispose();
+    }
+  });
 
   it("refuses input that is not a command", async () => {
     for (const input of [{}, { command: "" }, { command: "ls", timeout: 5 }]) {

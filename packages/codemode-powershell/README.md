@@ -73,7 +73,7 @@ What a run returns is a separate matter: codemode cuts it to the host's [output 
 
 ## Configure the connection
 
-Add a connection to set where commands run or which PowerShell runs them. Both values are optional:
+Add a connection to set where commands run or which PowerShell runs them. Every value is optional:
 
 ```bash
 codemode connection add powershell --plugin powershell --set cwd=/srv/app
@@ -83,10 +83,11 @@ codemode connection add powershell --plugin powershell --set cwd=/srv/app
 |---|---|
 | `cwd` | The directory commands run in. The default is the directory codemode runs in |
 | `shell` | Path of the PowerShell to run. The default is `pwsh` on `PATH`, then `powershell` on `PATH`. On Windows it is PowerShell 7 where it installs, before Windows PowerShell |
+| `env` | Variables added to the environment of every command, by name. The command line sets text values only, so set this one in `config.json` or from a host's connection provider |
 
 ## Understand the limits
 
-- A command sees the whole environment of the codemode process.
+- A command sees the whole environment of the codemode process, unless the host's [`spawnHook`](../../docs/sdk.md#shape-how-commands-start) gives it another.
 - The action is labelled `write`, whatever the command does.
 - A command cannot start with a `using` statement or a `param` block. PowerShell allows them only at the start of a script, and the line that sets the output encoding comes first. Write the full type name instead.
 - In Windows PowerShell 5.1, a program that writes to a redirected stderr and exits 0 counts as a success.

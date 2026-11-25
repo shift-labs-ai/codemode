@@ -21,6 +21,27 @@ export type {
   OAuthRuntimeOptions,
 } from "./auth/types.js";
 export {
+  BINARY_FORMATS,
+  type BinaryArtifact,
+  type BinaryDeclaration,
+  type BinaryDeclarations,
+  type BinaryFormat,
+  type BinarySummary,
+  binaryPlatform,
+  packageBinaries,
+  parseBinaries,
+} from "./binaries/declaration.js";
+export {
+  type BinaryCallOptions,
+  BinaryError,
+  type BinaryErrorCode,
+  BinaryManager,
+  type BinaryManagerOptions,
+  type BinaryStatus,
+  PluginBinaries,
+  type PluginBinary,
+} from "./binaries/manager.js";
+export {
   addConnection,
   findConfigDir,
   getConnection,
@@ -317,36 +338,20 @@ export type {
 } from "./plugin/types.js";
 export type { CodemodeExecuteOptions, CodemodeOptions } from "./sdk.js";
 export { Codemode } from "./sdk.js";
-export {
-  packageTools,
-  parseTools,
-  TOOL_FORMATS,
-  type ToolArtifact,
-  type ToolDeclaration,
-  type ToolDeclarations,
-  type ToolFormat,
-  type ToolSummary,
-  toolPlatform,
-} from "./tools/declaration.js";
-export {
-  type PluginTool,
-  PluginTools,
-  type ToolCallOptions,
-  ToolError,
-  type ToolErrorCode,
-  ToolManager,
-  type ToolManagerOptions,
-  type ToolStatus,
-} from "./tools/manager.js";
 export type {
+  BinaryResult,
   ExecOptions,
   ExecResult,
   OutputParser,
+  RunBinaryOptions,
   RunShellOptions,
   ShellErrorCode,
   ShellProgram,
   ShellResult,
   ShellRunActionOptions,
+  SpawnCall,
+  SpawnCommand,
+  SpawnHook,
 } from "./utils/cli.js";
 export {
   commandExists,
@@ -356,6 +361,7 @@ export {
   MAX_TIMEOUT_MS,
   packageVersion,
   pathExists,
+  runBinary,
   runShell,
   ShellError,
   shellConnectionSchema,

@@ -62,7 +62,7 @@ What a run returns is a separate matter: codemode cuts it to the host's [output 
 
 ## Configure the connection
 
-Add a connection to set where commands run or which shell runs them. Both values are optional:
+Add a connection to set where commands run or which shell runs them. Every value is optional:
 
 ```bash
 codemode connection add bash --plugin bash --set cwd=/srv/app
@@ -72,9 +72,10 @@ codemode connection add bash --plugin bash --set cwd=/srv/app
 |---|---|
 | `cwd` | The directory commands run in. The default is the directory codemode runs in |
 | `shell` | Path of the shell to run. The default is `/bin/bash`, then `bash` on `PATH`, then `sh`. On Windows it is Git Bash, then `bash.exe` on `PATH` |
+| `env` | Variables added to the environment of every command, by name. The command line sets text values only, so set this one in `config.json` or from a host's connection provider |
 
 ## Understand the limits
 
-- A command sees the whole environment of the codemode process.
+- A command sees the whole environment of the codemode process, unless the host's [`spawnHook`](../../docs/sdk.md#shape-how-commands-start) gives it another.
 - The action is labelled `write`, whatever the command does.
 - Windows is untested.

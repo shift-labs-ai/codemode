@@ -21,16 +21,16 @@ import {
 } from "../packages/runner.js";
 import type { PluginDef } from "../plugin/types.js";
 import {
+  type BinaryArtifact,
+  type BinaryDeclaration,
+  type BinaryFormat,
+  type BinarySummary,
+  binaryArtifact,
   isArchive,
-  summarizeTool,
-  type ToolArtifact,
-  type ToolDeclaration,
-  type ToolFormat,
-  type ToolSummary,
-  toolArtifact,
+  summarizeBinary,
 } from "./declaration.js";
 
-export type ToolErrorCode =
+export type BinaryErrorCode =
   | "not_declared"
   | "unsupported_platform"
   | "not_installed"
@@ -40,49 +40,49 @@ export type ToolErrorCode =
   | "check_failed"
   | "aborted";
 
-export class ToolError extends Error {
-  readonly code: ToolErrorCode;
+export class BinaryError extends Error {
+  readonly code: BinaryErrorCode;
 
-  constructor(code: ToolErrorCode, message: string) {
+  constructor(code: BinaryErrorCode, message: string) {
     super(message);
-    this.name = "ToolError";
+    this.name = "BinaryError";
     this.code = code;
   }
 }
 
-/** A tool on this host: what its declaration says, and whether it is installed. */
-export interface ToolStatus extends ToolSummary {
+/** A binary on this host: what its declaration says, and whether it is installed. */
+export interface BinaryStatus extends BinarySummary {
   installed: boolean;
   /** The program, when it is installed. */
   path?: string;
 }
 
-/** A tool as the plugin that declares it names it. */
-export interface PluginTool extends ToolStatus {
+/** A binary as the plugin that declares it names it. */
+export interface PluginBinary extends BinaryStatus {
   plugin: string;
   name: string;
 }
 
-export interface ToolManagerOptions {
+export interface BinaryManagerOptions {
   /**
-   * The folder installed tools are kept in, or a function that names it
-   * when a tool is first asked about.
+   * The folder installed binaries are kept in, or a function that names it
+   * when a binary is first asked about.
    */
   dir: string | (() => string);
   /** Downloads artifacts. Default: the global `fetch`. */
   fetch?: typeof fetch;
   /**
-   * Runs `tar` and `unzip`, and a tool's own check. Default: argv spawns
+   * Runs `tar` and `unzip`, and a binary's own check. Default: argv spawns
    * through `node:child_process`.
    */
   runner?: CommandRunner;
   /** Refuse every download. */
   offline?: boolean;
-  /** Called when a tool's download is about to start. */
-  onDownload?: (name: string, tool: ToolSummary) => void;
+  /** Called when a binary's download is about to start. */
+  onDownload?: (name: string, binary: BinarySummary) => void;
 }
 
-export interface ToolCallOptions {
+export interface BinaryCallOptions {
   signal?: AbortSignal;
 }
 
@@ -91,16 +91,17 @@ const UNPACK_TIMEOUT_MS = 5 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 30 * 1000;
 
 /** The format a download's name suggests, longest suffix first. */
-const ARCHIVE_SUFFIXES: ReadonlyArray<[suffix: string, format: ToolFormat]> = [
-  [".tar.gz", "tar.gz"],
-  [".tgz", "tar.gz"],
-  [".tar.bz2", "tar.bz2"],
-  [".tar.xz", "tar.xz"],
-  [".tar.zst", "tar.zst"],
-  [".tar", "tar"],
-  [".zip", "zip"],
-  [".gz", "gz"],
-];
+const ARCHIVE_SUFFIXES: ReadonlyArray<[suffix: string, format: BinaryFormat]> =
+  [
+    [".tar.gz", "tar.gz"],
+    [".tgz", "tar.gz"],
+    [".tar.bz2", "tar.bz2"],
+    [".tar.xz", "tar.xz"],
+    [".tar.zst", "tar.zst"],
+    [".tar", "tar"],
+    [".zip", "zip"],
+    [".gz", "gz"],
+  ];
 
 /** bsdtar, which Windows ships and which unpacks zip. Git's GNU tar on PATH does not. */
 function windowsTar(): string {
@@ -118,19 +119,19 @@ function windowsTar(): string {
  * It downloads only when `install` or `describe` is called, and never
  * prompts or prints.
  *
- * A tool's folder is named for what its declaration pins (size, digest,
+ * A binary's folder is named for what its declaration pins (size, digest,
  * format), so one declaration is one folder: two plugins declaring the same
  * build share it, and two versions sit side by side.
  */
-export class ToolManager {
+export class BinaryManager {
   private readonly named: string | (() => string);
   private resolved: string | undefined;
   private readonly fetch: typeof fetch;
   private readonly runner: CommandRunner;
   private readonly offline: boolean;
-  private readonly onDownload: ToolManagerOptions["onDownload"];
+  private readonly onDownload: BinaryManagerOptions["onDownload"];
 
-  constructor(options: ToolManagerOptions) {
+  constructor(options: BinaryManagerOptions) {
     this.named = options.dir;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.runner = options.runner ?? nodeCommandRunner;
@@ -138,46 +139,46 @@ export class ToolManager {
     this.onDownload = options.onDownload;
   }
 
-  /** What a declaration says of this host, and whether its tool is installed. */
-  status(tool: ToolDeclaration): ToolStatus {
-    const artifact = toolArtifact(tool);
+  /** What a declaration says of this host, and whether its binary is installed. */
+  status(binary: BinaryDeclaration): BinaryStatus {
+    const artifact = binaryArtifact(binary);
     const program = artifact && this.program(artifact);
     const installed = program !== undefined && existsSync(program);
     return {
-      ...summarizeTool(tool),
+      ...summarizeBinary(binary),
       installed,
       ...(installed ? { path: program } : {}),
     };
   }
 
   /**
-   * Download this host's build of a tool, verify it against the declared
+   * Download this host's build of a binary, verify it against the declared
    * size and SHA-256, unpack it, run its check, and only then put it in
-   * place. Answers the program's path. A tool already installed is left
+   * place. Answers the program's path. A binary already installed is left
    * as it is.
    */
   async install(
     name: string,
-    tool: ToolDeclaration,
-    options: ToolCallOptions = {},
+    binary: BinaryDeclaration,
+    options: BinaryCallOptions = {},
   ): Promise<string> {
-    const status = this.status(tool);
+    const status = this.status(binary);
     if (status.path) return status.path;
-    const artifact = toolArtifact(tool);
+    const artifact = binaryArtifact(binary);
     if (!artifact)
-      throw new ToolError(
+      throw new BinaryError(
         "unsupported_platform",
         `${name} has no build for this platform (${status.platform})`,
       );
     if (this.offline)
-      throw new ToolError(
+      throw new BinaryError(
         "offline",
-        `${name} was not installed: tools are not downloaded while codemode is offline`,
+        `${name} was not installed: binaries are not downloaded while codemode is offline`,
       );
     this.onDownload?.(name, status);
     const { signal } = options;
     await mkdir(this.dir, { recursive: true });
-    // Beside the final folder, so that putting the tool in place is a rename.
+    // Beside the final folder, so that putting the binary in place is a rename.
     const work = await mkdtemp(join(this.dir, ".install-"));
     try {
       const download = join(work, "download");
@@ -185,7 +186,7 @@ export class ToolManager {
       await this.download(name, artifact, download, signal);
       await mkdir(tree);
       const program = await this.unpack(name, artifact, download, tree, signal);
-      if (tool.check) await this.check(name, program, tool.check, signal);
+      if (binary.check) await this.check(name, program, binary.check, signal);
       try {
         await rename(tree, this.folder(artifact));
       } catch (error) {
@@ -195,16 +196,16 @@ export class ToolManager {
       return this.program(artifact);
     } catch (error) {
       if (signal?.aborted)
-        throw new ToolError("aborted", `Installing ${name} was aborted`);
+        throw new BinaryError("aborted", `Installing ${name} was aborted`);
       throw error;
     } finally {
       await rm(work, { recursive: true, force: true });
     }
   }
 
-  /** Delete an installed tool. Answers whether there was one. */
-  async remove(tool: ToolDeclaration): Promise<boolean> {
-    const artifact = toolArtifact(tool);
+  /** Delete an installed binary. Answers whether there was one. */
+  async remove(binary: BinaryDeclaration): Promise<boolean> {
+    const artifact = binaryArtifact(binary);
     if (!artifact || !existsSync(this.program(artifact))) return false;
     await rm(this.folder(artifact), { recursive: true, force: true });
     return true;
@@ -217,20 +218,20 @@ export class ToolManager {
    */
   async describe(
     url: string,
-    options: ToolCallOptions = {},
-  ): Promise<ToolArtifact> {
+    options: BinaryCallOptions = {},
+  ): Promise<BinaryArtifact> {
     if (this.offline)
-      throw new ToolError(
+      throw new BinaryError(
         "offline",
         "Nothing is downloaded while codemode is offline",
       );
     const source = URL.canParse(url) ? new URL(url) : undefined;
     if (source?.protocol !== "https:")
-      throw new ToolError("download_failed", `Not an https URL: ${url}`);
+      throw new BinaryError("download_failed", `Not an https URL: ${url}`);
     const measured = await this.read(source.href, {
       signal: options.signal,
     }).catch((error) => {
-      throw new ToolError(
+      throw new BinaryError(
         "download_failed",
         `Could not download ${source.href}: ${(error as Error).message}`,
       );
@@ -256,7 +257,7 @@ export class ToolManager {
     return this.resolved;
   }
 
-  private folder(artifact: ToolArtifact): string {
+  private folder(artifact: BinaryArtifact): string {
     const key = createHash("sha256")
       .update(
         [
@@ -273,7 +274,7 @@ export class ToolManager {
     return join(this.dir, key);
   }
 
-  private program(artifact: ToolArtifact): string {
+  private program(artifact: BinaryArtifact): string {
     return join(this.folder(artifact), ...artifact.path.split("/"));
   }
 
@@ -326,7 +327,7 @@ export class ToolManager {
   /** The artifact from the first provider whose answer is the declared bytes. */
   private async download(
     name: string,
-    artifact: ToolArtifact,
+    artifact: BinaryArtifact,
     to: string,
     signal: AbortSignal | undefined,
   ): Promise<void> {
@@ -353,7 +354,7 @@ export class ToolManager {
         await file.close();
       }
     }
-    throw new ToolError(
+    throw new BinaryError(
       "download_failed",
       `Could not download ${name}. ${failures.join("; ")}`,
     );
@@ -363,7 +364,7 @@ export class ToolManager {
 
   /** The commands that unpack an archive, each tried until one succeeds. */
   private unpackers(
-    format: ToolFormat,
+    format: BinaryFormat,
     archive: string,
     tree: string,
   ): Array<[command: string, args: string[]]> {
@@ -380,7 +381,7 @@ export class ToolManager {
 
   private async extract(
     name: string,
-    format: ToolFormat,
+    format: BinaryFormat,
     archive: string,
     tree: string,
     signal: AbortSignal | undefined,
@@ -401,7 +402,7 @@ export class ToolManager {
         failures.push(`${command}: ${(error as Error).message}`);
       }
     }
-    throw new ToolError(
+    throw new BinaryError(
       "unpack_failed",
       `Could not unpack ${name}. ${failures.join("; ")}`,
     );
@@ -410,7 +411,7 @@ export class ToolManager {
   /** Unpack a verified artifact into `tree` and answer its program's path. */
   private async unpack(
     name: string,
-    artifact: ToolArtifact,
+    artifact: BinaryArtifact,
     download: string,
     tree: string,
     signal: AbortSignal | undefined,
@@ -434,7 +435,7 @@ export class ToolManager {
     const root = await realpath(tree);
     const target = await realpath(program).catch(() => undefined);
     if (!target?.startsWith(`${root}${sep}`) || !(await stat(target)).isFile())
-      throw new ToolError(
+      throw new BinaryError(
         "unpack_failed",
         `${name}: there is no program at ${artifact.path} in what was downloaded`,
       );
@@ -465,7 +466,7 @@ export class ToolManager {
       if (signal?.aborted) throw error;
       failure = (error as Error).message;
     }
-    throw new ToolError(
+    throw new BinaryError(
       "check_failed",
       `${name} was not installed: it does not run on this host. ${failure}`,
     );
@@ -473,95 +474,97 @@ export class ToolManager {
 }
 
 /**
- * The path of a tool a plugin declares, for an action that runs it. A tool
+ * The path of a binary a plugin declares, for an action that runs it. A binary
  * that is not there is an error that says what to do about it.
  */
-export function pluginToolPath(
-  manager: ToolManager,
-  plugin: Pick<PluginDef, "name" | "tools">,
+export function pluginBinaryPath(
+  manager: BinaryManager,
+  plugin: Pick<PluginDef, "name" | "binaries">,
   name: string,
 ): string {
-  const declaration = Object.hasOwn(plugin.tools ?? {}, name)
-    ? plugin.tools?.[name]
+  const declaration = Object.hasOwn(plugin.binaries ?? {}, name)
+    ? plugin.binaries?.[name]
     : undefined;
   if (!declaration)
-    throw new ToolError(
+    throw new BinaryError(
       "not_declared",
-      `${plugin.name} declares no tool named "${name}"`,
+      `${plugin.name} declares no binary named "${name}"`,
     );
   const status = manager.status(declaration);
   if (status.path) return status.path;
   throw status.supported
-    ? new ToolError(
+    ? new BinaryError(
         "not_installed",
-        `${plugin.name}: the program "${name}" is not installed. Run: codemode tools install ${name}`,
+        `${plugin.name}: the binary "${name}" is not installed. Run: codemode binaries install ${name}`,
       )
-    : new ToolError(
+    : new BinaryError(
         "unsupported_platform",
-        `${plugin.name}: the program "${name}" has no build for this platform (${status.platform})`,
+        `${plugin.name}: the binary "${name}" has no build for this platform (${status.platform})`,
       );
 }
 
 /**
- * The tools a set of plugins declares, on one manager: what the SDK's
- * `codemode.tools` and the CLI's `codemode tools` both are.
+ * The binaries a set of plugins declares, on one manager: what the SDK's
+ * `codemode.binaries` and the CLI's `codemode binaries` both are.
  */
-export class PluginTools {
+export class PluginBinaries {
   constructor(
-    private readonly plugins: () => Iterable<Pick<PluginDef, "name" | "tools">>,
-    private readonly manager: ToolManager,
+    private readonly plugins: () => Iterable<
+      Pick<PluginDef, "name" | "binaries">
+    >,
+    private readonly manager: BinaryManager,
   ) {}
 
   private declared(name?: string) {
     const found = [...this.plugins()].flatMap((plugin) =>
-      Object.entries(plugin.tools ?? {}).flatMap(([tool, declaration]) =>
-        name === undefined || tool === name
-          ? [{ plugin: plugin.name, name: tool, declaration }]
+      Object.entries(plugin.binaries ?? {}).flatMap(([binary, declaration]) =>
+        name === undefined || binary === name
+          ? [{ plugin: plugin.name, name: binary, declaration }]
           : [],
       ),
     );
     if (name !== undefined && !found.length)
-      throw new ToolError(
+      throw new BinaryError(
         "not_declared",
-        `No loaded plugin declares a tool named "${name}"`,
+        `No loaded plugin declares a binary named "${name}"`,
       );
     return found;
   }
 
-  private rows(name?: string): PluginTool[] {
-    return this.declared(name).map(({ plugin, name: tool, declaration }) => ({
+  private rows(name?: string): PluginBinary[] {
+    return this.declared(name).map(({ plugin, name: binary, declaration }) => ({
       plugin,
-      name: tool,
+      name: binary,
       ...this.manager.status(declaration),
     }));
   }
 
-  /** Every declared tool, with its state on this host. */
-  list(): PluginTool[] {
+  /** Every declared binary, with its state on this host. */
+  list(): PluginBinary[] {
     return this.rows();
   }
 
   /**
-   * Install the tool with this name, or every declared tool, and answer
-   * their state. Tools with no build for this platform are left out of
+   * Install the binary with this name, or every declared binary, and answer
+   * their state. Binaries with no build for this platform are left out of
    * "every".
    */
   async install(
     name?: string,
-    options: ToolCallOptions = {},
-  ): Promise<PluginTool[]> {
-    for (const tool of this.declared(name)) {
-      if (name === undefined && !toolArtifact(tool.declaration)) continue;
-      await this.manager.install(tool.name, tool.declaration, options);
+    options: BinaryCallOptions = {},
+  ): Promise<PluginBinary[]> {
+    for (const binary of this.declared(name)) {
+      if (name === undefined && !binaryArtifact(binary.declaration)) continue;
+      await this.manager.install(binary.name, binary.declaration, options);
     }
     return this.rows(name);
   }
 
-  /** Delete the installed tool with this name. Answers whether there was one. */
+  /** Delete the installed binary with this name. Answers whether there was one. */
   async remove(name: string): Promise<boolean> {
     let removed = false;
-    for (const tool of this.declared(name))
-      removed = (await this.manager.remove(tool.declaration)) || removed;
+    for (const binary of this.declared(name))
+      removed = (await this.manager.remove(binary.declaration)) || removed;
     return removed;
   }
 }

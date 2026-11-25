@@ -5,6 +5,12 @@ import { Command } from "commander";
 import { actions } from "./commands/actions.js";
 import { auth } from "./commands/auth.js";
 import {
+  binariesEntry,
+  binariesInstall,
+  binariesList,
+  binariesRemove,
+} from "./commands/binaries.js";
+import {
   connectionAdd,
   connectionList,
   connectionRemove,
@@ -21,12 +27,6 @@ import {
   packageUpdate,
 } from "./commands/packages.js";
 import { pluginInstall, pluginList, pluginRemove } from "./commands/plugin.js";
-import {
-  toolsEntry,
-  toolsInstall,
-  toolsList,
-  toolsRemove,
-} from "./commands/tools.js";
 
 const collect = (value: string, previous: string[]) => [...previous, value];
 
@@ -179,8 +179,8 @@ program
     `
 Fetches the package, shows its plugins, their read/write actions, the hosts
 their credentials reach and the programs they declare, and asks before
-recording it. Install scripts never run, and declared programs are
-downloaded only by \`codemode tools install\`.
+recording it. Install scripts never run, and declared binaries are
+downloaded only by \`codemode binaries install\`.
 
 Examples:
   $ codemode install npm:@acme/codemode-orders@1.2.0
@@ -324,38 +324,38 @@ mcpCmd
     await mcpRefresh(name, { json: globals.json });
   });
 
-// ── tools ───────────────────────────────────────────────
+// ── binaries ────────────────────────────────────────────
 
-const toolsCmd = program
-  .command("tools")
-  .description("Manage the programs that loaded plugins declare");
+const binariesCmd = program
+  .command("binaries")
+  .description("Manage the binaries that loaded plugins declare");
 
-toolsCmd
+binariesCmd
   .command("list")
   .alias("ls")
-  .description("List declared programs and whether each is installed")
+  .description("List declared binaries and whether each is installed")
   .action(async (_opts, cmd) => {
     const globals = cmd.optsWithGlobals();
-    await toolsList({ json: globals.json });
+    await binariesList({ json: globals.json });
   });
 
-toolsCmd
+binariesCmd
   .command("install [name]")
-  .description("Download, verify and unpack one declared program, or every one")
+  .description("Download, verify and unpack one declared binary, or every one")
   .action(async (name, _opts, cmd) => {
     const globals = cmd.optsWithGlobals();
-    await toolsInstall(name, { json: globals.json, quiet: globals.quiet });
+    await binariesInstall(name, { json: globals.json, quiet: globals.quiet });
   });
 
-toolsCmd
+binariesCmd
   .command("remove <name>")
-  .description("Delete an installed program")
+  .description("Delete an installed binary")
   .action(async (name, _opts, cmd) => {
     const globals = cmd.optsWithGlobals();
-    await toolsRemove(name, { json: globals.json });
+    await binariesRemove(name, { json: globals.json });
   });
 
-toolsCmd
+binariesCmd
   .command("entry <url>")
   .description(
     "Print a platform entry for the artifact at a URL: its size and SHA-256",
@@ -363,15 +363,15 @@ toolsCmd
   .addHelpText(
     "after",
     `
-The entry goes under codemode.tools.<name>.platforms.<platform> in the
+The entry goes under codemode.binaries.<name>.platforms.<platform> in the
 package's package.json. Set "path" to the program inside the artifact.
 
 Example:
-  $ codemode tools entry https://example.com/releases/v1.2.0/tool_linux_amd64.tar.gz`,
+  $ codemode binaries entry https://example.com/releases/v1.2.0/wacli_linux_amd64.tar.gz`,
   )
   .action(async (url, _opts, cmd) => {
     const globals = cmd.optsWithGlobals();
-    await toolsEntry(url, { json: globals.json });
+    await binariesEntry(url, { json: globals.json });
   });
 
 // ── plugin ──────────────────────────────────────────────

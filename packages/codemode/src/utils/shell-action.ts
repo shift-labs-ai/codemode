@@ -89,6 +89,12 @@ export function shellConnectionSchema(defaultShell: string) {
         description: `Path of the program that runs scripts. Default: ${defaultShell}.`,
       }),
     ),
+    env: t.Optional(
+      t.Record(t.String(), t.String(), {
+        description:
+          "Variables added to the environment of every script, by name.",
+      }),
+    ),
   });
 }
 
@@ -117,6 +123,17 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
+/** A connection's `env`: its entries that are text, by name. */
+function variables(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
 /**
  * Such a plugin's `run` action. It runs on the machine codemode runs on,
  * so it is a write whatever the script does, and it ends with the run
@@ -139,8 +156,11 @@ export function shellRunAction(
         text(config.shell),
       );
       return runShell(program, script, {
+        ctx,
         cwd: cwd === undefined ? base : resolve(base ?? process.cwd(), cwd),
-        env,
+        // What the connection names wins: it is the host's or the user's
+        // word on this plugin, set after the plugin was written.
+        env: { ...env, ...variables(config.env) },
         timeoutMs,
         signal: ctx.signal,
         maxOutputBytes: ctx.maxOutputBytes,

@@ -4,7 +4,7 @@ import { ownPackageJson } from "../utils/package-version.js";
  * How an artifact is packed, as a DotSlash file names it. An artifact with
  * no format is the program itself.
  */
-export const TOOL_FORMATS = [
+export const BINARY_FORMATS = [
   "gz",
   "tar",
   "tar.gz",
@@ -13,39 +13,39 @@ export const TOOL_FORMATS = [
   "tar.zst",
   "zip",
 ] as const;
-export type ToolFormat = (typeof TOOL_FORMATS)[number];
+export type BinaryFormat = (typeof BINARY_FORMATS)[number];
 
 /**
- * One platform's build of a tool: the fields of a DotSlash file's platform
+ * One platform's build of a binary: the fields of a DotSlash file's platform
  * entry that codemode reads.
  */
-export interface ToolArtifact {
+export interface BinaryArtifact {
   /** The artifact's size in bytes. */
   size: number;
   hash: "sha256";
   /** The artifact's SHA-256, in lowercase hex. */
   digest: string;
-  format?: ToolFormat;
+  format?: BinaryFormat;
   /** The program: its place inside an archive, or the name a single file gets. */
   path: string;
   /** Where the artifact is downloaded from, tried in order. */
   providers: Array<{ url: string }>;
 }
 
-/** A program a plugin runs, as its package declares it under `codemode.tools`. */
-export interface ToolDeclaration {
+/** A program a plugin runs, as its package declares it under `codemode.binaries`. */
+export interface BinaryDeclaration {
   /**
    * Arguments the program is run with once it is unpacked. It must exit
    * with 0, or it is not installed: the program itself says whether it
    * runs on this host.
    */
   check?: string[];
-  /** A build per platform, keyed as `toolPlatform()` names them. */
-  platforms: Record<string, ToolArtifact>;
+  /** A build per platform, keyed as `binaryPlatform()` names them. */
+  platforms: Record<string, BinaryArtifact>;
 }
 
-/** A plugin's tools, by the name `ctx.tool` takes. */
-export type ToolDeclarations = Record<string, ToolDeclaration>;
+/** A plugin's binaries, by the name `ctx.binary` takes. */
+export type BinaryDeclarations = Record<string, BinaryDeclaration>;
 
 const SYSTEMS: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "macos",
@@ -58,7 +58,7 @@ const PROCESSORS: Record<string, string> = {
 };
 
 /** This host's platform as a DotSlash file keys it, such as `macos-aarch64`. */
-export function toolPlatform(
+export function binaryPlatform(
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,
 ): string {
@@ -67,24 +67,26 @@ export function toolPlatform(
 
 /** Whether a format unpacks to a folder of files rather than to one file. */
 export function isArchive(
-  format: ToolFormat | undefined,
-): format is Exclude<ToolFormat, "gz"> {
+  format: BinaryFormat | undefined,
+): format is Exclude<BinaryFormat, "gz"> {
   return format !== undefined && format !== "gz";
 }
 
-/** This host's build of a tool, when it declares one. */
-export function toolArtifact(tool: ToolDeclaration): ToolArtifact | undefined {
-  const platform = toolPlatform();
-  return Object.hasOwn(tool.platforms, platform)
-    ? tool.platforms[platform]
+/** This host's build of a binary, when it declares one. */
+export function binaryArtifact(
+  binary: BinaryDeclaration,
+): BinaryArtifact | undefined {
+  const platform = binaryPlatform();
+  return Object.hasOwn(binary.platforms, platform)
+    ? binary.platforms[platform]
     : undefined;
 }
 
 /** What a declaration says of this host, before anything is downloaded. */
-export interface ToolSummary {
+export interface BinarySummary {
   /** This host's platform, as declarations key it. */
   platform: string;
-  /** Whether the tool declares a build for it. */
+  /** Whether the binary declares a build for it. */
   supported: boolean;
   /** The hosts that build is downloaded from. */
   hosts: string[];
@@ -92,10 +94,10 @@ export interface ToolSummary {
   size?: number;
 }
 
-export function summarizeTool(tool: ToolDeclaration): ToolSummary {
-  const artifact = toolArtifact(tool);
+export function summarizeBinary(binary: BinaryDeclaration): BinarySummary {
+  const artifact = binaryArtifact(binary);
   return {
-    platform: toolPlatform(),
+    platform: binaryPlatform(),
     supported: artifact !== undefined,
     hosts: [
       ...new Set(
@@ -106,7 +108,7 @@ export function summarizeTool(tool: ToolDeclaration): ToolSummary {
   };
 }
 
-const TOOL_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const BINARY_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -148,19 +150,19 @@ function parseArtifact(entry: unknown, fail: (m: string) => never, at: string) {
     fail(`${at}.digest must be a SHA-256 in lowercase hex`);
   if (
     format !== undefined &&
-    !(TOOL_FORMATS as readonly unknown[]).includes(format)
+    !(BINARY_FORMATS as readonly unknown[]).includes(format)
   )
-    fail(`${at}.format must be one of ${TOOL_FORMATS.join(", ")}`);
+    fail(`${at}.format must be one of ${BINARY_FORMATS.join(", ")}`);
   if (!isInnerPath(path))
     fail(`${at}.path must be a relative path inside the artifact`);
   const providers = httpsSources(entry.providers);
   if (!providers.length)
     fail(`${at}.providers must hold at least one { "url": "https://…" }`);
-  const artifact: ToolArtifact = {
+  const artifact: BinaryArtifact = {
     size: size as number,
     hash,
     digest,
-    ...(format === undefined ? {} : { format: format as ToolFormat }),
+    ...(format === undefined ? {} : { format: format as BinaryFormat }),
     path,
     providers,
   };
@@ -168,19 +170,22 @@ function parseArtifact(entry: unknown, fail: (m: string) => never, at: string) {
 }
 
 /**
- * Read a `codemode.tools` block. `where` names the file in errors, each of
+ * Read a `codemode.binaries` block. `where` names the file in errors, each of
  * which names the field that is wrong.
  */
-export function parseTools(value: unknown, where: string): ToolDeclarations {
+export function parseBinaries(
+  value: unknown,
+  where: string,
+): BinaryDeclarations {
   const fail = (message: string): never => {
     throw new Error(`${where}: ${message}`);
   };
   if (!isRecord(value))
-    fail("codemode.tools must be an object of tools by name");
-  const tools: ToolDeclarations = {};
+    fail("codemode.binaries must be an object of binaries by name");
+  const binaries: BinaryDeclarations = {};
   for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
-    const at = `codemode.tools.${name}`;
-    if (!TOOL_NAME.test(name))
+    const at = `codemode.binaries.${name}`;
+    if (!BINARY_NAME.test(name))
       fail(
         `${at} is not a usable name: letters, digits, ".", "_" and "-", starting with a letter or digit`,
       );
@@ -193,7 +198,7 @@ export function parseTools(value: unknown, where: string): ToolDeclarations {
       fail(`${at}.check must be an array of arguments`);
     if (!isRecord(platforms) || !Object.keys(platforms).length)
       fail(`${at}.platforms must name at least one platform`);
-    tools[name] = {
+    binaries[name] = {
       ...(check === undefined ? {} : { check: check as string[] }),
       platforms: Object.fromEntries(
         Object.entries(platforms as Record<string, unknown>).map(
@@ -205,16 +210,16 @@ export function parseTools(value: unknown, where: string): ToolDeclarations {
       ),
     };
   }
-  return tools;
+  return binaries;
 }
 
 /**
- * The tools declared in the `package.json` one directory above a module's
+ * The binaries declared in the `package.json` one directory above a module's
  * own, so a packaged plugin declares them once, as data. Pass
- * `import.meta.url`, and hand the result to `setTools`.
+ * `import.meta.url`, and hand the result to `setBinaries`.
  */
-export function packageTools(moduleUrl: string): ToolDeclarations {
+export function packageBinaries(moduleUrl: string): BinaryDeclarations {
   const { path, manifest } = ownPackageJson(moduleUrl);
-  const block = manifest.codemode as { tools?: unknown } | undefined;
-  return parseTools(block?.tools ?? {}, path);
+  const block = manifest.codemode as { binaries?: unknown } | undefined;
+  return parseBinaries(block?.binaries ?? {}, path);
 }

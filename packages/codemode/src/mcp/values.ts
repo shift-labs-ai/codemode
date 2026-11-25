@@ -16,7 +16,12 @@ export type McpResolvedServer =
     }
   | { kind: "http"; url: string; headers: Record<string, string> };
 
-/** What a stdio server inherits from the host's environment when a host names nothing else. */
+/**
+ * What a program codemode starts inherits from the host's environment when
+ * nothing else is named for it: a stdio server, and a binary a plugin
+ * declares. Where things are, how text is written, and how the network is
+ * reached. Nothing that is a secret by convention.
+ */
 export const INHERITED_ENVIRONMENT = [
   "PATH",
   "HOME",
@@ -29,6 +34,19 @@ export const INHERITED_ENVIRONMENT = [
   "TZ",
   "TMPDIR",
   "TERM",
+  // The way out of a network that has one, and the certificates it is
+  // trusted by. Programs read either case.
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
   // Windows: where programs, profiles and temporary files are found.
   "Path",
   "PATHEXT",

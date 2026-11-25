@@ -87,7 +87,7 @@ Return a file's path instead of large or binary content. `writeOutputFile(prefix
 | `ctx.signal` | An `AbortSignal` that fires when the run that made the call ends. Pass it to work that should stop with the run |
 | `ctx.outputDir` | Where the host keeps output files, when it names a place. Write large or binary output there with `writeOutputFile()` and return the path |
 | `ctx.maxOutputBytes` | How much the host lets an action hold in memory and hand back, 8 MiB by default. Pass it to `runShell`, or keep what is past it in a file |
-| `ctx.tool(name)` | The path of a [tool](tools.md) the plugin declares. Rejects when the host has not installed it |
+| `ctx.binary(name)` | The path of a [binary](binaries.md) the plugin declares. Rejects when the host has not installed it. Run one with `runBinary(ctx, name, args)` |
 | `ctx.log` | `info`, `warn`, and `error`, prefixed with the plugin name |
 | `ctx.updateConnection(patch)` | Persists a change to the connection's config through the host |
 
@@ -162,6 +162,7 @@ const result = await runShell(
   { program: "/bin/bash", args: ["-c"] },
   "git status --short",
   {
+    ctx,
     cwd: repo,
     timeoutMs: 30_000,
     signal: ctx.signal,
@@ -172,7 +173,7 @@ const result = await runShell(
 // { output: " M README.md\n", exitCode: 0, truncated: false, wallTimeMs: 12 }
 ```
 
-Pass `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
+Pass `ctx` so that the host's [`spawnHook`](sdk.md#shape-how-commands-start) shapes how the command starts, `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
 
 | Outcome | Result |
 |---|---|

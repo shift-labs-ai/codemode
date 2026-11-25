@@ -101,22 +101,22 @@ See [Packages](packages.md) for sources, versions, and the package format.
 
 A source is `npm:<name>[@version]`, `git:<host>/<path>[@ref]`, a git URL, or a local path.
 
-## Tools
+## Binaries
 
 ```sh
-codemode tools list
-codemode tools install
+codemode binaries list
+codemode binaries install
 ```
 
-See [Tools](tools.md) for declarations and what installing does.
+See [Binaries](binaries.md) for declarations and what installing does.
 
-- `tools list`, alias `tools ls`<br>
-  Lists the programs that loaded plugins declare, where each is downloaded from, and whether it is installed.
-- `tools install [name]`<br>
-  Downloads, verifies, and unpacks one declared program, or every one that has a build for this platform. `--quiet` hides the download lines.
-- `tools remove <name>`<br>
-  Deletes an installed program. Fails when it is not installed.
-- `tools entry <url>`<br>
+- `binaries list`, alias `binaries ls`<br>
+  Lists the binaries that loaded plugins declare, where each is downloaded from, and whether it is installed.
+- `binaries install [name]`<br>
+  Downloads, verifies, and unpacks one declared binary, or every one that has a build for this platform. `--quiet` hides the download lines.
+- `binaries remove <name>`<br>
+  Deletes an installed binary. Fails when it is not installed.
+- `binaries entry <url>`<br>
   Downloads the artifact at a URL and prints a platform entry for a declaration, with its size and SHA-256.
 
 ## MCP servers

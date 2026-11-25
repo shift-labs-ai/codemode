@@ -1,5 +1,5 @@
+import type { BinaryDeclarations } from "../binaries/declaration.js";
 import type { CredentialDeclaration } from "../credentials/types.js";
-import type { ToolDeclarations } from "../tools/declaration.js";
 import type {
   ActionAccess,
   ActionDef,
@@ -49,11 +49,11 @@ export interface CodemodePluginAPI {
   setCredential(declaration: CredentialDeclaration): void;
   /**
    * Declare the programs this plugin's actions run. A packaged plugin
-   * passes `packageTools(import.meta.url)`, which reads them from its
+   * passes `packageBinaries(import.meta.url)`, which reads them from its
    * `package.json`. A host installs them; an action gets one's path from
-   * `ctx.tool(name)`.
+   * `ctx.binary(name)`.
    */
-  setTools(tools: ToolDeclarations): void;
+  setBinaries(binaries: BinaryDeclarations): void;
   onInit(fn: (config: Record<string, unknown>) => void): void;
   log: {
     info(msg: string): void;
@@ -116,7 +116,7 @@ export function createPluginAPI(pluginId: string | null): {
   let connectionConfigSchema: PluginDef["connectionConfigSchema"];
   let oauth: OAuthConfig | undefined;
   let credential: CredentialDeclaration | undefined;
-  let tools: ToolDeclarations | undefined;
+  let binaries: BinaryDeclarations | undefined;
   const initHooks: Array<(config: Record<string, unknown>) => void> = [];
 
   const api: CodemodePluginAPI = {
@@ -148,8 +148,8 @@ export function createPluginAPI(pluginId: string | null): {
     setCredential(declaration: CredentialDeclaration) {
       credential = declaration;
     },
-    setTools(declared: ToolDeclarations) {
-      tools = { ...declared };
+    setBinaries(declared: BinaryDeclarations) {
+      binaries = { ...declared };
     },
     onInit(fn) {
       initHooks.push(fn);
@@ -184,7 +184,7 @@ export function createPluginAPI(pluginId: string | null): {
     if (credential) {
       plugin.credential = credential;
     }
-    if (tools && Object.keys(tools).length) plugin.tools = tools;
+    if (binaries && Object.keys(binaries).length) plugin.binaries = binaries;
     if (initHooks.length > 0) {
       plugin.initHooks = initHooks;
     }

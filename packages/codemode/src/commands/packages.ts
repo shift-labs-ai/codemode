@@ -119,12 +119,12 @@ function printReport(report: PackageReport): void {
       );
     else if (plugin.credentialNote)
       console.log(`  ${"".padEnd(16)} ${chalk.dim(plugin.credentialNote)}`);
-    for (const tool of plugin.tools ?? [])
+    for (const binary of plugin.binaries ?? [])
       console.log(
-        `  ${"".padEnd(16)} tool ${tool.name} ${
-          tool.supported
-            ? `← ${downloadOrigin(tool)}`
-            : chalk.dim(`has no build for ${tool.platform}`)
+        `  ${"".padEnd(16)} binary ${binary.name} ${
+          binary.supported
+            ? `← ${downloadOrigin(binary)}`
+            : chalk.dim(`has no build for ${binary.platform}`)
         }`,
       );
   }
@@ -194,9 +194,9 @@ export async function packageInstall(
     if (options.json) printJson({ ok: true, scope, ...report });
     else {
       printSuccess(`Installed ${chalk.bold(report.name ?? source)} (${scope})`);
-      if (report.plugins.some((plugin) => plugin.tools?.length))
+      if (report.plugins.some((plugin) => plugin.binaries?.length))
         console.log(
-          "Its programs are not downloaded yet. Run: codemode tools install",
+          "Its binaries are not downloaded yet. Run: codemode binaries install",
         );
     }
   } catch (err) {
