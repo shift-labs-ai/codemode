@@ -300,7 +300,7 @@ A plugin passes when each person's secret comes from their connection and reache
 | `package/install-script`, `package/host-module-dependency` | error | `package.json` has an install script, or lists codemode or typebox as a dependency |
 | `source/secret-literal` | error | A key, token or private key is written in the code |
 | `source/auth-header` | error | The code builds an `Authorization` header from a variable |
-| `run/secret-outside-credential` | error | An action sends a connection's secret, or an `Authorization` or `Cookie` header, outside the credential helpers |
+| `run/secret-outside-credential` | error | An action sends a connection's secret, or a login header such as `Authorization`, `Cookie` or `X-API-Key`, outside the credential helpers |
 | `run/env-read` | error | The plugin's own code reads `process.env`. Variables that only locate the operating system's programs, such as `PATH` and `SystemRoot`, are allowed |
 | `action/input-legacy` | warning | An input uses the legacy field map instead of TypeBox |
 | `credential/undeclared` | warning | A connection field looks like a secret, and the plugin declares no credential |
@@ -319,7 +319,7 @@ A package that must break a rule says why in its `package.json`. The finding is 
 }
 ```
 
-Linting runs the plugin's code. The network is a stand-in, and nothing else on the machine is fenced. `lintPackage(dir)` is the same check as a library call. It replaces `globalThis.fetch` and `process.env` while it runs, so a host calls it in a process of its own.
+Linting runs the plugin's code. The network is a stand-in, and nothing else on the machine is fenced. `lintPackage(dir)` is the same check as a library call. It replaces `globalThis.fetch`, `process.env` and the working directory while it runs, so a host calls it in a process of its own.
 
 ## Share a plugin
 

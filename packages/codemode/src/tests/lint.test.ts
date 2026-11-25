@@ -515,19 +515,10 @@ describe("lintPackage", () => {
     });
 
     it("an environment read names the plugin that made it, in a package of several", async () => {
-      const plugin = (name: string, body: string) =>
-        actionDoing(body).replace(
-          'rl.setName("orders")',
-          `rl.setName("${name}")`,
-        );
       const report = await lint(
-        pkg({
-          "package.json": JSON.stringify({
-            ...JSON.parse(PACKAGE),
-            codemode: { plugins: ["./a.ts", "./b.ts"] },
-          }),
-          "a.ts": plugin("alpha", "return process.env.ALPHA_TOKEN;"),
-          "b.ts": plugin("beta", "return process.env.BETA_TOKEN;"),
+        several({
+          "a.ts": named("alpha", "return process.env.ALPHA_TOKEN;"),
+          "b.ts": named("beta", "return process.env.BETA_TOKEN;"),
         }),
       );
       assert.deepEqual(

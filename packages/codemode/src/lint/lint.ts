@@ -12,7 +12,7 @@ import {
 } from "../plugin/schema.js";
 import type { ActionContext, PluginDef } from "../plugin/types.js";
 import { STAND_IN_HOST, type StandInRecord, startStandIn } from "./stand-in.js";
-import { MUTATING_VERBS, verbOf } from "./verbs.js";
+import { accessProblem } from "./verbs.js";
 
 export type LintLevel = "error" | "warning";
 
@@ -311,20 +311,20 @@ function checkDeclarations(
 
   for (const action of plugin.actions) {
     const here = { ...at, actions: [action.name] };
-    const verb = verbOf(action.name);
-    if (action.access !== "read" && action.access !== "write")
+    const access = accessProblem(action);
+    if (access?.kind === "undeclared")
       add({
         ...here,
         rule: "action/access",
         level: "error",
         message: 'Declare access: "read" or "write"',
       });
-    else if (action.access === "read" && MUTATING_VERBS.has(verb))
+    else if (access?.kind === "mutating-read")
       add({
         ...here,
         rule: "action/access-verb",
         level: "error",
-        message: `"${verb}" changes something, so access must be "write"`,
+        message: `"${access.verb}" changes something, so access must be "write"`,
       });
     if (!action.description?.trim())
       add({

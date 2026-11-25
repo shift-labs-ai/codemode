@@ -185,7 +185,6 @@ export {
   type LintReport,
   lintPackage,
 } from "./lint/lint.js";
-export { MUTATING_VERBS, verbOf } from "./lint/verbs.js";
 export {
   actionNames,
   discoverMcpOAuth,
