@@ -149,7 +149,11 @@ export interface PluginReport {
     /** Base URLs the selected method signs for. */
     targets: string[];
   };
-  /** Set when the credential's type depends on connection config. */
+  /**
+   * Set, in place of `credential`, when the declaration cannot choose its
+   * method with the config it was reported with: it needs connection
+   * config that config lacks.
+   */
   credentialNote?: string;
   /** The programs the plugin declares, and where each is downloaded from. */
   tools?: Array<{ name: string } & ToolSummary>;
