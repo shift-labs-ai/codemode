@@ -10,7 +10,7 @@
  *
  * Hosts gate actions on `access`: a `read` action may run where writes
  * are refused, so every action declares one and a verb that changes
- * something is `write`. `accessProblem` (`lint/verbs.ts`) decides both,
+ * something is `write`. `accessProblem` (`lint/access.ts`) decides both,
  * the same rule `codemode lint` applies to every other package.
  *
  * It loads the plugins rather than parsing them, so actions registered
@@ -20,7 +20,7 @@
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { accessProblem } from "../packages/codemode/src/lint/verbs.ts";
+import { accessProblem } from "../packages/codemode/src/lint/access.ts";
 import { loadPluginFromPath } from "../packages/codemode/src/plugin/loader.ts";
 
 const PLUGINS_DIR = join(import.meta.dir, "../packages/codemode-plugins");

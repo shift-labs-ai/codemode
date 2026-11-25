@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Create } from "typebox/value";
@@ -15,8 +15,9 @@ import {
   legacyFields,
 } from "../plugin/schema.js";
 import type { ActionContext, PluginDef } from "../plugin/types.js";
+import { accessProblem } from "./access.js";
+import { checkFiles, type PackageJson, readJson } from "./files.js";
 import { STAND_IN_HOST, type StandInRecord, startStandIn } from "./stand-in.js";
-import { accessProblem } from "./verbs.js";
 
 export type LintLevel = "error" | "warning";
 
@@ -67,16 +68,6 @@ const SECRET_FIELD =
   /(key|token|secret|password|passwd|passphrase|cookie|session|credential)s?$/i;
 /** A connection field that holds an address by its name. */
 const ADDRESS_FIELD = /(url|uri|host|hostname|domain|endpoint|origin|server)$/i;
-/** Text that is a credential wherever it appears. */
-const SECRET_LITERAL =
-  /(sk-[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[abposr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
-/**
- * An Authorization header whose value is built from a variable: a template,
- * a concatenation, or a bare identifier. A credential declaration's
- * `header: "Authorization"` names the header and is not one.
- */
-const BUILT_AUTH_HEADER =
-  /["'`]?(proxy-)?authorization["'`]?\s*:\s*(`[^`]*\$\{|["'][^"']*["']\s*\+|[A-Za-z_$][\w$.]*\s*[,}])/i;
 /**
  * Environment variables that only locate the operating system's own
  * programs. A shell plugin reads them to find its shell; they hold no
@@ -93,14 +84,11 @@ const OS_LOCATIONS = new Set([
   "Path",
   "PATHEXT",
 ]);
-const INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "prepare"];
 /**
  * Methods a read never sends. POST is not among them: searches, GraphQL
  * queries and logins read with it.
  */
 const WRITE_METHODS = new Set(["PUT", "PATCH", "DELETE"]);
-const SOURCE_FILE = /\.(c|m)?(j|t)sx?$/;
-const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
 
 /**
  * Check a plugin package against what a plugin must be to run for other
@@ -125,38 +113,7 @@ export async function lintPackage(
 
   // ── files ──────────────────────────────────────────────
   const pkg = readJson(join(dir, "package.json"));
-  for (const script of INSTALL_SCRIPTS)
-    if (typeof pkg?.scripts?.[script] === "string")
-      add({
-        rule: "package/install-script",
-        level: "error",
-        file: "package.json",
-        message: `Remove the "${script}" script: codemode never runs install scripts, so the package must work without it`,
-      });
-  for (const file of sourceFiles(dir)) {
-    const lines = readFileSync(join(dir, file), "utf8").split("\n");
-    lines.forEach((text, index) => {
-      // A comment may show a header as an example; a secret is leaked wherever it is written.
-      if (!COMMENT_LINE.test(text) && BUILT_AUTH_HEADER.test(text))
-        add({
-          rule: "source/auth-header",
-          level: "error",
-          file,
-          line: index + 1,
-          message:
-            "Stop building the Authorization header; declare the credential and send through credentialJson, which places the secret",
-        });
-      if (SECRET_LITERAL.test(text))
-        add({
-          rule: "source/secret-literal",
-          level: "error",
-          file,
-          line: index + 1,
-          message:
-            "Remove the secret from the code; it belongs in a connection field the user fills",
-        });
-    });
-  }
+  checkFiles(dir, pkg, add);
 
   let manifest: ReturnType<typeof readPackageManifest>;
   try {
@@ -208,8 +165,8 @@ export async function lintPackage(
         continue;
       }
       const connection = standInConnection(plugin);
-      const declared = reportPlugin(plugin, connection.config);
-      checkDeclarations(plugin, declared, reserved, add);
+      const reported = reportPlugin(plugin, connection.config);
+      checkDeclarations(plugin, reported, reserved, add);
       const notRun = await runActions(plugin, connection.config, standIn, {
         outputDir: scratchDir,
         timeoutMs: options.actionTimeoutMs ?? 3_000,
@@ -224,10 +181,10 @@ export async function lintPackage(
             "Not run, so what it sends is unchecked: no input could be made for its schema; give each string with a pattern or format a default",
         });
       plugins.push({
-        ...declared,
+        ...reported,
         hosts: checkRequests(
           plugin,
-          declared,
+          reported,
           connection.secrets,
           standIn.record,
           add,
@@ -302,7 +259,7 @@ function allowances(pkg: PackageJson | undefined): Map<string, string> {
 /** What a plugin says about itself once loaded. */
 function checkDeclarations(
   plugin: PluginDef,
-  declared: PluginReport,
+  reported: PluginReport,
   reserved: ReadonlySet<string>,
   add: (finding: LintFinding) => void,
 ): void {
@@ -368,7 +325,7 @@ function checkDeclarations(
       });
   }
 
-  for (const url of declared.credential?.targets ?? [])
+  for (const url of reported.credential?.targets ?? [])
     if (!/^(https|wss):\/\//.test(url))
       add({
         ...at,
@@ -376,7 +333,7 @@ function checkDeclarations(
         level: "error",
         message: `The credential is declared for ${url}; send it over https or wss only`,
       });
-  if (declared.credentialNote)
+  if (reported.credentialNote)
     add({
       ...at,
       rule: "credential/unresolved",
@@ -476,12 +433,12 @@ async function runActions(
  */
 function checkRequests(
   plugin: PluginDef,
-  declared: PluginReport,
+  reported: PluginReport,
   secrets: Map<string, string>,
   record: StandInRecord,
   add: (finding: LintFinding) => void,
 ): string[] {
-  const hosts = new Set((declared.credential?.targets ?? []).map(hostOf));
+  const hosts = new Set((reported.credential?.targets ?? []).map(hostOf));
   const readsSending = new Set<string>();
   for (const request of record.requests) {
     const at = {
@@ -613,34 +570,6 @@ function selectionOf(plugin: PluginDef, config: Record<string, unknown>) {
     return plugin.credential?.(config);
   } catch {
     // A declaration that needs other config to choose its method.
-    return undefined;
-  }
-}
-
-function sourceFiles(dir: string, base = dir): string[] {
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  return entries.flatMap((entry) => {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") return [];
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return sourceFiles(path, base);
-    return SOURCE_FILE.test(entry.name) ? [relative(base, path)] : [];
-  });
-}
-
-interface PackageJson {
-  scripts?: Record<string, unknown>;
-  codemode?: { lint?: { allow?: Record<string, unknown> } };
-}
-
-function readJson(path: string): PackageJson | undefined {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
     return undefined;
   }
 }
