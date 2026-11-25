@@ -8,6 +8,7 @@ import { registry } from "../plugin/registry.js";
 import { printError, printJson, printWarn } from "../utils/output.js";
 import { withCliMcp } from "./mcp.js";
 import { cliPackageManager, temporarySources } from "./packages.js";
+import { cliToolManager } from "./tools.js";
 
 export async function exec(
   code: string,
@@ -54,6 +55,7 @@ async function run(
   });
   const engine = new ExecutionEngine(registry, config, {
     connectionProvider: new FileConnectionProvider(configPath()),
+    tools: cliToolManager(),
   });
 
   const result = await engine.execute(

@@ -25,6 +25,7 @@ import {
   pluginEntryNames,
 } from "../plugin/loader.js";
 import type { PluginDef } from "../plugin/types.js";
+import { summarizeTool, type ToolSummary } from "../tools/declaration.js";
 import { legacyName } from "../utils/deprecation.js";
 import {
   isPackageError,
@@ -35,6 +36,7 @@ import { type PackageManifest, readPackageManifest } from "./manifest.js";
 import {
   type CommandResult,
   type CommandRunner,
+  failureDetail,
   nodeCommandRunner,
 } from "./runner.js";
 import {
@@ -149,6 +151,8 @@ export interface PluginReport {
   };
   /** Set when the credential's type depends on connection config. */
   credentialNote?: string;
+  /** The programs the plugin declares, and where each is downloaded from. */
+  tools?: Array<{ name: string } & ToolSummary>;
 }
 
 /** What a package carries and asks for, read without recording it. */
@@ -1513,11 +1517,7 @@ export class PackageManager {
       );
     }
     if (result.code !== 0) {
-      const detail = (result.stderr || result.stdout)
-        .trim()
-        .split("\n")
-        .slice(-5)
-        .join("\n");
+      const detail = failureDetail(result);
       const verb = args.find(
         (a, i) => !a.startsWith("-") && args[i - 1] !== "-c",
       );
@@ -1601,6 +1601,11 @@ function reportPlugin(plugin: PluginDef): PluginReport {
     write: access.filter((a) => a === "write").length,
     unspecified: access.filter((a) => a === undefined).length,
   };
+  if (plugin.tools)
+    report.tools = Object.entries(plugin.tools).map(([name, tool]) => ({
+      name,
+      ...summarizeTool(tool),
+    }));
   if (plugin.credential) {
     try {
       // Declarations that need connection config to choose targets throw on {}.

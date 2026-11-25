@@ -3,6 +3,7 @@ import type { OAuth2Definition } from "../auth/types.js";
 import type { ConnectionUpdate } from "../connections/types.js";
 import type { CredentialBroker } from "../credentials/transport.js";
 import type { CredentialDeclaration } from "../credentials/types.js";
+import type { ToolDeclarations } from "../tools/declaration.js";
 
 export interface InputField {
   type: "string" | "number" | "boolean" | "object" | "array";
@@ -155,6 +156,13 @@ export interface ActionContext {
    * every call the engine dispatches.
    */
   maxOutputBytes?: number;
+  /**
+   * The path of a program the plugin declares, by its name there. Rejects
+   * when the host has not installed it, with the command that does: an
+   * action never downloads one. Present on every call the engine
+   * dispatches.
+   */
+  tool?: (name: string) => Promise<string>;
   log: {
     info(msg: string): void;
     warn(msg: string): void;
@@ -171,6 +179,13 @@ export interface ActionContext {
    */
   updateConnection(change: ConnectionUpdate): Promise<void>;
 }
+
+/**
+ * The context of a call the engine dispatches, which is how a registered
+ * action is called: what the engine supplies on every call is present.
+ */
+export type DispatchedContext = ActionContext &
+  Required<Pick<ActionContext, "signal" | "maxOutputBytes" | "tool">>;
 
 /**
  * OAuth2 authorization-code configuration declared by a plugin.
@@ -243,6 +258,8 @@ export interface PluginDef {
   /** How a connection's config becomes what its requests are signed with;
    *  present on plugins whose requests go through the credential registry. */
   credential?: CredentialDeclaration;
+  /** Programs the plugin's actions run, by the name `ctx.tool` takes. */
+  tools?: ToolDeclarations;
   /** Set by discovery; absent on a plugin a host constructs or loads itself. */
   sourceInfo?: PluginSourceInfo;
   /** @internal */

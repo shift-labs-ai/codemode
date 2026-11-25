@@ -1,10 +1,11 @@
 import type { CredentialDeclaration } from "../credentials/types.js";
+import type { ToolDeclarations } from "../tools/declaration.js";
 import type {
   ActionAccess,
-  ActionContext,
   ActionDef,
   ActionHints,
   ConnectionSchema,
+  DispatchedContext,
   InputOf,
   InputSchema,
   LegacyInputSchema,
@@ -20,7 +21,7 @@ export interface ActionDefinition<S extends InputSchema = InputSchema> {
   hints?: ActionHints;
   execute: (
     input: InputOf<S>,
-    ctx: ActionContext,
+    ctx: DispatchedContext,
   ) => unknown | Promise<unknown>;
 }
 
@@ -46,6 +47,13 @@ export interface CodemodePluginAPI {
    * it loaded rather than from anything the plugin's process sends.
    */
   setCredential(declaration: CredentialDeclaration): void;
+  /**
+   * Declare the programs this plugin's actions run. A packaged plugin
+   * passes `packageTools(import.meta.url)`, which reads them from its
+   * `package.json`. A host installs them; an action gets one's path from
+   * `ctx.tool(name)`.
+   */
+  setTools(tools: ToolDeclarations): void;
   onInit(fn: (config: Record<string, unknown>) => void): void;
   log: {
     info(msg: string): void;
@@ -108,6 +116,7 @@ export function createPluginAPI(pluginId: string | null): {
   let connectionConfigSchema: PluginDef["connectionConfigSchema"];
   let oauth: OAuthConfig | undefined;
   let credential: CredentialDeclaration | undefined;
+  let tools: ToolDeclarations | undefined;
   const initHooks: Array<(config: Record<string, unknown>) => void> = [];
 
   const api: CodemodePluginAPI = {
@@ -126,7 +135,8 @@ export function createPluginAPI(pluginId: string | null): {
       def: ActionDefinition<S>,
     ) {
       // The engine validates input against a TypeBox schema before
-      // execute, so the handler's typed input holds at this boundary.
+      // execute and builds the context itself, so the handler's typed
+      // input and context hold at this boundary.
       actions.push({ name: actionName, ...def } as ActionDef);
     },
     setConnectionSchema(schema: ConnectionSchema) {
@@ -137,6 +147,9 @@ export function createPluginAPI(pluginId: string | null): {
     },
     setCredential(declaration: CredentialDeclaration) {
       credential = declaration;
+    },
+    setTools(declared: ToolDeclarations) {
+      tools = { ...declared };
     },
     onInit(fn) {
       initHooks.push(fn);
@@ -171,6 +184,7 @@ export function createPluginAPI(pluginId: string | null): {
     if (credential) {
       plugin.credential = credential;
     }
+    if (tools && Object.keys(tools).length) plugin.tools = tools;
     if (initHooks.length > 0) {
       plugin.initHooks = initHooks;
     }

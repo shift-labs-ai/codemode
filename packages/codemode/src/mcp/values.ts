@@ -45,6 +45,19 @@ export const INHERITED_ENVIRONMENT = [
   "TMP",
 ];
 
+/**
+ * The host's own values of `INHERITED_ENVIRONMENT`: the whole environment
+ * of a program that is given nothing else of the host's.
+ */
+export function inheritedEnvironment(): Record<string, string> {
+  return Object.fromEntries(
+    INHERITED_ENVIRONMENT.flatMap((name) => {
+      const value = process.env[name];
+      return value === undefined ? [] : [[name, value]];
+    }),
+  );
+}
+
 /** `~` and `~/…` (also `~\…` on Windows) name the home directory, as in a shell. */
 function expandHome(value: string): string {
   if (value === "~") return homedir();

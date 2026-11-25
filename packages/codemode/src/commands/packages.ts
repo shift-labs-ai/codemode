@@ -22,6 +22,7 @@ import { parseSource } from "../packages/source.js";
 import type { PackageScope } from "../packages/store.js";
 import { environment } from "../utils/deprecation.js";
 import {
+  downloadOrigin,
   failCommand,
   printError,
   printJson,
@@ -118,6 +119,14 @@ function printReport(report: PackageReport): void {
       );
     else if (plugin.credentialNote)
       console.log(`  ${"".padEnd(16)} ${chalk.dim(plugin.credentialNote)}`);
+    for (const tool of plugin.tools ?? [])
+      console.log(
+        `  ${"".padEnd(16)} tool ${tool.name} ${
+          tool.supported
+            ? `← ${downloadOrigin(tool)}`
+            : chalk.dim(`has no build for ${tool.platform}`)
+        }`,
+      );
   }
   for (const problem of report.problems)
     (problem.level === "error" ? printError : printWarn)(problem.message);
@@ -183,8 +192,13 @@ export async function packageInstall(
     await pm.commit(staged);
     if (scope === "project" && project) setProjectTrusted(project, true);
     if (options.json) printJson({ ok: true, scope, ...report });
-    else
+    else {
       printSuccess(`Installed ${chalk.bold(report.name ?? source)} (${scope})`);
+      if (report.plugins.some((plugin) => plugin.tools?.length))
+        console.log(
+          "Its programs are not downloaded yet. Run: codemode tools install",
+        );
+    }
   } catch (err) {
     if (staged) await pm.discard(staged).catch(() => {});
     fail(err, options.json, report);

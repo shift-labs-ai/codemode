@@ -14,7 +14,7 @@ codemode install git:github.com/example/codemode-tools@v1
 codemode install ./tools/orders
 ```
 
-Before recording a package, codemode lists its plugins, how many of their actions read and write, and the hosts their credentials are sent to, then asks for confirmation. Add `--yes` or `-y` to skip the question. Without a terminal, `--yes` is required.
+Before recording a package, codemode lists its plugins, how many of their actions read and write, the hosts their credentials are sent to, and the [tools](tools.md) they declare, then asks for confirmation. Add `--yes` or `-y` to skip the question. Without a terminal, `--yes` is required.
 
 | Task | Command |
 |---|---|
@@ -98,6 +98,8 @@ Declare `@shiftlabs/codemode` and `typebox` in `peerDependencies` with a `"*"` r
 Do not list them in `dependencies`. An installed copy gives the plugin its own credential transport and error classes, separate from the ones codemode uses, and codemode reports a warning when it finds one.
 
 A narrower peer range, such as `">=0.45"`, is compared with the codemode that loads the package. Outside the range the package still loads, and codemode reports a warning naming both versions.
+
+A program that npm cannot install, such as a command-line tool a plugin runs, is declared under `codemode.tools`. See [Tools](tools.md).
 
 ## Select package plugins
 
@@ -190,7 +192,7 @@ The manager reads no folder it was not given, and it never prompts, prints, or e
 | Method | Result |
 |---|---|
 | `fetch(source, { scope })` | A staged package on disk, not yet recorded |
-| `inspect(staged)` | Plugins, action counts, credential targets, and problems |
+| `inspect(staged)` | Plugins, action counts, credential targets, declared tools, and problems |
 | `commit(staged)`, `discard(staged)` | Record the staged package, or undo the fetch |
 | `install(source, { scope })` | `fetch()` followed by `commit()` |
 | `remove(source, { scope })` | Whether an entry and its files were removed |

@@ -54,3 +54,12 @@ export function keyValuePairs(
     }),
   );
 }
+
+/** Where a download comes from and how large it is, as a person reads it. */
+export function downloadOrigin(download: {
+  hosts: string[];
+  size?: number;
+}): string {
+  const megabytes = ((download.size ?? 0) / (1024 * 1024)).toFixed(1);
+  return `${download.hosts.join(", ")} (${megabytes} MB)`;
+}

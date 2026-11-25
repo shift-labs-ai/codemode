@@ -50,7 +50,7 @@ import {
 } from "./session.js";
 import { FileMcpStore, type McpStore } from "./store.js";
 import {
-  INHERITED_ENVIRONMENT,
+  inheritedEnvironment,
   resolveClientSecret,
   resolveServer,
 } from "./values.js";
@@ -910,11 +910,7 @@ export class McpManager {
     return resolveServer(server, {
       connection: connection.config,
       variable: this.variable,
-      inherited:
-        this.options.environment ??
-        Object.fromEntries(
-          INHERITED_ENVIRONMENT.map((name) => [name, process.env[name]]),
-        ),
+      inherited: this.options.environment ?? inheritedEnvironment(),
     });
   }
 

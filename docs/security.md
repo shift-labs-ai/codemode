@@ -100,6 +100,8 @@ A package's plugins run with the same permissions as any other plugin.
 
 Review a package's source before installing it, and a project's `.codemode/plugins/` folder before trusting it. Pin an exact version or a commit when a package must not change underneath you. See [Packages](packages.md).
 
+A package can declare [tools](tools.md): programs that codemode downloads when you run `codemode tools install`, never when the package is installed or an action runs. The install prompt names each one and the host it comes from. Codemode refuses a download whose size or SHA-256 differs from the declaration, which shows that the bytes are the ones the package's author pinned, not that the program is safe. An installed tool runs with the permissions of the codemode process.
+
 ## Review MCP servers before adding them
 
 A local MCP server is a program that runs with the permissions of the codemode process. Codemode gives it a short list of environment variables and its entry's `env`, not the rest of the environment, and does not sandbox it.
