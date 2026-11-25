@@ -28,70 +28,10 @@
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { MUTATING_VERBS, verbOf } from "../packages/codemode/src/lint/verbs.ts";
 import { loadPluginFromPath } from "../packages/codemode/src/plugin/loader.ts";
 
 const PLUGINS_DIR = join(import.meta.dir, "../packages/codemode-plugins");
-
-const MUTATING_VERBS = new Set([
-  "add",
-  "append",
-  "approve",
-  "archive",
-  "assign",
-  "cancel",
-  "close",
-  "copy",
-  "create",
-  "delete",
-  "disable",
-  "edit",
-  "enable",
-  "forward",
-  "grant",
-  "insert",
-  "install",
-  "invite",
-  "leave",
-  "mark",
-  "merge",
-  "move",
-  "post",
-  "publish",
-  "push",
-  "reject",
-  "remove",
-  "rename",
-  "reopen",
-  "replace",
-  "reply",
-  "restart",
-  "restore",
-  "revoke",
-  "rotate",
-  "send",
-  "set",
-  "share",
-  "start",
-  "stop",
-  "submit",
-  "trash",
-  "trigger",
-  "unarchive",
-  "unassign",
-  "uninstall",
-  "unpublish",
-  "unshare",
-  "unsubscribe",
-  "untrash",
-  "update",
-  "upload",
-  "upsert",
-]);
-
-function verbOf(actionName: string): string {
-  const last = actionName.split(".").at(-1) ?? actionName;
-  return (last.split(/(?=[A-Z])/)[0] ?? last).toLowerCase();
-}
 
 const problems: string[] = [];
 let actions = 0;
