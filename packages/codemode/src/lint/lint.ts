@@ -193,7 +193,10 @@ export async function lintPackage(
       const file = relative(dir, path) || path;
       let plugin: PluginDef;
       try {
-        plugin = await loadPluginFromPath(path, { defaultName: null });
+        plugin = await loadPluginFromPath(path, {
+          defaultName: null,
+          diskCache: false,
+        });
       } catch (error) {
         add({
           rule: "load/failed",

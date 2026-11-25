@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -431,6 +432,20 @@ describe("lintPackage", () => {
     assert.equal(process.cwd(), before);
     assert.equal(existsSync(join(before, "session.json")), false);
     assert.equal(report.ok, true);
+  });
+
+  it("leaves nothing on disk: no working folder, no transpile cache", async () => {
+    const files = (dir: string) =>
+      existsSync(dir) ? readdirSync(dir).length : 0;
+    const cache = join(tmpdir(), "jiti");
+    const temp = () =>
+      readdirSync(tmpdir()).filter((name) =>
+        /^codemode-lint-(?!test)/.test(name),
+      ).length;
+    const [cacheBefore, tempBefore] = [files(cache), temp()];
+    await lint(pkg({ "package.json": PACKAGE, "index.ts": CLEAN }));
+    assert.equal(files(cache), cacheBefore);
+    assert.equal(temp(), tempBefore);
   });
 
   it("puts back the real fetch and environment when it is done", async () => {
