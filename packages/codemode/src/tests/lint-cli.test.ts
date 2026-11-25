@@ -14,7 +14,10 @@ import { promisify } from "node:util";
 
 const MAIN = fileURLToPath(new URL("../main.ts", import.meta.url));
 
-const plugin = (body: string) => `
+const plugin = (
+  body: string,
+  input = "t.Object({}, { additionalProperties: false })",
+) => `
 import type { CodemodePluginAPI } from "@shiftlabs/codemode";
 import * as t from "typebox";
 export default function shop(rl: CodemodePluginAPI) {
@@ -23,7 +26,7 @@ export default function shop(rl: CodemodePluginAPI) {
   rl.registerAction("item.list", {
     access: "read",
     description: "List items.",
-    inputSchema: t.Object({}, { additionalProperties: false }),
+    inputSchema: ${input},
     async execute() { ${body} },
   });
 }
@@ -41,7 +44,7 @@ describe("codemode lint", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  function write(body: string): string {
+  function write(body: string, input?: string): string {
     const dir = join(tmp, "shop");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -53,7 +56,7 @@ describe("codemode lint", () => {
         peerDependencies: { "@shiftlabs/codemode": "*", typebox: "*" },
       }),
     );
-    writeFileSync(join(dir, "index.ts"), plugin(body));
+    writeFileSync(join(dir, "index.ts"), plugin(body, input));
     return dir;
   }
 
@@ -93,6 +96,19 @@ describe("codemode lint", () => {
       ]),
       [["run/env-read", "shop"]],
     );
+  });
+
+  it("exits 0 on warnings alone, and prints each with the actions it names", async () => {
+    const { code, stdout } = await codemode([
+      "lint",
+      write(
+        "return [];",
+        't.Object({ sku: t.String({ pattern: "^sku_" }) }, { additionalProperties: false })',
+      ),
+    ]);
+    assert.equal(code, 0, stdout);
+    assert.match(stdout, /▲ run\/not-run shop Not run, .* \(item\.list\)/);
+    assert.match(stdout, /✓ no errors, 1 warning$/m);
   });
 
   it("returns when an action leaves work holding the process open", async () => {

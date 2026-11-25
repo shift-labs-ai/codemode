@@ -186,6 +186,24 @@ describe("lintPackage", () => {
         assert.equal(report.ok, false);
       });
 
+    it("a credential declared for wss passes, and one for ws is an error", async () => {
+      const declaredFor = (url: string) =>
+        lint(
+          pkg({
+            "package.json": PACKAGE,
+            "index.ts": breaking("https://api.orders.example/v1/", url),
+          }),
+        );
+      assert.deepEqual(
+        (await declaredFor("wss://stream.orders.example/")).findings,
+        [],
+      );
+      assert.deepEqual(
+        rules(await declaredFor("ws://stream.orders.example/")),
+        ["credential/insecure-target"],
+      );
+    });
+
     it("a credential that chooses its targets from connection config is checked with the stand-in values", async () => {
       const report = await lint(
         pkg({
