@@ -99,7 +99,7 @@ export default function notes(rl: CodemodePluginAPI) {
 
 `packageBinaries(import.meta.url)` reads `codemode.binaries` from the `package.json` one directory above the module and refuses a declaration it cannot use, naming the field.
 
-`runBinary(ctx, name, args, options)` starts an installed binary with an argument list and no shell, and answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`. A binary that exits with a failure still returns. The call rejects when the binary is not installed, with the command that installs it, when it declares no build for the host's platform, and when it cannot start or outlives `timeoutMs`.
+`runBinary(ctx, name, args, options)` starts an installed binary as [`runCommand`](plugins.md#run-a-program) starts a program: with an argument list and no shell. It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`. A binary that exits with a failure still returns. The call rejects when the binary is not installed, with the command that installs it, when it declares no build for the host's platform, and when it cannot start or outlives `timeoutMs`.
 
 | Option | Purpose |
 |---|---|
@@ -107,7 +107,7 @@ export default function notes(rl: CodemodePluginAPI) {
 | `env` | Variables the binary needs. It starts with a short list of the host's, such as `PATH`, `HOME`, and the proxy variables, and with these |
 | `timeoutMs` | Ends the binary, and what it started, after this long |
 
-The binary ends with the run that started it. `stdout` and `stderr` each hold up to `ctx.maxOutputBytes`. Past that, `stdout` is its last lines and `fullOutputPath` names a file with all of it.
+The binary ends with the run that started it. `stdout` and `stderr` each hold up to `ctx.maxOutputBytes`. Past that, each is its last lines, and `fullOutputPath` names a file with all of `stdout`.
 
 `ctx.binary(name)` answers the absolute path of an installed binary, for an action that must start it another way. It rejects as `runBinary` does.
 

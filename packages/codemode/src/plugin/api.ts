@@ -50,8 +50,8 @@ export interface CodemodePluginAPI {
   /**
    * Declare the programs this plugin's actions run. A packaged plugin
    * passes `packageBinaries(import.meta.url)`, which reads them from its
-   * `package.json`. A host installs them; an action gets one's path from
-   * `ctx.binary(name)`.
+   * `package.json`. A host installs them; an action runs one with
+   * `runBinary(ctx, name, args)`.
    */
   setBinaries(binaries: BinaryDeclarations): void;
   onInit(fn: (config: Record<string, unknown>) => void): void;

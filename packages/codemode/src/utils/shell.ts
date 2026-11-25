@@ -2,6 +2,7 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
+import { definedEnvironment } from "./environment.js";
 import { ACTION_MEMORY_BYTES, OutputFileWriter } from "./output-files.js";
 import { cutText, isOutputBytes, MIN_OUTPUT_LIMIT } from "./output-limit.js";
 import { type SpawnCommand, shapeSpawn } from "./spawn.js";
@@ -387,17 +388,6 @@ export function checkedOutputBytes(options: {
   if (options.signal?.aborted)
     throw new ShellError("aborted", "Command aborted");
   return maxOutputBytes;
-}
-
-/** A host's environment as a process takes one: names with no value left out. */
-export function definedEnvironment(
-  env: Readonly<Record<string, string | undefined>>,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
-    ),
-  );
 }
 
 export interface RunProcessOptions {

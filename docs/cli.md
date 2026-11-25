@@ -85,7 +85,7 @@ codemode update
 See [Packages](packages.md) for sources, versions, and the package format.
 
 - `install <source>`<br>
-  Fetches a package, shows its plugins, action counts, credential targets, and the programs it declares, and records it after confirmation. Install scripts do not run, and declared programs are not downloaded.
+  Fetches a package, shows its plugins, action counts, credential targets, and the binaries it declares, and records it after confirmation. Install scripts do not run, and declared binaries are not downloaded.
 - `install -l`, `--local`<br>
   Records the package in the project's `.codemode` folder instead of `~/.codemode`, and trusts the project.
 - `install -y`, `--yes`<br>
@@ -181,4 +181,4 @@ See [Project trust](security.md#understand-project-trust).
 
 ## Exit status
 
-Commands exit with status 0 on success and 1 on failure. With `--json`, a failed package, tool, or MCP command prints `{ ok: false, error, code }`.
+Commands exit with status 0 on success and 1 on failure. With `--json`, a failed package, binary, or MCP command prints `{ ok: false, error, code }`.

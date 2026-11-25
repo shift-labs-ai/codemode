@@ -178,7 +178,7 @@ program
     "after",
     `
 Fetches the package, shows its plugins, their read/write actions, the hosts
-their credentials reach and the programs they declare, and asks before
+their credentials reach and the binaries they declare, and asks before
 recording it. Install scripts never run, and declared binaries are
 downloaded only by \`codemode binaries install\`.
 

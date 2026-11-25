@@ -15,8 +15,10 @@ import { BinaryManager } from "../binaries/manager.js";
 import type { PluginFunction } from "../plugin/api.js";
 import { Codemode } from "../sdk.js";
 import {
-  type BinaryResult,
+  type CommandOutput,
+  isShellError,
   runBinary,
+  runCommand,
   type ShellResult,
   type SpawnCall,
   type SpawnCommand,
@@ -37,10 +39,14 @@ echo "args=$*"
 echo "secret=\${CODEMODE_TEST_SECRET:-none}"
 echo "named=\${NAMED:-none}"
 echo "host=\${FROM_HOST:-none}"
+case "$1" in
+  fail) echo "no such note" >&2; exit 3 ;;
+  hang) echo "waiting" >&2; sleep 30 ;;
+esac
 `);
 const URL = "https://downloads.test/show";
 
-/** A plugin with a `sh` action, as the shell packages have, and one that runs a declared binary. */
+/** A plugin with a `run` action, as the shell packages have, one that runs a declared binary, and one that runs a program it names. */
 const demo: PluginFunction = (rl) => {
   rl.setName("demo");
   rl.setConnectionSchema(shellConnectionSchema("sh"));
@@ -70,10 +76,20 @@ const demo: PluginFunction = (rl) => {
     }),
   );
   rl.registerAction("show", {
-    execute: (input, ctx) =>
-      runBinary(ctx, "show", (input as { args?: string[] }).args ?? [], {
+    execute: (input, ctx) => {
+      const { args, timeoutMs } = input as {
+        args?: string[];
+        timeoutMs?: number;
+      };
+      return runBinary(ctx, "show", args ?? [], {
         env: { NAMED: "yes" },
-      }),
+        timeoutMs,
+      });
+    },
+  });
+  rl.registerAction("sh", {
+    execute: (input, ctx) =>
+      runCommand(ctx, "/bin/sh", ["-c", (input as { line: string }).line]),
   });
 };
 
@@ -139,7 +155,7 @@ describe("a host's spawnHook", { skip }, () => {
       );
       assert.equal(binary.error, undefined);
       assert.equal(
-        (binary.result as BinaryResult).stdout,
+        (binary.result as CommandOutput).stdout,
         "args=a b\nsecret=none\nnamed=yes\nhost=host\n",
       );
 
@@ -196,6 +212,25 @@ describe("a host's spawnHook", { skip }, () => {
     }
   });
 
+  it("may answer later, and shapes a program an action names itself", async () => {
+    const seen: SpawnCommand[] = [];
+    const codemode = await host(async (command) => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      seen.push(command);
+      return { ...command, env: { ...command.env, FROM_HOST: "later" } };
+    });
+    try {
+      const run = await codemode.execute(
+        'return await demo.sh({ line: "echo $FROM_HOST" })',
+      );
+      assert.equal((run.result as CommandOutput).stdout, "later\n");
+      assert.equal(seen[0].program, "/bin/sh");
+      assert.equal(seen[0].script, undefined);
+    } finally {
+      codemode.dispose();
+    }
+  });
+
   it("must answer a command, and keep a script a script", async () => {
     const answers: unknown[] = [
       undefined,
@@ -232,7 +267,7 @@ describe("a host's spawnHook", { skip }, () => {
         "leaked plugin connection\n",
       );
       const binary = await codemode.execute("return await demo.show()");
-      const result = binary.result as BinaryResult;
+      const result = binary.result as CommandOutput;
       assert.equal(result.stdout, "args=\nsecret=none\nnamed=yes\nhost=none\n");
       assert.equal(result.exitCode, 0);
       assert.equal(result.stderr, "");
@@ -245,5 +280,49 @@ describe("a host's spawnHook", { skip }, () => {
       delete process.env.CODEMODE_TEST_SECRET;
       codemode.dispose();
     }
+  });
+});
+
+describe("a command an action runs", { skip }, () => {
+  it("answers stdout and stderr apart, and a failure's exit code", async () => {
+    const codemode = await host();
+    try {
+      const run = await codemode.execute(
+        'return await demo.show({ args: ["fail"] })',
+      );
+      assert.equal(run.error, undefined);
+      const result = run.result as CommandOutput;
+      assert.equal(result.exitCode, 3);
+      assert.equal(result.stderr, "no such note\n");
+      assert.match(result.stdout, /^args=fail\n/);
+    } finally {
+      codemode.dispose();
+    }
+  });
+
+  it("is ended at its timeout, and the error quotes what it said", async () => {
+    const codemode = await host();
+    try {
+      const run = await codemode.execute(
+        'return await demo.show({ args: ["hang"], timeoutMs: 1000 })',
+      );
+      assert.match(
+        run.error ?? "",
+        /waiting\n\nCommand timed out after 1 seconds/,
+      );
+    } finally {
+      codemode.dispose();
+    }
+  });
+
+  it("rejects as a ShellError when its program cannot start", async () => {
+    const failure = await runCommand(
+      { signal: new AbortController().signal } as Parameters<
+        typeof runCommand
+      >[0],
+      join(dir, "no-such-program"),
+    ).catch((error) => error);
+    assert.ok(isShellError(failure));
+    assert.equal(failure.code, "spawn_failed");
   });
 });

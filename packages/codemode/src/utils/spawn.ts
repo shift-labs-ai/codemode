@@ -1,6 +1,6 @@
 /**
  * How a host shapes the commands actions start. A host sets one `spawnHook`;
- * the engine binds it to each call's context, and `runShell` and `runBinary`
+ * the engine binds it to each call's context, and `runShell` and `runCommand`
  * apply it before they start a process. A plugin does not hold the hook.
  */
 
@@ -12,7 +12,7 @@ export interface SpawnCommand {
   args: string[];
   /**
    * The script a shell or an interpreter is handed, as its last argument or
-   * on stdin. Absent when the command is a binary run with arguments only.
+   * on stdin. Absent when the command is a program run with arguments only.
    */
   script?: string;
   /** Working directory. Absent: the host process's. */
@@ -74,19 +74,22 @@ function isCommand(value: unknown): value is SpawnCommand {
   );
 }
 
-/** Bind a host's hook to the context of one action call. */
-export function bindSpawnHook<T extends object>(
-  ctx: T,
+/**
+ * Bind a host's hook to the context of one action call. Enumerable, so a
+ * context an action copies with a spread still carries it.
+ */
+export function bindSpawnHook(
+  ctx: object,
   hook: SpawnHook,
   call: Omit<SpawnCall, "added">,
-): T {
+): void {
   const bound: BoundSpawnHook = async (command, added) => {
     const shaped = await hook(command, { ...call, added });
     if (!isCommand(shaped))
       throw new Error(
         "spawnHook must answer a command: { program, args, env } with an optional script and cwd",
       );
-    // A shell's script stays a script, and a binary gets none.
+    // A shell's script stays a script, and a program run with arguments gets none.
     if ((shaped.script === undefined) !== (command.script === undefined))
       throw new Error(
         "spawnHook must keep a command's script, and add none to a command without one",
@@ -94,7 +97,6 @@ export function bindSpawnHook<T extends object>(
     return shaped;
   };
   Object.defineProperty(ctx, SPAWN_HOOK, { value: bound, enumerable: true });
-  return ctx;
 }
 
 /**

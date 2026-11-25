@@ -109,8 +109,8 @@ export interface EngineHooks {
    */
   binaries?: BinaryManager;
   /**
-   * Shapes how every command an action starts is launched: the scripts of
-   * the shell packages and the binaries plugins declare. Absent, a command
+   * Shapes how every command an action starts through `runShell`,
+   * `runCommand` or `runBinary` is launched. Absent, a command
    * is started as the action asks.
    */
   spawnHook?: SpawnHook;

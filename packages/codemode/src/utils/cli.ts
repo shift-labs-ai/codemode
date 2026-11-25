@@ -1,48 +1,5 @@
 import { execFileSync } from "node:child_process";
 
-export type OutputParser = "json" | "jsonlines" | "text";
-
-export interface ExecOptions {
-  parser?: OutputParser;
-  cwd?: string;
-  env?: Record<string, string>;
-  timeout?: number;
-}
-
-export interface ExecResult {
-  stdout: string;
-  rows: Record<string, unknown>[];
-}
-
-export function syncExec(
-  command: string,
-  args: string[],
-  options: ExecOptions = {},
-): ExecResult {
-  const stdout = execFileSync(command, args, {
-    encoding: "utf-8",
-    cwd: options.cwd,
-    env: options.env ? { ...process.env, ...options.env } : undefined,
-    timeout: options.timeout,
-    maxBuffer: 100 * 1024 * 1024,
-  }).trim();
-
-  const parser = options.parser ?? "text";
-  let rows: Record<string, unknown>[] = [];
-
-  if (parser === "json" && stdout) {
-    const parsed = JSON.parse(stdout);
-    rows = Array.isArray(parsed) ? parsed : [parsed];
-  } else if (parser === "jsonlines" && stdout) {
-    rows = stdout
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-  }
-
-  return { stdout, rows };
-}
-
 /** Where a command is on `PATH`, when it is there. */
 export function commandPath(name: string): string | undefined {
   try {
@@ -63,10 +20,11 @@ export function commandExists(name: string): boolean {
 
 export { packageBinaries } from "../binaries/declaration.js";
 export {
-  type BinaryResult,
-  type RunBinaryOptions,
+  type CommandOutput,
+  type RunCommandOptions,
   runBinary,
-} from "./binary.js";
+  runCommand,
+} from "./command.js";
 export { packageVersion } from "./package-version.js";
 export {
   isShellError,

@@ -339,11 +339,8 @@ export type {
 export type { CodemodeExecuteOptions, CodemodeOptions } from "./sdk.js";
 export { Codemode } from "./sdk.js";
 export type {
-  BinaryResult,
-  ExecOptions,
-  ExecResult,
-  OutputParser,
-  RunBinaryOptions,
+  CommandOutput,
+  RunCommandOptions,
   RunShellOptions,
   ShellErrorCode,
   ShellProgram,
@@ -362,11 +359,11 @@ export {
   packageVersion,
   pathExists,
   runBinary,
+  runCommand,
   runShell,
   ShellError,
   shellConnectionSchema,
   shellRunAction,
-  syncExec,
 } from "./utils/cli.js";
 export {
   IMAGE_EXTENSIONS,

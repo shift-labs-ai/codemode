@@ -276,15 +276,15 @@ const codemode = Codemode.create({
 });
 ```
 
-The hook applies to the scripts of the shell packages (`bash.run`, `powershell.run`, `node.run`), to any action built on `runShell` that passes its `ctx`, and to the [binaries](binaries.md) that `runBinary` starts. It may return a promise. An error it throws refuses the command, and the action rejects with that error.
+The hook applies to every command started through codemode's helpers: the scripts of the shell packages (`bash.run`, `powershell.run`, `node.run`), any action built on `runShell` that passes its `ctx`, the programs `runCommand` starts, such as the bundled `docker` plugin's, and the [binaries](binaries.md) `runBinary` starts. It may return a promise. An error it throws refuses the command, and the action rejects with that error.
 
 | Command field | Contents |
 |---|---|
 | `program` | The program to start |
 | `args` | Its arguments, without a shell's script |
-| `script` | The script a shell or interpreter is handed, as its last argument or on stdin. Absent for a binary. The hook may rewrite it, and cannot add or remove it |
+| `script` | The script a shell or interpreter is handed, as its last argument or on stdin. Absent for a program run with arguments only. The hook may rewrite it, and cannot add or remove it |
 | `cwd` | Working directory, when one is set |
-| `env` | The command's whole environment. A script starts with the host's environment, and a binary with a short list of it |
+| `env` | The command's whole environment. A script starts with the host's environment, and any other program with a short list of it |
 
 | Call field | Contents |
 |---|---|

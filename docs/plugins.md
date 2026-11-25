@@ -208,6 +208,25 @@ rl.registerAction(
 
 `shell` is the connection's `shell` value when it has one. `prepare` can also return `env`, which is added to the command's environment.
 
+## Run a program
+
+A plugin that runs a program with arguments, and no shell, uses `runCommand`:
+
+```typescript
+import { runCommand } from "@shiftlabs/codemode/utils/cli";
+
+const { stdout, stderr, exitCode } = await runCommand(ctx, "git", ["rev-parse", "HEAD"], {
+  cwd: repo,
+  timeoutMs: 30_000,
+});
+```
+
+It takes the action's `ctx`, so the program ends with the run, holds as much output as the host allows, and starts as the host's [`spawnHook`](sdk.md#shape-how-commands-start) says. It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`, and rejects with a `ShellError` as `runShell` does.
+
+The program does not inherit the environment of the codemode process. It gets a short list of it, such as `PATH`, `HOME`, and the proxy variables, and the variables passed as `env`. Pass each variable the program needs by name.
+
+`runBinary(ctx, name, args, options)` runs a [binary](binaries.md) the plugin declares in the same way.
+
 ## Understand how plugins load
 
 Codemode looks for plugins in this order:

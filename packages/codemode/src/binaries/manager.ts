@@ -13,13 +13,13 @@ import {
 import { dirname, join, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import { inheritedEnvironment } from "../mcp/values.js";
 import {
   type CommandRunner,
   failureDetail,
   nodeCommandRunner,
 } from "../packages/runner.js";
 import type { PluginDef } from "../plugin/types.js";
+import { inheritedEnvironment } from "../utils/environment.js";
 import {
   type BinaryArtifact,
   type BinaryDeclaration,
@@ -444,8 +444,9 @@ export class BinaryManager {
   }
 
   /**
-   * Run the program's own check. It gets the short list of variables a
-   * local MCP server gets, not the host's environment and what it holds.
+   * Run the program's own check. It gets the few variables every
+   * program codemode starts gets, not the host's environment and what it
+   * holds.
    */
   private async check(
     name: string,
