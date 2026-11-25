@@ -177,9 +177,10 @@ program
   .addHelpText(
     "after",
     `
-Fetches the package, shows its plugins, their read/write actions and the
-hosts their credentials reach, and asks before recording it. Install
-scripts never run.
+Fetches the package, shows its plugins, their read/write actions, the hosts
+their credentials reach and the programs they declare, and asks before
+recording it. Install scripts never run, and declared programs are
+downloaded only by \`codemode tools install\`.
 
 Examples:
   $ codemode install npm:@acme/codemode-orders@1.2.0
@@ -327,31 +328,31 @@ mcpCmd
 
 const toolsCmd = program
   .command("tools")
-  .description("Manage the programs that loaded plugins declare")
-  .action(async (_opts, cmd) => {
-    await toolsList({ json: cmd.optsWithGlobals().json });
-  });
+  .description("Manage the programs that loaded plugins declare");
 
 toolsCmd
   .command("list")
   .alias("ls")
   .description("List declared programs and whether each is installed")
   .action(async (_opts, cmd) => {
-    await toolsList({ json: cmd.optsWithGlobals().json });
+    const globals = cmd.optsWithGlobals();
+    await toolsList({ json: globals.json });
   });
 
 toolsCmd
   .command("install [name]")
   .description("Download, verify and unpack one declared program, or every one")
   .action(async (name, _opts, cmd) => {
-    await toolsInstall(name, { json: cmd.optsWithGlobals().json });
+    const globals = cmd.optsWithGlobals();
+    await toolsInstall(name, { json: globals.json, quiet: globals.quiet });
   });
 
 toolsCmd
   .command("remove <name>")
   .description("Delete an installed program")
   .action(async (name, _opts, cmd) => {
-    await toolsRemove(name, { json: cmd.optsWithGlobals().json });
+    const globals = cmd.optsWithGlobals();
+    await toolsRemove(name, { json: globals.json });
   });
 
 toolsCmd
@@ -368,8 +369,9 @@ package's package.json. Set "path" to the program inside the artifact.
 Example:
   $ codemode tools entry https://example.com/releases/v1.2.0/tool_linux_amd64.tar.gz`,
   )
-  .action(async (url) => {
-    await toolsEntry(url);
+  .action(async (url, _opts, cmd) => {
+    const globals = cmd.optsWithGlobals();
+    await toolsEntry(url, { json: globals.json });
   });
 
 // ── plugin ──────────────────────────────────────────────

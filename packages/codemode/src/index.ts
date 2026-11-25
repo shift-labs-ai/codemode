@@ -306,6 +306,7 @@ export type {
   ConnectionConfig,
   ConnectionSchema,
   ConnectionSchemaField,
+  DispatchedContext,
   InputField,
   InputOf,
   InputSchema,

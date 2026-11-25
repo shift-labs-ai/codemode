@@ -104,18 +104,18 @@ A source is `npm:<name>[@version]`, `git:<host>/<path>[@ref]`, a git URL, or a l
 ## Tools
 
 ```sh
-codemode tools
+codemode tools list
 codemode tools install
 ```
 
 See [Tools](tools.md) for declarations and what installing does.
 
-- `tools`, `tools list`, alias `tools ls`<br>
+- `tools list`, alias `tools ls`<br>
   Lists the programs that loaded plugins declare, where each is downloaded from, and whether it is installed.
 - `tools install [name]`<br>
-  Downloads, verifies, and unpacks one declared program, or every one that has a build for this platform.
+  Downloads, verifies, and unpacks one declared program, or every one that has a build for this platform. `--quiet` hides the download lines.
 - `tools remove <name>`<br>
-  Deletes an installed program.
+  Deletes an installed program. Fails when it is not installed.
 - `tools entry <url>`<br>
   Downloads the artifact at a URL and prints a platform entry for a declaration, with its size and SHA-256.
 
@@ -181,4 +181,4 @@ See [Project trust](security.md#understand-project-trust).
 
 ## Exit status
 
-Commands exit with status 0 on success and 1 on failure. With `--json`, a failed package or MCP command prints `{ ok: false, error, code }`.
+Commands exit with status 0 on success and 1 on failure. With `--json`, a failed package, tool, or MCP command prints `{ ok: false, error, code }`.

@@ -13,8 +13,12 @@ import {
 import { dirname, join, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import { INHERITED_ENVIRONMENT } from "../mcp/values.js";
-import { type CommandRunner, nodeCommandRunner } from "../packages/runner.js";
+import { inheritedEnvironment } from "../mcp/values.js";
+import {
+  type CommandRunner,
+  failureDetail,
+  nodeCommandRunner,
+} from "../packages/runner.js";
 import type { PluginDef } from "../plugin/types.js";
 import {
   isArchive,
@@ -23,6 +27,7 @@ import {
   type ToolDeclaration,
   type ToolFormat,
   type ToolSummary,
+  toolArtifact,
 } from "./declaration.js";
 
 export type ToolErrorCode =
@@ -59,8 +64,11 @@ export interface PluginTool extends ToolStatus {
 }
 
 export interface ToolManagerOptions {
-  /** The folder installed tools are kept in. */
-  dir: string;
+  /**
+   * The folder installed tools are kept in, or a function that names it
+   * when a tool is first asked about.
+   */
+  dir: string | (() => string);
   /** Downloads artifacts. Default: the global `fetch`. */
   fetch?: typeof fetch;
   /**
@@ -94,11 +102,6 @@ const ARCHIVE_SUFFIXES: ReadonlyArray<[suffix: string, format: ToolFormat]> = [
   [".gz", "gz"],
 ];
 
-/** The lines of a command's output an error quotes. */
-function lastLines(text: string): string {
-  return text.trim().split("\n").slice(-5).join("\n");
-}
-
 /** bsdtar, which Windows ships and which unpacks zip. Git's GNU tar on PATH does not. */
 function windowsTar(): string {
   const system = join(
@@ -112,21 +115,23 @@ function windowsTar(): string {
 /**
  * Installs the programs plugins declare and says where they are. The CLI is
  * one consumer; a host embeds it with its own folder, `fetch` and runner.
- * It downloads only when `install` is called, and never prompts or prints.
+ * It downloads only when `install` or `describe` is called, and never
+ * prompts or prints.
  *
  * A tool's folder is named for what its declaration pins (size, digest,
  * format), so one declaration is one folder: two plugins declaring the same
  * build share it, and two versions sit side by side.
  */
 export class ToolManager {
-  private readonly dir: string;
+  private readonly named: string | (() => string);
+  private resolved: string | undefined;
   private readonly fetch: typeof fetch;
   private readonly runner: CommandRunner;
   private readonly offline: boolean;
   private readonly onDownload: ToolManagerOptions["onDownload"];
 
   constructor(options: ToolManagerOptions) {
-    this.dir = options.dir;
+    this.named = options.dir;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.runner = options.runner ?? nodeCommandRunner;
     this.offline = options.offline === true;
@@ -135,12 +140,14 @@ export class ToolManager {
 
   /** What a declaration says of this host, and whether its tool is installed. */
   status(tool: ToolDeclaration): ToolStatus {
-    const summary = summarizeTool(tool);
-    const program = summary.supported
-      ? this.program(tool.platforms[summary.platform])
-      : undefined;
+    const artifact = toolArtifact(tool);
+    const program = artifact && this.program(artifact);
     const installed = program !== undefined && existsSync(program);
-    return { ...summary, installed, ...(installed ? { path: program } : {}) };
+    return {
+      ...summarizeTool(tool),
+      installed,
+      ...(installed ? { path: program } : {}),
+    };
   }
 
   /**
@@ -156,7 +163,8 @@ export class ToolManager {
   ): Promise<string> {
     const status = this.status(tool);
     if (status.path) return status.path;
-    if (!status.supported)
+    const artifact = toolArtifact(tool);
+    if (!artifact)
       throw new ToolError(
         "unsupported_platform",
         `${name} has no build for this platform (${status.platform})`,
@@ -168,8 +176,6 @@ export class ToolManager {
       );
     this.onDownload?.(name, status);
     const { signal } = options;
-    const artifact = tool.platforms[status.platform];
-    const folder = this.folder(artifact);
     await mkdir(this.dir, { recursive: true });
     // Beside the final folder, so that putting the tool in place is a rename.
     const work = await mkdtemp(join(this.dir, ".install-"));
@@ -181,7 +187,7 @@ export class ToolManager {
       const program = await this.unpack(name, artifact, download, tree, signal);
       if (tool.check) await this.check(name, program, tool.check, signal);
       try {
-        await rename(tree, folder);
+        await rename(tree, this.folder(artifact));
       } catch (error) {
         // Another install of the same build got there first.
         if (!existsSync(this.program(artifact))) throw error;
@@ -198,18 +204,15 @@ export class ToolManager {
 
   /** Delete an installed tool. Answers whether there was one. */
   async remove(tool: ToolDeclaration): Promise<boolean> {
-    const status = this.status(tool);
-    if (!status.installed) return false;
-    await rm(this.folder(tool.platforms[status.platform]), {
-      recursive: true,
-      force: true,
-    });
+    const artifact = toolArtifact(tool);
+    if (!artifact || !existsSync(this.program(artifact))) return false;
+    await rm(this.folder(artifact), { recursive: true, force: true });
     return true;
   }
 
   /**
-   * A platform entry for the artifact at `url`: its size and SHA-256 as
-   * downloaded now, and the format its name suggests. The declaration's
+   * A platform entry for the artifact at `url`: its size and SHA-256 as it
+   * downloads now, and the format its name suggests. The declaration's
    * author adds `path`.
    */
   async describe(
@@ -221,40 +224,37 @@ export class ToolManager {
         "offline",
         "Nothing is downloaded while codemode is offline",
       );
-    const source = new URL(url);
-    if (source.protocol !== "https:")
+    const source = URL.canParse(url) ? new URL(url) : undefined;
+    if (source?.protocol !== "https:")
       throw new ToolError("download_failed", `Not an https URL: ${url}`);
-    await mkdir(this.dir, { recursive: true });
-    const work = await mkdtemp(join(this.dir, ".describe-"));
-    try {
-      const measured = await this.fetchTo(
-        source.href,
-        join(work, "download"),
-        Number.MAX_SAFE_INTEGER,
-        options.signal,
-      ).catch((error) => {
-        throw new ToolError(
-          "download_failed",
-          `Could not download ${source.href}: ${(error as Error).message}`,
-        );
-      });
-      const format = ARCHIVE_SUFFIXES.find(([suffix]) =>
-        source.pathname.endsWith(suffix),
-      )?.[1];
-      return {
-        size: measured.size,
-        hash: "sha256",
-        digest: measured.digest,
-        ...(format ? { format } : {}),
-        path: "",
-        providers: [{ url: source.href }],
-      };
-    } finally {
-      await rm(work, { recursive: true, force: true });
-    }
+    const measured = await this.read(source.href, {
+      signal: options.signal,
+    }).catch((error) => {
+      throw new ToolError(
+        "download_failed",
+        `Could not download ${source.href}: ${(error as Error).message}`,
+      );
+    });
+    const format = ARCHIVE_SUFFIXES.find(([suffix]) =>
+      source.pathname.endsWith(suffix),
+    )?.[1];
+    return {
+      size: measured.size,
+      hash: "sha256",
+      digest: measured.digest,
+      ...(format ? { format } : {}),
+      path: "",
+      providers: [{ url: source.href }],
+    };
   }
 
   // ── where things are ──────────────────────────────────
+
+  private get dir(): string {
+    this.resolved ??=
+      typeof this.named === "function" ? this.named() : this.named;
+    return this.resolved;
+  }
 
   private folder(artifact: ToolArtifact): string {
     const key = createHash("sha256")
@@ -279,13 +279,20 @@ export class ToolManager {
 
   // ── download ──────────────────────────────────────────
 
-  /** Write what `url` answers to `to`. Refuses more than `limit` bytes. */
-  private async fetchTo(
+  /**
+   * Read what `url` answers and answer its size and SHA-256. Each part is
+   * handed to `take`, and more than `limit` bytes is refused as soon as it
+   * is seen.
+   */
+  private async read(
     url: string,
-    to: string,
-    limit: number,
-    signal: AbortSignal | undefined,
+    options: {
+      signal: AbortSignal | undefined;
+      limit?: number;
+      take?: (part: Uint8Array) => Promise<unknown>;
+    },
   ): Promise<{ size: number; digest: string }> {
+    const { signal, limit, take } = options;
     const deadline = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
     // Called unbound, as the global is.
     const { fetch } = this;
@@ -298,7 +305,6 @@ export class ToolManager {
       throw new Error(`HTTP ${response.status}`);
     }
     const hash = createHash("sha256");
-    const file = await open(to, "w", 0o600);
     const reader = response.body.getReader();
     let size = 0;
     try {
@@ -306,14 +312,13 @@ export class ToolManager {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > limit)
+        if (limit !== undefined && size > limit)
           throw new Error(`is larger than the ${limit} bytes declared`);
         hash.update(value);
-        await file.writeFile(value);
+        await take?.(value);
       }
     } finally {
       await reader.cancel().catch(() => {});
-      await file.close();
     }
     return { size, digest: hash.digest("hex") };
   }
@@ -327,8 +332,13 @@ export class ToolManager {
   ): Promise<void> {
     const failures: string[] = [];
     for (const { url } of artifact.providers) {
+      const file = await open(to, "w", 0o600);
       try {
-        const got = await this.fetchTo(url, to, artifact.size, signal);
+        const got = await this.read(url, {
+          signal,
+          limit: artifact.size,
+          take: (part) => file.writeFile(part),
+        });
         if (got.size !== artifact.size)
           throw new Error(
             `is ${got.size} bytes, not the ${artifact.size} declared`,
@@ -339,6 +349,8 @@ export class ToolManager {
       } catch (error) {
         if (signal?.aborted) throw error;
         failures.push(`${new URL(url).host}: ${(error as Error).message}`);
+      } finally {
+        await file.close();
       }
     }
     throw new ToolError(
@@ -349,7 +361,7 @@ export class ToolManager {
 
   // ── unpack and check ──────────────────────────────────
 
-  /** The commands that unpack a format, each tried until one succeeds. */
+  /** The commands that unpack an archive, each tried until one succeeds. */
   private unpackers(
     format: ToolFormat,
     archive: string,
@@ -366,6 +378,35 @@ export class ToolManager {
     ];
   }
 
+  private async extract(
+    name: string,
+    format: ToolFormat,
+    archive: string,
+    tree: string,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const failures: string[] = [];
+    for (const [command, args] of this.unpackers(format, archive, tree)) {
+      try {
+        const result = await this.runner.run(command, args, {
+          signal,
+          timeoutMs: UNPACK_TIMEOUT_MS,
+        });
+        if (result.code === 0) return;
+        failures.push(
+          `${command}: ${failureDetail(result) || `exit ${result.code}`}`,
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failures.push(`${command}: ${(error as Error).message}`);
+      }
+    }
+    throw new ToolError(
+      "unpack_failed",
+      `Could not unpack ${name}. ${failures.join("; ")}`,
+    );
+  }
+
   /** Unpack a verified artifact into `tree` and answer its program's path. */
   private async unpack(
     name: string,
@@ -374,59 +415,30 @@ export class ToolManager {
     tree: string,
     signal: AbortSignal | undefined,
   ): Promise<string> {
+    const { format } = artifact;
     const program = join(tree, ...artifact.path.split("/"));
-    if (!isArchive(artifact.format)) {
+    if (isArchive(format)) {
+      await this.extract(name, format, download, tree, signal);
+    } else {
       await mkdir(dirname(program), { recursive: true });
-      if (artifact.format === "gz")
+      if (format === "gz")
         await pipeline(
           createReadStream(download),
           createGunzip(),
           createWriteStream(program),
         );
       else await rename(download, program);
-    } else {
-      const failures: string[] = [];
-      for (const [command, args] of this.unpackers(
-        artifact.format as ToolFormat,
-        download,
-        tree,
-      )) {
-        try {
-          const result = await this.runner.run(command, args, {
-            signal,
-            timeoutMs: UNPACK_TIMEOUT_MS,
-          });
-          if (result.code === 0) {
-            failures.length = 0;
-            break;
-          }
-          failures.push(
-            `${command}: ${lastLines(result.stderr || result.stdout) || `exit ${result.code}`}`,
-          );
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          failures.push(`${command}: ${(error as Error).message}`);
-        }
-      }
-      if (failures.length)
-        throw new ToolError(
-          "unpack_failed",
-          `Could not unpack ${name}. ${failures.join("; ")}`,
-        );
     }
     // A link inside an archive can point anywhere: the program is the
     // file it resolves to, which must be one of the unpacked files.
     const root = await realpath(tree);
-    const resolved = await realpath(program).catch(() => undefined);
-    if (
-      !resolved?.startsWith(`${root}${sep}`) ||
-      !(await stat(resolved)).isFile()
-    )
+    const target = await realpath(program).catch(() => undefined);
+    if (!target?.startsWith(`${root}${sep}`) || !(await stat(target)).isFile())
       throw new ToolError(
         "unpack_failed",
         `${name}: there is no program at ${artifact.path} in what was downloaded`,
       );
-    if (process.platform !== "win32") await chmod(resolved, 0o755);
+    if (process.platform !== "win32") await chmod(target, 0o755);
     return program;
   }
 
@@ -445,17 +457,10 @@ export class ToolManager {
       const result = await this.runner.run(program, args, {
         signal,
         timeoutMs: CHECK_TIMEOUT_MS,
-        env: Object.fromEntries(
-          INHERITED_ENVIRONMENT.flatMap((variable) =>
-            process.env[variable] === undefined
-              ? []
-              : [[variable, process.env[variable] as string]],
-          ),
-        ),
+        env: inheritedEnvironment(),
       });
       if (result.code === 0) return;
-      failure =
-        lastLines(result.stderr || result.stdout) || `exit ${result.code}`;
+      failure = failureDetail(result) || `exit ${result.code}`;
     } catch (error) {
       if (signal?.aborted) throw error;
       failure = (error as Error).message;
@@ -537,28 +542,26 @@ export class PluginTools {
   }
 
   /**
-   * Install the tool with this name, or every declared tool. Tools with no
-   * build for this platform are left out of "every".
+   * Install the tool with this name, or every declared tool, and answer
+   * their state. Tools with no build for this platform are left out of
+   * "every".
    */
   async install(
     name?: string,
     options: ToolCallOptions = {},
   ): Promise<PluginTool[]> {
     for (const tool of this.declared(name)) {
-      if (
-        name === undefined &&
-        !this.manager.status(tool.declaration).supported
-      )
-        continue;
+      if (name === undefined && !toolArtifact(tool.declaration)) continue;
       await this.manager.install(tool.name, tool.declaration, options);
     }
     return this.rows(name);
   }
 
-  /** Delete the installed tool with this name. */
-  async remove(name: string): Promise<PluginTool[]> {
+  /** Delete the installed tool with this name. Answers whether there was one. */
+  async remove(name: string): Promise<boolean> {
+    let removed = false;
     for (const tool of this.declared(name))
-      await this.manager.remove(tool.declaration);
-    return this.rows(name);
+      removed = (await this.manager.remove(tool.declaration)) || removed;
+    return removed;
   }
 }

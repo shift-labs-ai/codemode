@@ -11,8 +11,8 @@ import {
 } from "../tools/manager.js";
 import { environment } from "../utils/deprecation.js";
 import {
+  downloadOrigin,
   failCommand,
-  megabytes,
   printJson,
   printSuccess,
 } from "../utils/output.js";
@@ -27,19 +27,17 @@ export function cliToolManager(options: { quiet?: boolean } = {}): ToolManager {
       ? undefined
       : (name, tool) =>
           console.error(
-            chalk.dim(
-              `Downloading ${name} from ${tool.hosts.join(", ")} (${megabytes(tool.size ?? 0)})…`,
-            ),
+            chalk.dim(`Downloading ${name} from ${downloadOrigin(tool)}…`),
           ),
   });
 }
 
-/** The tools of every plugin the CLI loads: local files and configured packages. */
-async function loadedTools(json?: boolean): Promise<PluginTools> {
-  await loadAllPlugins({ packages: cliPackageManager({ quiet: json }) });
+/** The tools of every plugin the CLI loads. */
+async function loadedTools(quiet?: boolean): Promise<PluginTools> {
+  await loadAllPlugins({ packages: cliPackageManager({ quiet }) });
   return new PluginTools(
     () => registry.listPlugins(),
-    cliToolManager({ quiet: json }),
+    cliToolManager({ quiet }),
   );
 }
 
@@ -58,10 +56,12 @@ function state(tool: PluginTool): string {
 }
 
 function printTools(tools: PluginTool[]): void {
+  if (!tools.length) {
+    console.log("No loaded plugin declares a program.");
+    return;
+  }
   for (const tool of tools) {
-    const from = tool.supported
-      ? chalk.dim(`  ← ${tool.hosts.join(", ")} (${megabytes(tool.size ?? 0)})`)
-      : "";
+    const from = tool.supported ? chalk.dim(`  ← ${downloadOrigin(tool)}`) : "";
     console.log(
       `  ${chalk.bold(tool.plugin.padEnd(16))} ${tool.name.padEnd(16)} ${state(tool)}${from}`,
     );
@@ -73,10 +73,6 @@ export async function toolsList(options: { json?: boolean }): Promise<void> {
   try {
     const tools = (await loadedTools(options.json)).list();
     if (options.json) return printJson(tools);
-    if (!tools.length) {
-      console.log("No loaded plugin declares a program.");
-      return;
-    }
     printTools(tools);
     if (tools.some((tool) => tool.supported && !tool.installed))
       console.log("\nInstall what is missing: codemode tools install");
@@ -87,14 +83,13 @@ export async function toolsList(options: { json?: boolean }): Promise<void> {
 
 export async function toolsInstall(
   name: string | undefined,
-  options: { json?: boolean },
+  options: { json?: boolean; quiet?: boolean },
 ): Promise<void> {
   try {
-    const tools = await loadedTools(options.json);
+    const tools = await loadedTools(options.quiet || options.json);
     const installed = await tools.install(name);
     if (options.json) return printJson(installed);
     printTools(installed);
-    if (!installed.length) console.log("No loaded plugin declares a program.");
   } catch (error) {
     fail(error, options.json);
   }
@@ -106,17 +101,21 @@ export async function toolsRemove(
 ): Promise<void> {
   try {
     const removed = await (await loadedTools(options.json)).remove(name);
-    if (options.json) return printJson(removed);
-    printSuccess(`Removed ${chalk.bold(name)}`);
+    if (!removed) fail(new Error(`${name} is not installed`), options.json);
+    if (options.json) printJson({ ok: true, removed: name });
+    else printSuccess(`Removed ${chalk.bold(name)}`);
   } catch (error) {
     fail(error, options.json);
   }
 }
 
-export async function toolsEntry(url: string): Promise<void> {
+export async function toolsEntry(
+  url: string,
+  options: { json?: boolean },
+): Promise<void> {
   try {
     printJson(await cliToolManager({ quiet: true }).describe(url));
   } catch (error) {
-    fail(error, true);
+    fail(error, options.json);
   }
 }

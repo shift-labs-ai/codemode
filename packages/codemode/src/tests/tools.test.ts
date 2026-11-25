@@ -399,9 +399,27 @@ describe("installing a tool", { skip }, () => {
     assert.deepEqual(await manager.describe(url), {
       ...artifact(bytes, { format: "tar.gz", path: "" }, [url]),
     });
-    await assert.rejects(() => manager.describe("http://downloads.test/x"), {
-      code: "download_failed",
+    for (const refused of ["http://downloads.test/x", "not a url"])
+      await assert.rejects(() => manager.describe(refused), {
+        code: "download_failed",
+        message: `Not an https URL: ${refused}`,
+      });
+  });
+
+  it("names its folder only when a tool is asked about", () => {
+    const store = fresh("store");
+    let named = 0;
+    const manager = new ToolManager({
+      dir: () => {
+        named++;
+        return store;
+      },
     });
+    assert.equal(named, 0);
+    const tool = declare(artifact(SCRIPT, { path: "greet" }));
+    manager.status(tool);
+    manager.status(tool);
+    assert.equal(named, 1);
   });
 });
 
@@ -414,10 +432,10 @@ describe("a plugin's tools", { skip }, () => {
     rl.setName("demo");
     rl.setTools({ hello });
     rl.registerAction("where", {
-      execute: (_input, ctx) => ctx.tool?.("hello"),
+      execute: (_input, ctx) => ctx.tool("hello"),
     });
     rl.registerAction("other", {
-      execute: (_input, ctx) => ctx.tool?.("undeclared"),
+      execute: (_input, ctx) => ctx.tool("undeclared"),
     });
   };
 
@@ -452,7 +470,8 @@ describe("a plugin's tools", { skip }, () => {
         /demo declares no tool named "undeclared"/,
       );
 
-      await codemode.tools.remove("hello");
+      assert.equal(await codemode.tools.remove("hello"), true);
+      assert.equal(await codemode.tools.remove("hello"), false);
       assert.equal(codemode.tools.list()[0].installed, false);
       await assert.rejects(
         () => codemode.tools.install("nope"),

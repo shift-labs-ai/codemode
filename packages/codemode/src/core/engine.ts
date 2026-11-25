@@ -23,8 +23,8 @@ import {
   validateTypedInput,
 } from "../plugin/schema.js";
 import type {
-  ActionContext,
   ActionHints,
+  DispatchedContext,
   HelpInput,
   PluginDef,
   TypedInputSchema,
@@ -636,7 +636,7 @@ export class ExecutionEngine {
     }
     assertConnectionOwner(connection, plugin);
     const connectionName = connection.name;
-    const ctx: ActionContext = {
+    const ctx: DispatchedContext = {
       connection,
       context,
       signal,

@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import { ownPackageJson } from "../utils/package-version.js";
 
 /**
  * How an artifact is packed, as a DotSlash file names it. An artifact with
@@ -66,8 +66,18 @@ export function toolPlatform(
 }
 
 /** Whether a format unpacks to a folder of files rather than to one file. */
-export function isArchive(format: ToolFormat | undefined): boolean {
+export function isArchive(
+  format: ToolFormat | undefined,
+): format is Exclude<ToolFormat, "gz"> {
   return format !== undefined && format !== "gz";
+}
+
+/** This host's build of a tool, when it declares one. */
+export function toolArtifact(tool: ToolDeclaration): ToolArtifact | undefined {
+  const platform = toolPlatform();
+  return Object.hasOwn(tool.platforms, platform)
+    ? tool.platforms[platform]
+    : undefined;
 }
 
 /** What a declaration says of this host, before anything is downloaded. */
@@ -83,12 +93,9 @@ export interface ToolSummary {
 }
 
 export function summarizeTool(tool: ToolDeclaration): ToolSummary {
-  const platform = toolPlatform();
-  const artifact = Object.hasOwn(tool.platforms, platform)
-    ? tool.platforms[platform]
-    : undefined;
+  const artifact = toolArtifact(tool);
   return {
-    platform,
+    platform: toolPlatform(),
     supported: artifact !== undefined,
     hosts: [
       ...new Set(
@@ -207,8 +214,7 @@ export function parseTools(value: unknown, where: string): ToolDeclarations {
  * `import.meta.url`, and hand the result to `setTools`.
  */
 export function packageTools(moduleUrl: string): ToolDeclarations {
-  const require = createRequire(moduleUrl);
-  const path = require.resolve("../package.json");
-  const pkg = require(path) as { codemode?: { tools?: unknown } };
-  return parseTools(pkg.codemode?.tools ?? {}, path);
+  const { path, manifest } = ownPackageJson(moduleUrl);
+  const block = manifest.codemode as { tools?: unknown } | undefined;
+  return parseTools(block?.tools ?? {}, path);
 }

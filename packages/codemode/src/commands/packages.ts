@@ -22,8 +22,8 @@ import { parseSource } from "../packages/source.js";
 import type { PackageScope } from "../packages/store.js";
 import { environment } from "../utils/deprecation.js";
 import {
+  downloadOrigin,
   failCommand,
-  megabytes,
   printError,
   printJson,
   printSuccess,
@@ -123,7 +123,7 @@ function printReport(report: PackageReport): void {
       console.log(
         `  ${"".padEnd(16)} tool ${tool.name} ${
           tool.supported
-            ? `← ${tool.hosts.join(", ")} (${megabytes(tool.size ?? 0)})`
+            ? `← ${downloadOrigin(tool)}`
             : chalk.dim(`has no build for ${tool.platform}`)
         }`,
       );
@@ -196,7 +196,7 @@ export async function packageInstall(
       printSuccess(`Installed ${chalk.bold(report.name ?? source)} (${scope})`);
       if (report.plugins.some((plugin) => plugin.tools?.length))
         console.log(
-          "Its programs are not downloaded yet: codemode tools install",
+          "Its programs are not downloaded yet. Run: codemode tools install",
         );
     }
   } catch (err) {

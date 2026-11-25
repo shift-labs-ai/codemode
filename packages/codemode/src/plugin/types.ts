@@ -181,6 +181,13 @@ export interface ActionContext {
 }
 
 /**
+ * The context of a call the engine dispatches, which is how a registered
+ * action is called: what the engine supplies on every call is present.
+ */
+export type DispatchedContext = ActionContext &
+  Required<Pick<ActionContext, "signal" | "maxOutputBytes" | "tool">>;
+
+/**
  * OAuth2 authorization-code configuration declared by a plugin.
  * Consumed by the generic `codemode auth <plugin>` flow, which
  * handles the browser redirect, code exchange, and persistence

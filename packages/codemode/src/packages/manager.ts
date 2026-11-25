@@ -36,6 +36,7 @@ import { type PackageManifest, readPackageManifest } from "./manifest.js";
 import {
   type CommandResult,
   type CommandRunner,
+  failureDetail,
   nodeCommandRunner,
 } from "./runner.js";
 import {
@@ -1516,11 +1517,7 @@ export class PackageManager {
       );
     }
     if (result.code !== 0) {
-      const detail = (result.stderr || result.stdout)
-        .trim()
-        .split("\n")
-        .slice(-5)
-        .join("\n");
+      const detail = failureDetail(result);
       const verb = args.find(
         (a, i) => !a.startsWith("-") && args[i - 1] !== "-c",
       );

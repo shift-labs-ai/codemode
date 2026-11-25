@@ -75,9 +75,10 @@ codemode tools entry https://example.com/releases/v1.2.0/notes_linux_amd64.tar.g
 Read the declarations in the plugin, the way it reads its version, and ask for a tool's path in the action that runs it:
 
 ```typescript
+import type { CodemodePluginAPI } from "@shiftlabs/codemode";
 import { packageTools, packageVersion } from "@shiftlabs/codemode/utils/cli";
 
-export default function notes(rl) {
+export default function notes(rl: CodemodePluginAPI) {
   rl.setName("notes");
   rl.setVersion(packageVersion(import.meta.url));
   rl.setTools(packageTools(import.meta.url));
@@ -101,13 +102,13 @@ export default function notes(rl) {
 Installing a package shows the tools its plugins declare and the hosts they are downloaded from. It does not download them. Install them as a step of their own:
 
 ```bash
-codemode tools
+codemode tools list
 codemode tools install
 ```
 
 | Task | Command |
 |---|---|
-| List declared tools and whether each is installed | `codemode tools` |
+| List declared tools and whether each is installed | `codemode tools list` |
 | Install every declared tool, or one | `codemode tools install [name]` |
 | Delete an installed tool | `codemode tools remove <name>` |
 | Print a platform entry for a URL | `codemode tools entry <url>` |
@@ -136,28 +137,27 @@ const codemode = Codemode.create({
   tools: new ToolManager({ dir: "/data/codemode/tools" }),
 });
 
-for (const tool of codemode.tools.list()) {
-  if (tool.supported && !tool.installed) await codemode.tools.install(tool.name);
-}
+await codemode.tools.install();
+console.log(codemode.tools.list());
 ```
 
 | Method | Result |
 |---|---|
 | `tools.list()` | Each declared tool with `plugin`, `name`, `platform`, `supported`, `hosts`, `size`, `installed`, and `path` when installed |
 | `tools.install(name?)` | Installs one tool, or every tool that has a build for the host, and answers their state |
-| `tools.remove(name)` | Deletes one installed tool and answers its state |
+| `tools.remove(name)` | Deletes one installed tool, and answers whether there was one |
 
 `ToolManager` is the library behind them. It never prompts or prints, and it downloads only when `install()` or `describe()` is called.
 
 | Option | Purpose |
 |---|---|
-| `dir` | The folder installed tools are kept in |
+| `dir` | The folder installed tools are kept in, or a function that names it when a tool is first asked about |
 | `fetch` | Downloads artifacts. Replace it to use a proxy or a mirror. The default is the global `fetch` |
 | `runner` | Runs `tar` and `unzip`, and each tool's check. Replace it to run them in a sandbox |
 | `offline` | Refuses every download |
 | `onDownload` | Called when a download is about to start |
 
-Without a `tools` option, an instance keeps tools in `tools` in the user's codemode folder. Failures are `ToolError` values with a `code`: `not_declared`, `unsupported_platform`, `not_installed`, `offline`, `download_failed`, `unpack_failed`, `check_failed`, or `aborted`.
+Without a `tools` option, an instance keeps tools in `tools` in the user's codemode folder, which it looks for only when a tool is first asked about. Failures are `ToolError` values with a `code`: `not_declared`, `unsupported_platform`, `not_installed`, `offline`, `download_failed`, `unpack_failed`, `check_failed`, or `aborted`.
 
 ## Understand the limits
 

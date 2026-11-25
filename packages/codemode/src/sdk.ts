@@ -116,7 +116,7 @@ export class Codemode {
   private readonly _credentialBroker: EngineHooks["credentialBroker"];
   /** The MCP manager `fromProject` created, which this instance closes. */
   private _mcp?: McpManager;
-  private readonly _tools: ToolManager;
+  private readonly _toolManager: ToolManager;
   /**
    * The programs this instance's plugins declare: `list()` them with their
    * state on this host, `install()` one or all, `remove()` one. Nothing is
@@ -128,11 +128,14 @@ export class Codemode {
     this._registry = new PluginRegistry();
     this._onAction = options.onAction;
     this._credentialBroker = options.credentialBroker;
-    this._tools =
-      options.tools ?? new ToolManager({ dir: join(userConfigDir(), "tools") });
+    this._toolManager =
+      options.tools ??
+      // Creating an instance reads nothing: the user's folder is looked
+      // for when a tool is first asked about.
+      new ToolManager({ dir: () => join(userConfigDir(), "tools") });
     this.tools = new PluginTools(
       () => this._registry.listPlugins(),
-      this._tools,
+      this._toolManager,
     );
     if (options.connectionProvider && options.connections) {
       throw new Error("Pass connections or connectionProvider, not both");
@@ -177,7 +180,7 @@ export class Codemode {
         onAction: this._onAction,
         connectionProvider: this._connectionProvider,
         credentialBroker: this._credentialBroker,
-        tools: this._tools,
+        tools: this._toolManager,
       });
     }
     return this._engine;

@@ -49,6 +49,7 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 | `outputDir` | Where output files are written: a command's whole output, a run's whole result, generated media. The default is the system's temporary directory |
 | `outputLimit` | How much a run hands back. The default is 2,000 lines and 50 KB. See [Limit a run's result](#limit-a-runs-result) |
 | `maxActionOutputBytes` | How much one action may hold in memory. The default is 8 MiB. See [Limit what an action holds](#limit-what-an-action-holds) |
+| `tools` | A `ToolManager` that keeps the programs plugins declare. The default keeps them in `tools` in the user's codemode folder, which is looked for when a tool is first asked about. See [Install tools](#install-tools) |
 
 `addPlugin(plugin, connections?)` registers another plugin. Later runs see it, and a run in progress is not disturbed. `actions()`, `plugins()`, and `connections()` report what the instance holds. `connections()` lists only in-memory connections.
 
@@ -176,6 +177,7 @@ It registers the project's plugin files, packages, and MCP servers when the proj
 | `userDir` | The user's codemode folder. The default is `~/.codemode` |
 | `packages` | A `PackageManager` to load packages with, or `false` to load none |
 | `mcp` | An `McpManager` to load MCP servers with, or `false` to load none. The caller closes a manager it passes, and registers a server again when its tools change |
+| `tools` | A `ToolManager` that keeps the programs plugins declare. The default keeps them in `tools` in `userDir` |
 
 See [Supply trust from a host](security.md#supply-trust-from-a-host).
 

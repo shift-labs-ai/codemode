@@ -2,10 +2,10 @@ import type { CredentialDeclaration } from "../credentials/types.js";
 import type { ToolDeclarations } from "../tools/declaration.js";
 import type {
   ActionAccess,
-  ActionContext,
   ActionDef,
   ActionHints,
   ConnectionSchema,
+  DispatchedContext,
   InputOf,
   InputSchema,
   LegacyInputSchema,
@@ -21,7 +21,7 @@ export interface ActionDefinition<S extends InputSchema = InputSchema> {
   hints?: ActionHints;
   execute: (
     input: InputOf<S>,
-    ctx: ActionContext,
+    ctx: DispatchedContext,
   ) => unknown | Promise<unknown>;
 }
 
@@ -135,7 +135,8 @@ export function createPluginAPI(pluginId: string | null): {
       def: ActionDefinition<S>,
     ) {
       // The engine validates input against a TypeBox schema before
-      // execute, so the handler's typed input holds at this boundary.
+      // execute and builds the context itself, so the handler's typed
+      // input and context hold at this boundary.
       actions.push({ name: actionName, ...def } as ActionDef);
     },
     setConnectionSchema(schema: ConnectionSchema) {
@@ -148,7 +149,7 @@ export function createPluginAPI(pluginId: string | null): {
       credential = declaration;
     },
     setTools(declared: ToolDeclarations) {
-      tools = declared;
+      tools = { ...declared };
     },
     onInit(fn) {
       initHooks.push(fn);
