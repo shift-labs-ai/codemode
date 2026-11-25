@@ -316,6 +316,27 @@ export type {
 } from "./plugin/types.js";
 export type { CodemodeExecuteOptions, CodemodeOptions } from "./sdk.js";
 export { Codemode } from "./sdk.js";
+export {
+  packageTools,
+  parseTools,
+  TOOL_FORMATS,
+  type ToolArtifact,
+  type ToolDeclaration,
+  type ToolDeclarations,
+  type ToolFormat,
+  type ToolSummary,
+  toolPlatform,
+} from "./tools/declaration.js";
+export {
+  type PluginTool,
+  PluginTools,
+  type ToolCallOptions,
+  ToolError,
+  type ToolErrorCode,
+  ToolManager,
+  type ToolManagerOptions,
+  type ToolStatus,
+} from "./tools/manager.js";
 export type {
   ExecOptions,
   ExecResult,

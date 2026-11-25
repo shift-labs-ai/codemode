@@ -21,6 +21,12 @@ import {
   packageUpdate,
 } from "./commands/packages.js";
 import { pluginInstall, pluginList, pluginRemove } from "./commands/plugin.js";
+import {
+  toolsEntry,
+  toolsInstall,
+  toolsList,
+  toolsRemove,
+} from "./commands/tools.js";
 
 const collect = (value: string, previous: string[]) => [...previous, value];
 
@@ -315,6 +321,55 @@ mcpCmd
   .action(async (name, _opts, cmd) => {
     const globals = cmd.optsWithGlobals();
     await mcpRefresh(name, { json: globals.json });
+  });
+
+// ── tools ───────────────────────────────────────────────
+
+const toolsCmd = program
+  .command("tools")
+  .description("Manage the programs that loaded plugins declare")
+  .action(async (_opts, cmd) => {
+    await toolsList({ json: cmd.optsWithGlobals().json });
+  });
+
+toolsCmd
+  .command("list")
+  .alias("ls")
+  .description("List declared programs and whether each is installed")
+  .action(async (_opts, cmd) => {
+    await toolsList({ json: cmd.optsWithGlobals().json });
+  });
+
+toolsCmd
+  .command("install [name]")
+  .description("Download, verify and unpack one declared program, or every one")
+  .action(async (name, _opts, cmd) => {
+    await toolsInstall(name, { json: cmd.optsWithGlobals().json });
+  });
+
+toolsCmd
+  .command("remove <name>")
+  .description("Delete an installed program")
+  .action(async (name, _opts, cmd) => {
+    await toolsRemove(name, { json: cmd.optsWithGlobals().json });
+  });
+
+toolsCmd
+  .command("entry <url>")
+  .description(
+    "Print a platform entry for the artifact at a URL: its size and SHA-256",
+  )
+  .addHelpText(
+    "after",
+    `
+The entry goes under codemode.tools.<name>.platforms.<platform> in the
+package's package.json. Set "path" to the program inside the artifact.
+
+Example:
+  $ codemode tools entry https://example.com/releases/v1.2.0/tool_linux_amd64.tar.gz`,
+  )
+  .action(async (url) => {
+    await toolsEntry(url);
   });
 
 // ── plugin ──────────────────────────────────────────────

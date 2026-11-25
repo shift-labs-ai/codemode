@@ -87,6 +87,7 @@ Return a file's path instead of large or binary content. `writeOutputFile(prefix
 | `ctx.signal` | An `AbortSignal` that fires when the run that made the call ends. Pass it to work that should stop with the run |
 | `ctx.outputDir` | Where the host keeps output files, when it names a place. Write large or binary output there with `writeOutputFile()` and return the path |
 | `ctx.maxOutputBytes` | How much the host lets an action hold in memory and hand back, 8 MiB by default. Pass it to `runShell`, or keep what is past it in a file |
+| `ctx.tool(name)` | The path of a [tool](tools.md) the plugin declares. Rejects when the host has not installed it |
 | `ctx.log` | `info`, `warn`, and `error`, prefixed with the plugin name |
 | `ctx.updateConnection(patch)` | Persists a change to the connection's config through the host |
 

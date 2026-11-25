@@ -13,6 +13,7 @@ The command-line interface uses the nearest `.codemode` folder at or above the w
 | `~/.codemode/mcp/` | Cached tool lists of those servers. Managed by codemode |
 | `~/.codemode/plugins/` | [Plugins](plugins.md) available in every project |
 | `~/.codemode/packages/` | Files of installed [packages](packages.md). Managed by codemode |
+| `~/.codemode/tools/` | Programs installed for the [tools](tools.md) plugins declare. Managed by codemode |
 | `~/.codemode/trust.json` | The project folders you trusted |
 
 ## Project `.codemode` folder
@@ -69,7 +70,7 @@ Other tools keep their own keys in the same file. `pi-runline` reads `piPlugins`
 | Variable | Description |
 |---|---|
 | `CODEMODE_PACKAGE_MANAGER` | Overrides `packageManager`: `npm`, `pnpm`, or `bun` |
-| `CODEMODE_OFFLINE` | Set to `1` to disable every network step of package commands |
+| `CODEMODE_OFFLINE` | Set to `1` to disable every network step of package commands, and every tool download |
 | `CODEMODE_OAUTH_CALLBACK_PORT` | Port for the `codemode auth` redirect. The default is `47823` |
 | `NO_COLOR` | Disables colored output, like `--no-color` |
 

@@ -29,6 +29,7 @@ import type {
   PluginDef,
   TypedInputSchema,
 } from "../plugin/types.js";
+import { pluginToolPath, type ToolManager } from "../tools/manager.js";
 import { notifyObserver } from "../utils/observer.js";
 import { ACTION_MEMORY_BYTES } from "../utils/output-files.js";
 import {
@@ -101,6 +102,11 @@ export interface EngineHooks {
    * does, the engine swallows it: observability never breaks a run.
    */
   onAction?: (info: ActionInvocation) => void | Promise<void>;
+  /**
+   * Where the programs plugins declare are installed: what `ctx.tool`
+   * answers from. Absent, `ctx.tool` rejects.
+   */
+  tools?: ToolManager;
 }
 
 // Messages worker → host. Every message carries the `runId` it belongs to so
@@ -638,6 +644,11 @@ export class ExecutionEngine {
         ? {}
         : { outputDir: output.outputDir }),
       maxOutputBytes: output.maxOutputBytes,
+      tool: async (name) => {
+        if (!this.hooks.tools)
+          throw new Error(`${plugin.name}: this host installs no tools`);
+        return pluginToolPath(this.hooks.tools, plugin, name);
+      },
       ...(this.hooks.credentialBroker && plugin.credential
         ? {
             credentials: this.hooks.credentialBroker({

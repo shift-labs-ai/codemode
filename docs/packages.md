@@ -99,6 +99,8 @@ Do not list them in `dependencies`. An installed copy gives the plugin its own c
 
 A narrower peer range, such as `">=0.45"`, is compared with the codemode that loads the package. Outside the range the package still loads, and codemode reports a warning naming both versions.
 
+A program that npm cannot install, such as a command-line tool a plugin runs, is declared under `codemode.tools`. See [Tools](tools.md).
+
 ## Select package plugins
 
 The object form in `config.json` narrows which plugins load from a package:

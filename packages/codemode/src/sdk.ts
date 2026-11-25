@@ -27,6 +27,7 @@ import type {
   InputSchema,
   PluginDef,
 } from "./plugin/types.js";
+import { PluginTools, ToolManager } from "./tools/manager.js";
 import type { OutputLimitSetting } from "./utils/output-limit.js";
 
 export interface CodemodeOptions {
@@ -72,6 +73,11 @@ export interface CodemodeOptions {
    */
   maxActionOutputBytes?: number;
   /**
+   * Where the programs plugins declare are installed, and what installs
+   * them. Default: a manager over `tools` in the user's codemode folder.
+   */
+  tools?: ToolManager;
+  /**
    * Observer fired in the host process for every action invocation
    * that enters a plugin's `execute()` — unknown paths and failed
    * input validation never reach plugin code and are not reported.
@@ -110,11 +116,24 @@ export class Codemode {
   private readonly _credentialBroker: EngineHooks["credentialBroker"];
   /** The MCP manager `fromProject` created, which this instance closes. */
   private _mcp?: McpManager;
+  private readonly _tools: ToolManager;
+  /**
+   * The programs this instance's plugins declare: `list()` them with their
+   * state on this host, `install()` one or all, `remove()` one. Nothing is
+   * downloaded except by `install()`.
+   */
+  readonly tools: PluginTools;
 
   private constructor(options: CodemodeOptions) {
     this._registry = new PluginRegistry();
     this._onAction = options.onAction;
     this._credentialBroker = options.credentialBroker;
+    this._tools =
+      options.tools ?? new ToolManager({ dir: join(userConfigDir(), "tools") });
+    this.tools = new PluginTools(
+      () => this._registry.listPlugins(),
+      this._tools,
+    );
     if (options.connectionProvider && options.connections) {
       throw new Error("Pass connections or connectionProvider, not both");
     }
@@ -158,6 +177,7 @@ export class Codemode {
         onAction: this._onAction,
         connectionProvider: this._connectionProvider,
         credentialBroker: this._credentialBroker,
+        tools: this._tools,
       });
     }
     return this._engine;
@@ -309,6 +329,8 @@ export class Codemode {
       trust?: (projectRoot: string) => boolean | Promise<boolean>;
       /** The user's codemode folder. Default: `~/.codemode`. */
       userDir?: string;
+      /** Where declared programs are installed. Default: a manager over `tools` in `userDir`. */
+      tools?: ToolManager;
     } = {},
   ): Promise<Codemode | null> {
     const configDir = findConfigDir(cwd);
@@ -358,6 +380,7 @@ export class Codemode {
       outputDir: config.outputDir,
       outputLimit: config.outputLimit,
       maxActionOutputBytes: config.maxActionOutputBytes,
+      tools: options.tools ?? new ToolManager({ dir: join(userDir, "tools") }),
     });
 
     for (const plugin of plugins) {

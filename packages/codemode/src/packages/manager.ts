@@ -25,6 +25,7 @@ import {
   pluginEntryNames,
 } from "../plugin/loader.js";
 import type { PluginDef } from "../plugin/types.js";
+import { summarizeTool, type ToolSummary } from "../tools/declaration.js";
 import { legacyName } from "../utils/deprecation.js";
 import {
   isPackageError,
@@ -149,6 +150,8 @@ export interface PluginReport {
   };
   /** Set when the credential's type depends on connection config. */
   credentialNote?: string;
+  /** The programs the plugin declares, and where each is downloaded from. */
+  tools?: Array<{ name: string } & ToolSummary>;
 }
 
 /** What a package carries and asks for, read without recording it. */
@@ -1601,6 +1604,11 @@ function reportPlugin(plugin: PluginDef): PluginReport {
     write: access.filter((a) => a === "write").length,
     unspecified: access.filter((a) => a === undefined).length,
   };
+  if (plugin.tools)
+    report.tools = Object.entries(plugin.tools).map(([name, tool]) => ({
+      name,
+      ...summarizeTool(tool),
+    }));
   if (plugin.credential) {
     try {
       // Declarations that need connection config to choose targets throw on {}.

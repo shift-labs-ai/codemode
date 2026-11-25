@@ -61,6 +61,7 @@ export function commandExists(name: string): boolean {
   return commandPath(name) !== undefined;
 }
 
+export { packageTools } from "../tools/declaration.js";
 export { packageVersion } from "./package-version.js";
 export {
   isShellError,

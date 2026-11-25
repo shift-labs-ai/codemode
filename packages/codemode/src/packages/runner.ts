@@ -12,6 +12,8 @@ export interface CommandOptions {
   signal?: AbortSignal;
   /** Milliseconds before the command is killed. */
   timeoutMs?: number;
+  /** The command's whole environment. Default: the host process's. */
+  env?: Record<string, string>;
 }
 
 /**
@@ -59,11 +61,13 @@ export const nodeCommandRunner: CommandRunner = {
       const child = viaCmd
         ? spawn([command, ...args].map(quoteForCmd).join(" "), {
             cwd: options.cwd,
+            env: options.env,
             shell: true,
             windowsHide: true,
           })
         : spawn(command, args, {
             cwd: options.cwd,
+            env: options.env,
             shell: false,
             detached: process.platform !== "win32",
             windowsHide: true,

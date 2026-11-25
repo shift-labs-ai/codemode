@@ -257,6 +257,10 @@ It receives `plugin`, `action`, `path`, `durationMs`, and `error` when the actio
 
 `PackageManager` installs, updates, and loads plugin packages with storage, folders, the process runner, and trust supplied by the host. See [Embed the package manager](packages.md#embed-the-package-manager).
 
+## Install tools
+
+`codemode.tools` lists the programs the instance's plugins declare, installs them, and removes them. `ToolManager` does the work, with the folder, `fetch`, and the process runner supplied by the host. See [Embed the tool manager](tools.md#embed-the-tool-manager).
+
 ## Load MCP servers
 
 `McpManager` loads MCP servers as plugins, with storage, connections, the transport, and trust supplied by the host. See [Embed the MCP manager](mcp.md#embed-the-mcp-manager).
