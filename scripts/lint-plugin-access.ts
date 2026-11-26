@@ -9,17 +9,9 @@
  * gated and reserved under the wrong name.
  *
  * Hosts gate actions on `access`: a `read` action may run where writes
- * are refused, so a mislabelled mutation is a permission hole. Two rules:
- *
- * 1. Every action declares `access: "read"` or `access: "write"`.
- * 2. An action whose verb mutates is `write`. The verb is the leading
- *    word of the action name's last segment (`record.createMany` →
- *    `create`), so a noun like `order.get` or `release.list` is not
- *    mistaken for one.
- *
- * Labelling a read-shaped action `write` is always allowed: that is the
- * conservative call for a POST-backed render, a query that may mutate, or
- * a download that writes to disk.
+ * are refused, so every action declares one and a verb that changes
+ * something is `write`. `accessProblem` (`lint/access.ts`) decides both,
+ * the same rule `codemode lint` applies to every other package.
  *
  * It loads the plugins rather than parsing them, so actions registered
  * through helpers and loops are checked as the host sees them.
@@ -28,70 +20,10 @@
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { accessProblem } from "../packages/codemode/src/lint/access.ts";
 import { loadPluginFromPath } from "../packages/codemode/src/plugin/loader.ts";
 
 const PLUGINS_DIR = join(import.meta.dir, "../packages/codemode-plugins");
-
-const MUTATING_VERBS = new Set([
-  "add",
-  "append",
-  "approve",
-  "archive",
-  "assign",
-  "cancel",
-  "close",
-  "copy",
-  "create",
-  "delete",
-  "disable",
-  "edit",
-  "enable",
-  "forward",
-  "grant",
-  "insert",
-  "install",
-  "invite",
-  "leave",
-  "mark",
-  "merge",
-  "move",
-  "post",
-  "publish",
-  "push",
-  "reject",
-  "remove",
-  "rename",
-  "reopen",
-  "replace",
-  "reply",
-  "restart",
-  "restore",
-  "revoke",
-  "rotate",
-  "send",
-  "set",
-  "share",
-  "start",
-  "stop",
-  "submit",
-  "trash",
-  "trigger",
-  "unarchive",
-  "unassign",
-  "uninstall",
-  "unpublish",
-  "unshare",
-  "unsubscribe",
-  "untrash",
-  "update",
-  "upload",
-  "upsert",
-]);
-
-function verbOf(actionName: string): string {
-  const last = actionName.split(".").at(-1) ?? actionName;
-  return (last.split(/(?=[A-Z])/)[0] ?? last).toLowerCase();
-}
 
 const problems: string[] = [];
 let actions = 0;
@@ -116,12 +48,13 @@ for (const dir of dirs) {
   for (const action of plugin.actions) {
     actions++;
     const path = `${plugin.name}.${action.name}`;
-    const verb = verbOf(action.name);
-    if (action.access !== "read" && action.access !== "write") {
+    const access = accessProblem(action);
+    if (access?.kind === "undeclared")
       problems.push(`${path}: declare access "read" or "write"`);
-    } else if (action.access === "read" && MUTATING_VERBS.has(verb)) {
-      problems.push(`${path}: "${verb}" mutates, so access must be "write"`);
-    }
+    else if (access?.kind === "mutating-read")
+      problems.push(
+        `${path}: "${access.verb}" mutates, so access must be "write"`,
+      );
   }
 }
 

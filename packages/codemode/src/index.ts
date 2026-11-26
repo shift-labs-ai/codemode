@@ -178,6 +178,14 @@ export type {
   StoredCookie,
 } from "./credentials/types.js";
 export {
+  type LintedPlugin,
+  type LintFinding,
+  type LintLevel,
+  type LintOptions,
+  type LintReport,
+  lintPackage,
+} from "./lint/lint.js";
+export {
   actionNames,
   discoverMcpOAuth,
   FileMcpStore,

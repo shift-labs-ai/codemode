@@ -162,6 +162,8 @@ See [Plugins](plugins.md) for how plugins load.
   Installs a package into the project without asking. Add `-g`, `--global` to install into `~/.codemode`.
 - `plugin remove <source>`<br>
   Removes a package from the project, or from `~/.codemode` when the project does not have it.
+- `lint [dir]`<br>
+  Checks a plugin folder or package: its files, what it registers, and what its actions send against a stand-in network. The default is the working directory. Exits with 1 when any finding is an error; `--json` prints the report. See [Check a plugin](plugins.md#check-a-plugin).
 
 ## Projects
 

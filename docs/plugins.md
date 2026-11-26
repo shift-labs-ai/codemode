@@ -272,6 +272,57 @@ codemode exec 'return actions.check("weather.forecast.get", { latitude: 52.52 })
 
 `codemode actions --json` prints every loaded action with its schema. Load failures appear on stderr with the module path. Common causes are a name that cannot be a variable, a missing entry point, a malformed `package.json` or `plugins.json`, an untrusted project, and a name that another plugin already holds.
 
+## Check a plugin
+
+Check a plugin before other people use it:
+
+```bash
+codemode lint ./orders
+```
+
+`codemode lint` checks a plugin folder or package in three passes, and exits with 1 when any finding is an error:
+
+1. It reads the files: no install script, no secret written in the code, no `Authorization` header built from a variable, and `@shiftlabs/codemode` and `typebox` as peers.
+2. It loads the plugin and reads what it registered: every action has `access`, a verb that changes something is `write`, every action has a description, and every input is closed.
+3. It runs every action against a stand-in network that answers `{}`, with a stand-in value in each connection field. It reports a secret sent around the credential layer and an environment variable the plugin's own code reads, and names every action it could not run.
+
+A plugin passes when each person's secret comes from their connection and reaches the API through the credential helpers, as [Authenticate requests](#authenticate-requests) describes. That is what lets every person use their own account.
+
+| Rule | Level | Fails when |
+|---|---|---|
+| `load/failed` | error | The plugin does not load: a missing entry point, a name that cannot be a variable |
+| `name/reserved` | error | The plugin takes a bundled plugin's name |
+| `plugin/no-actions` | error | It registers no action |
+| `action/access`, `action/access-verb` | error | An action declares no `access`, or a verb that changes something is labelled `read` |
+| `action/description` | error | An action has no description |
+| `action/input-open` | error | An input object does not set `additionalProperties: false` |
+| `credential/insecure-target` | error | The credential is declared for a host that is not `https` or `wss` |
+| `package/install-script`, `package/host-module-dependency` | error | `package.json` has an install script, or lists codemode or typebox as a dependency |
+| `source/secret-literal` | error | A key, token or private key is written in the code |
+| `source/auth-header` | error | The code builds an `Authorization` header from a variable |
+| `run/secret-outside-credential` | error | An action sends a connection's secret, or a login header such as `Authorization`, `Cookie` or `X-API-Key`, outside the credential helpers |
+| `run/env-read` | error | The plugin's own code reads `process.env`. Variables that only locate the operating system's programs, such as `PATH` and `SystemRoot`, are allowed |
+| `action/input-legacy` | warning | An input uses the legacy field map instead of TypeBox |
+| `credential/undeclared` | warning | A connection field looks like a secret, and the plugin declares no credential |
+| `credential/unresolved` | warning | The credential chooses its targets from connection config the stand-in values do not satisfy, so the targets are not checked |
+| `run/not-run` | warning | No input could be made for an action's schema, such as a string with a `pattern` or `format` and no default, so what it sends is not checked |
+| `run/read-sends-write` | warning | A `read` action sends PUT, PATCH or DELETE |
+| `package/peer-range` | warning | The package's peer range excludes the codemode that loads it |
+
+Each finding names its rule, the plugin, the actions or the file and line, and what to change. `--json` prints the report, which also lists, for each plugin, what `codemode install` shows (its actions by access and its credential's targets) and every host it sends to.
+
+A package that must break a rule says why in its `package.json`. The finding is then a warning that carries the reason:
+
+```json
+{
+  "codemode": {
+    "lint": { "allow": { "run/env-read": "a shell passes its environment on" } }
+  }
+}
+```
+
+Linting runs the plugin's code. The network is a stand-in, and nothing else on the machine is fenced. `lintPackage(dir)` is the same check as a library call. It replaces `globalThis.fetch`, `process.env` and the working directory while it runs, so a host calls it in a process of its own.
+
 ## Share a plugin
 
 Publish plugins as a package to install them with `codemode install`. A package names its plugin modules in `package.json` and carries its own dependencies. See [Packages](packages.md).

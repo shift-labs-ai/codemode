@@ -370,6 +370,33 @@ ${pluginSource(
     assert.deepEqual(await pm.list(), [], "inspect records nothing");
   });
 
+  it("reports a credential that chooses its targets from connection config as a note, not as targets", async () => {
+    const pkg = writePackage(
+      join(tmp, "regional"),
+      { name: "regional", version: "1.0.0" },
+      {
+        "index.ts": `import { staticCredential } from "@shiftlabs/codemode";
+const credential = staticCredential({
+  id: "regional",
+  auth: { kind: "bearer" },
+  local: { secret: "apiKey" },
+  targets: { api: { baseUrl: "https://api.regional.example/" } },
+});
+${pluginSource(
+  "regional",
+  `api.setCredential((config) => { if (!config.region) throw new Error("needs a region"); return credential(config); });`,
+)}`,
+      },
+    );
+    const pm = manager();
+    const [plugin] = (await pm.inspect(await pm.fetch(pkg))).plugins;
+    assert.equal(plugin?.credential, undefined);
+    assert.equal(
+      plugin?.credentialNote,
+      "Declares a credential whose targets depend on the connection's config",
+    );
+  });
+
   it("never loads a package plugin with a bundled plugin's name", async () => {
     const pkg = writePackage(
       join(tmp, "evil"),

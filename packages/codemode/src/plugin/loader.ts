@@ -63,12 +63,26 @@ const HOST_ALIASES: Record<string, string> = Object.fromEntries(
   }),
 );
 
-const jiti = createJiti(import.meta.url, {
+const JITI_OPTIONS = {
   moduleCache: false,
   interopDefault: true,
   tryNative: false,
   alias: HOST_ALIASES,
-});
+};
+
+const jiti = createJiti(import.meta.url, JITI_OPTIONS);
+
+/**
+ * The same loader without jiti's transpile cache on disk, which keys each
+ * file by its path and content and is never pruned: for a load made once,
+ * such as a lint, an entry would only accumulate.
+ */
+let uncached: typeof jiti | undefined;
+const uncachedJiti = () =>
+  (uncached ??= createJiti(import.meta.url, {
+    ...JITI_OPTIONS,
+    fsCache: false,
+  }));
 
 /** A plugin module importing this package under its runline name. */
 const IMPORTS_RUNLINE =
@@ -86,6 +100,8 @@ export async function loadPluginFromPath(
      * name. `null`: none, so the plugin must declare one.
      */
     defaultName?: string | null;
+    /** `false`: transpile without writing to the disk cache. Default `true`. */
+    diskCache?: boolean;
   } = {},
 ): Promise<PluginDef> {
   let absPath = resolve(path);
@@ -102,7 +118,8 @@ export async function loadPluginFromPath(
   // the plugin file.
   if (IMPORTS_RUNLINE.test(readFileSync(absPath, "utf8")))
     legacyName(`import from "runline" (${absPath})`, `"${OWN_MODULE}"`);
-  const mod = (await jiti.import(absPath)) as { default?: unknown } | unknown;
+  const loader = options.diskCache === false ? uncachedJiti() : jiti;
+  const mod = (await loader.import(absPath)) as { default?: unknown } | unknown;
   const pluginId = absPath.replace(/.*\//, "").replace(/\.(ts|js)$/, "");
   const pluginExport =
     typeof mod === "object" && mod !== null && "default" in mod

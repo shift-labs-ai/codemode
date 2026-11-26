@@ -149,7 +149,11 @@ export interface PluginReport {
     /** Base URLs the selected method signs for. */
     targets: string[];
   };
-  /** Set when the credential's type depends on connection config. */
+  /**
+   * Set, in place of `credential`, when the declaration cannot choose its
+   * method with the config it was reported with: it needs connection
+   * config that config lacks.
+   */
   credentialNote?: string;
   /** The programs the plugin declares, and where each is downloaded from. */
   tools?: Array<{ name: string } & ToolSummary>;
@@ -1591,7 +1595,15 @@ function reservedProblem(plugin: string, source: string): PackageProblem {
   };
 }
 
-function reportPlugin(plugin: PluginDef): PluginReport {
+/**
+ * What a plugin declares: its actions by access, and the hosts its
+ * credential signs for when chosen with `config`. `inspect` reads it with
+ * no config, `codemode lint` with its stand-in connection.
+ */
+export function reportPlugin(
+  plugin: PluginDef,
+  config: Record<string, unknown> = {},
+): PluginReport {
   const access = plugin.actions.map((a) => a.access);
   const report: PluginReport = {
     name: plugin.name,
@@ -1608,8 +1620,8 @@ function reportPlugin(plugin: PluginDef): PluginReport {
     }));
   if (plugin.credential) {
     try {
-      // Declarations that need connection config to choose targets throw on {}.
-      const selection = plugin.credential({});
+      // A declaration that needs connection config to choose its targets throws without it.
+      const selection = plugin.credential(config);
       const targets = selection.type.methods[selection.method]?.targets ?? {};
       report.credential = {
         type: selection.type.id,

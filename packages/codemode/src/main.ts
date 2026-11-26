@@ -11,6 +11,7 @@ import {
 } from "./commands/connection.js";
 import { exec } from "./commands/exec.js";
 import { init } from "./commands/init.js";
+import { lint } from "./commands/lint.js";
 import { mcpAdd, mcpList, mcpRefresh, mcpRemove } from "./commands/mcp.js";
 import {
   packageInstall,
@@ -442,6 +443,16 @@ Examples:
       json: globals.json,
       quiet: globals.quiet,
     });
+  });
+
+program
+  .command("lint [dir]")
+  .description(
+    "Check a plugin package: its files, what it registers, and what its actions send",
+  )
+  .action(async (dir, _opts, cmd) => {
+    const globals = cmd.optsWithGlobals();
+    await lint(dir, { json: globals.json });
   });
 
 program
