@@ -10,6 +10,7 @@ import type {
   ConnectionConfig,
   PluginDef,
 } from "../plugin/types.js";
+import { inheritedEnvironment } from "../utils/environment.js";
 import { notifyObserver } from "../utils/observer.js";
 import {
   discoverMcpOAuth,
@@ -49,11 +50,7 @@ import {
   type McpTransportFactory,
 } from "./session.js";
 import { FileMcpStore, type McpStore } from "./store.js";
-import {
-  inheritedEnvironment,
-  resolveClientSecret,
-  resolveServer,
-} from "./values.js";
+import { resolveClientSecret, resolveServer } from "./values.js";
 
 export type McpEvent =
   | { type: "state"; server: string; state: McpSessionState; error?: string }

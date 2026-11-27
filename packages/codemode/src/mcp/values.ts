@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { definedEnvironment } from "../utils/environment.js";
 import type { McpServer } from "./config.js";
 import { McpServerError } from "./errors.js";
 
@@ -15,48 +16,6 @@ export type McpResolvedServer =
       env: Record<string, string>;
     }
   | { kind: "http"; url: string; headers: Record<string, string> };
-
-/** What a stdio server inherits from the host's environment when a host names nothing else. */
-export const INHERITED_ENVIRONMENT = [
-  "PATH",
-  "HOME",
-  "USER",
-  "LOGNAME",
-  "SHELL",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "TZ",
-  "TMPDIR",
-  "TERM",
-  // Windows: where programs, profiles and temporary files are found.
-  "Path",
-  "PATHEXT",
-  "SystemRoot",
-  "SYSTEMROOT",
-  "COMSPEC",
-  "USERPROFILE",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "PROGRAMFILES",
-  "TEMP",
-  "TMP",
-];
-
-/**
- * The host's own values of `INHERITED_ENVIRONMENT`: the whole environment
- * of a program that is given nothing else of the host's.
- */
-export function inheritedEnvironment(): Record<string, string> {
-  return Object.fromEntries(
-    INHERITED_ENVIRONMENT.flatMap((name) => {
-      const value = process.env[name];
-      return value === undefined ? [] : [[name, value]];
-    }),
-  );
-}
 
 /** `~` and `~/…` (also `~\…` on Windows) name the home directory, as in a shell. */
 function expandHome(value: string): string {
@@ -143,11 +102,6 @@ export function resolveServer(
       url: config.url,
       headers: fill(config.headers, "headers"),
     };
-  const inherited = Object.fromEntries(
-    Object.entries(options.inherited).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
-    ),
-  );
   return {
     kind: "stdio",
     command: expandHome(config.command),
@@ -155,7 +109,10 @@ export function resolveServer(
     ...(config.cwd === undefined && server.base === undefined
       ? {}
       : { cwd: resolve(server.base ?? "", expandHome(config.cwd ?? ".")) }),
-    env: { ...inherited, ...fill(config.env, "env") },
+    env: {
+      ...definedEnvironment(options.inherited),
+      ...fill(config.env, "env"),
+    },
   };
 }
 

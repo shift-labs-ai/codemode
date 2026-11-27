@@ -1,9 +1,9 @@
 import type { Static, TSchema } from "typebox";
 import type { OAuth2Definition } from "../auth/types.js";
+import type { BinaryDeclarations } from "../binaries/declaration.js";
 import type { ConnectionUpdate } from "../connections/types.js";
 import type { CredentialBroker } from "../credentials/transport.js";
 import type { CredentialDeclaration } from "../credentials/types.js";
-import type { ToolDeclarations } from "../tools/declaration.js";
 
 export interface InputField {
   type: "string" | "number" | "boolean" | "object" | "array";
@@ -162,7 +162,7 @@ export interface ActionContext {
    * action never downloads one. Present on every call the engine
    * dispatches.
    */
-  tool?: (name: string) => Promise<string>;
+  binary?: (name: string) => Promise<string>;
   log: {
     info(msg: string): void;
     warn(msg: string): void;
@@ -185,7 +185,7 @@ export interface ActionContext {
  * action is called: what the engine supplies on every call is present.
  */
 export type DispatchedContext = ActionContext &
-  Required<Pick<ActionContext, "signal" | "maxOutputBytes" | "tool">>;
+  Required<Pick<ActionContext, "signal" | "maxOutputBytes" | "binary">>;
 
 /**
  * OAuth2 authorization-code configuration declared by a plugin.
@@ -258,8 +258,8 @@ export interface PluginDef {
   /** How a connection's config becomes what its requests are signed with;
    *  present on plugins whose requests go through the credential registry. */
   credential?: CredentialDeclaration;
-  /** Programs the plugin's actions run, by the name `ctx.tool` takes. */
-  tools?: ToolDeclarations;
+  /** Programs the plugin's actions run, by the name `ctx.binary` takes. */
+  binaries?: BinaryDeclarations;
   /** Set by discovery; absent on a plugin a host constructs or loads itself. */
   sourceInfo?: PluginSourceInfo;
   /** @internal */

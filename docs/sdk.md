@@ -49,7 +49,8 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 | `outputDir` | Where output files are written: a command's whole output, a run's whole result, generated media. The default is the system's temporary directory |
 | `outputLimit` | How much a run hands back. The default is 2,000 lines and 50 KB. See [Limit a run's result](#limit-a-runs-result) |
 | `maxActionOutputBytes` | How much one action may hold in memory. The default is 8 MiB. See [Limit what an action holds](#limit-what-an-action-holds) |
-| `tools` | A `ToolManager` that keeps the programs plugins declare. The default keeps them in `tools` in the user's codemode folder, which is looked for when a tool is first asked about. See [Install tools](#install-tools) |
+| `binaries` | A `BinaryManager` that keeps the binaries plugins declare. The default keeps them in `bin` in the user's codemode folder, which is looked for when a binary is first asked about. See [Install binaries](#install-binaries) |
+| `spawnHook` | Decides how each command an action starts is launched. See [Shape how commands start](#shape-how-commands-start) |
 
 `addPlugin(plugin, connections?)` registers another plugin. Later runs see it, and a run in progress is not disturbed. `actions()`, `plugins()`, and `connections()` report what the instance holds. `connections()` lists only in-memory connections.
 
@@ -138,7 +139,7 @@ This limit guards the process, where the output limit serves the reader. They ar
 | `maxActionOutputBytes` | What one action hands to code | 8 MiB | The action keeps the rest in a file and says so in its result |
 | `outputLimit` | What a run hands back | 2,000 lines and 50 KB | Codemode cuts the result and names a file with all of it |
 
-The least it can be is 1,024 bytes. Pass it to `execute()` to set it for one run. Actions read it as `ctx.maxOutputBytes`; `runShell`, the shell packages, and the DuckDB package follow it.
+The least it can be is 1,024 bytes. Pass it to `execute()` to set it for one run. Actions read it as `ctx.maxOutputBytes`; `runShell`, `runCommand`, the shell packages, and the DuckDB package follow it.
 
 ## Load plugins
 
@@ -177,7 +178,8 @@ It registers the project's plugin files, packages, and MCP servers when the proj
 | `userDir` | The user's codemode folder. The default is `~/.codemode` |
 | `packages` | A `PackageManager` to load packages with, or `false` to load none |
 | `mcp` | An `McpManager` to load MCP servers with, or `false` to load none. The caller closes a manager it passes, and registers a server again when its tools change |
-| `tools` | A `ToolManager` that keeps the programs plugins declare. The default keeps them in `tools` in `userDir` |
+| `binaries` | A `BinaryManager` that keeps the binaries plugins declare. The default keeps them in `bin` in `userDir` |
+| `spawnHook` | Decides how each command an action starts is launched. See [Shape how commands start](#shape-how-commands-start) |
 
 See [Supply trust from a host](security.md#supply-trust-from-a-host).
 
@@ -255,13 +257,52 @@ const codemode = Codemode.create({
 
 It receives `plugin`, `action`, `path`, `durationMs`, and `error` when the action threw. Calls to unknown actions and calls rejected by input validation never reach plugin code and are not reported. An exception thrown by the observer is ignored.
 
+## Shape how commands start
+
+`spawnHook` runs in the host process before an action starts a command. It receives the command and the call it is for, and returns the command to start:
+
+```typescript
+const codemode = Codemode.create({
+  plugins,
+  spawnHook: (command, call) => {
+    if (command.script && forbidden(command.script))
+      throw new Error("Refused: this command is not allowed here");
+    return {
+      ...command,
+      cwd: workspaceOf(call.context),
+      env: { PATH: "/usr/bin:/bin", HOME: homeOf(call.context), ...call.added },
+    };
+  },
+});
+```
+
+The hook applies to every command started through codemode's helpers: the scripts of the shell packages (`bash.run`, `powershell.run`, `node.run`), any action built on `runShell` that passes its `ctx`, the programs `runCommand` starts, such as the bundled `docker` plugin's, and the [binaries](binaries.md) `runBinary` starts. It may return a promise. An error it throws refuses the command, and the action rejects with that error.
+
+| Command field | Contents |
+|---|---|
+| `program` | The program to start |
+| `args` | Its arguments, without a shell's script |
+| `script` | The script a shell or interpreter is handed, as its last argument or on stdin. Absent for a program run with arguments only. The hook may rewrite it, and cannot add or remove it |
+| `cwd` | Working directory, when one is set |
+| `env` | The command's whole environment. A script starts with the host's environment, and any other program with a short list of it |
+
+| Call field | Contents |
+|---|---|
+| `plugin`, `action` | The action that starts the command |
+| `context` | The value passed to `execute()` for this run |
+| `added` | The variables the plugin and its connection name for the command. `env` already holds them. A hook that builds its own environment adds them to it |
+
+To start a command through another program, return that program and put the original one first in `args`. The script stays last.
+
+The hook does not see a process a plugin starts itself with `node:child_process`, the `PATH` lookup `commandPath` makes, a local MCP server, or the commands of the package and binary managers, which take a `runner`. It decides how a command starts, and does not confine the command once it runs.
+
 ## Manage packages
 
 `PackageManager` installs, updates, and loads plugin packages with storage, folders, the process runner, and trust supplied by the host. See [Embed the package manager](packages.md#embed-the-package-manager).
 
-## Install tools
+## Install binaries
 
-`codemode.tools` lists the programs the instance's plugins declare, installs them, and removes them. `ToolManager` does the work, with the folder, `fetch`, and the process runner supplied by the host. See [Embed the tool manager](tools.md#embed-the-tool-manager).
+`codemode.binaries` lists the binaries the instance's plugins declare, installs them, and removes them. `BinaryManager` does the work, with the folder, `fetch`, and the process runner supplied by the host. See [Embed the binary manager](binaries.md#embed-the-binary-manager).
 
 ## Load MCP servers
 

@@ -175,7 +175,7 @@ describe("a script that does not run to its end", () => {
       assert.equal(failure.code, "timed_out");
       assert.match(
         failure.message,
-        /The shell exited with code 3 after [\d.]+ seconds, but background processes it started kept writing output until the timeout\./,
+        /The command exited with code 3 after [\d.]+ seconds, but background processes it started kept writing output until the timeout\./,
       );
     },
   );

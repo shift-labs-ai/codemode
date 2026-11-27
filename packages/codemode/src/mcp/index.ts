@@ -1,3 +1,4 @@
+export { INHERITED_ENVIRONMENT } from "../utils/environment.js";
 export {
   discoverMcpOAuth,
   MCP_GRANT_FIELD,
@@ -46,7 +47,4 @@ export type {
   McpTransportRequest,
 } from "./session.js";
 export { FileMcpStore, type McpStore, MemoryMcpStore } from "./store.js";
-export {
-  INHERITED_ENVIRONMENT,
-  type McpResolvedServer,
-} from "./values.js";
+export type { McpResolvedServer } from "./values.js";

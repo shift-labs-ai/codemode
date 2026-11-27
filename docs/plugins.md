@@ -87,7 +87,7 @@ Return a file's path instead of large or binary content. `writeOutputFile(prefix
 | `ctx.signal` | An `AbortSignal` that fires when the run that made the call ends. Pass it to work that should stop with the run |
 | `ctx.outputDir` | Where the host keeps output files, when it names a place. Write large or binary output there with `writeOutputFile()` and return the path |
 | `ctx.maxOutputBytes` | How much the host lets an action hold in memory and hand back, 8 MiB by default. Pass it to `runShell`, or keep what is past it in a file |
-| `ctx.tool(name)` | The path of a [tool](tools.md) the plugin declares. Rejects when the host has not installed it |
+| `ctx.binary(name)` | The path of a [binary](binaries.md) the plugin declares. Rejects when the host has not installed it. Run one with `runBinary(ctx, name, args)` |
 | `ctx.log` | `info`, `warn`, and `error`, prefixed with the plugin name |
 | `ctx.updateConnection(patch)` | Persists a change to the connection's config through the host |
 
@@ -162,6 +162,7 @@ const result = await runShell(
   { program: "/bin/bash", args: ["-c"] },
   "git status --short",
   {
+    ctx,
     cwd: repo,
     timeoutMs: 30_000,
     signal: ctx.signal,
@@ -172,7 +173,7 @@ const result = await runShell(
 // { output: " M README.md\n", exitCode: 0, truncated: false, wallTimeMs: 12 }
 ```
 
-Pass `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
+Pass `ctx` so that the host's [`spawnHook`](sdk.md#shape-how-commands-start) shapes how the command starts, `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
 
 | Outcome | Result |
 |---|---|
@@ -206,6 +207,25 @@ rl.registerAction(
 ```
 
 `shell` is the connection's `shell` value when it has one. `prepare` can also return `env`, which is added to the command's environment.
+
+## Run a program
+
+A plugin that runs a program with arguments, and no shell, uses `runCommand`:
+
+```typescript
+import { runCommand } from "@shiftlabs/codemode/utils/cli";
+
+const { stdout, stderr, exitCode } = await runCommand(ctx, "git", ["rev-parse", "HEAD"], {
+  cwd: repo,
+  timeoutMs: 30_000,
+});
+```
+
+It takes the action's `ctx`, so the program ends with the run, holds as much output as the host allows, and starts as the host's [`spawnHook`](sdk.md#shape-how-commands-start) says. It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`, and rejects with a `ShellError` as `runShell` does.
+
+The program does not inherit the environment of the codemode process. It gets a short list of it, such as `PATH`, `HOME`, and the proxy variables, and the variables passed as `env`. Pass each variable the program needs by name.
+
+`runBinary(ctx, name, args, options)` runs a [binary](binaries.md) the plugin declares in the same way.
 
 ## Understand how plugins load
 

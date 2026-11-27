@@ -21,14 +21,15 @@ If codemode is already installed, choose what you want to do:
 - [Write a plugin](plugins.md) to add actions for an API or a host capability.
 - [Declare credentials](credentials.md) so codemode signs a plugin's requests and the plugin never handles the secret.
 - [Use packages](packages.md) to install plugins from npm or git, or to distribute your own.
-- [Declare tools](tools.md) so a package's plugins can run a program that a host downloads and verifies.
+- [Declare binaries](binaries.md) so a package's plugins can run a program that a host downloads and verifies.
 
 ## Embed codemode
 
 - Use the [SDK](sdk.md) to run code, supply connections, and load plugins inside a Node.js or Bun process.
 - Use [`PackageManager`](packages.md#embed-the-package-manager) to install and load packages from a host.
 - Use [`McpManager`](mcp.md#embed-the-mcp-manager) to load MCP servers from a host.
-- Use [`ToolManager`](tools.md#embed-the-tool-manager) to install the programs plugins declare from a host.
+- Use [`BinaryManager`](binaries.md#embed-the-binary-manager) to install the binaries plugins declare from a host.
+- Use [`spawnHook`](sdk.md#shape-how-commands-start) to decide how the commands actions start are launched.
 - Use [`pi-runline`](https://github.com/Michaelliv/pi-runline) to add it to Pi as a single tool.
 
 ## Find reference information

@@ -17,8 +17,8 @@ export interface CommandOptions {
 }
 
 /**
- * Runs the programs the package manager and the tool manager start: npm,
- * pnpm, bun and git, and tar, unzip and a tool's own check. Always an
+ * Runs the programs the package manager and the binary manager start: npm,
+ * pnpm, bun and git, and tar, unzip and a binary's own check. Always an
  * argument list, never a shell string. A host replaces it to run them in a
  * sandbox or another process, or to refuse them (an offline host).
  */

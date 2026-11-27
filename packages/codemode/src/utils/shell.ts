@@ -2,8 +2,10 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
+import { definedEnvironment } from "./environment.js";
 import { ACTION_MEMORY_BYTES, OutputFileWriter } from "./output-files.js";
 import { cutText, isOutputBytes, MIN_OUTPUT_LIMIT } from "./output-limit.js";
+import { type SpawnCommand, shapeSpawn } from "./spawn.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 
 /** How a shell program takes a script. */
@@ -16,6 +18,12 @@ export interface ShellProgram {
 }
 
 export interface RunShellOptions {
+  /**
+   * The context of the action call the command runs for. Its host's
+   * `spawnHook` then shapes how the command is started. Absent, the command
+   * is started as it is given.
+   */
+  ctx?: object;
   /** Working directory. Default: the host process's. */
   cwd?: string;
   /**
@@ -94,7 +102,7 @@ const EXIT_STDIO_GRACE_MS = 100;
  * What a command wrote, within a bound: everything while it fits, then its
  * end in memory and the whole of it in a file.
  */
-class ShellOutput {
+export class ShellOutput {
   /** The end of the output: all of it until it passes the bound, then that much and a chunk. */
   private kept: Buffer[] = [];
   private keptBytes = 0;
@@ -354,21 +362,13 @@ function ended(
   });
 }
 
-/**
- * Run a script through a shell program and answer what it wrote and how it
- * ended. A script that exits with a failure is a result, with its exit
- * code; one that could not start, outlived `timeoutMs` or was aborted is a
- * `ShellError`.
- *
- * Every call is a new process in a process group of its own. The group is
- * killed on timeout and abort, so what the script started ends with it.
- */
-export async function runShell(
-  shell: ShellProgram,
-  script: string,
-  options: RunShellOptions = {},
-): Promise<ShellResult> {
-  const { timeoutMs, signal } = options;
+/** Refuse a call's limits when they are not usable, and a call already aborted. */
+export function checkedOutputBytes(options: {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  maxOutputBytes?: number;
+}): number {
+  const { timeoutMs } = options;
   if (
     timeoutMs !== undefined &&
     !(
@@ -385,33 +385,68 @@ export async function runShell(
     throw new RangeError(
       `Invalid maxOutputBytes: a whole number of bytes, at least ${MIN_OUTPUT_LIMIT.bytes}`,
     );
-  if (signal?.aborted) throw new ShellError("aborted", "Command aborted");
-  if (options.cwd !== undefined && !existsSync(options.cwd))
+  if (options.signal?.aborted)
+    throw new ShellError("aborted", "Command aborted");
+  return maxOutputBytes;
+}
+
+export interface RunProcessOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  /**
+   * Takes what the process writes. Answers false when it is behind: reading
+   * stops until `drained()`, so a process that writes faster than it is
+   * taken is slowed instead of held in memory.
+   */
+  take(chunk: Buffer, from: "stdout" | "stderr"): boolean;
+  drained(): Promise<void>;
+}
+
+/** How a process ended. */
+export interface ProcessEnd {
+  /** Its exit code. A process ended by a signal has 128 plus the signal's number. */
+  exitCode: number;
+  /** Set when `timeoutMs` passed: how long the process itself had run, when it had already exited. */
+  timedOut?: { exitedAfterMs: number | undefined };
+  wallTimeMs: number;
+}
+
+/**
+ * Start a command and answer how it ended: the one place an action's
+ * process is started. A command with a `script` gets it as its last
+ * argument, or on stdin when `scriptOnStdin`.
+ *
+ * The process leads a process group of its own. The group is killed on
+ * timeout and abort, so what the command started ends with it.
+ */
+export async function runProcess(
+  command: SpawnCommand,
+  options: RunProcessOptions & { scriptOnStdin?: boolean },
+): Promise<ProcessEnd> {
+  const { timeoutMs, signal } = options;
+  if (command.cwd !== undefined && !existsSync(command.cwd))
     throw new ShellError(
       "spawn_failed",
-      `Working directory does not exist: ${options.cwd}`,
+      `Working directory does not exist: ${command.cwd}`,
     );
-
-  const output = new ShellOutput(
-    maxOutputBytes,
-    options.outputFilePrefix ?? "codemode-shell",
-    options.outputDir,
-  );
+  const onStdin = command.script !== undefined && options.scriptOnStdin;
   const started = performance.now();
   const child = spawn(
-    shell.program,
-    shell.scriptOnStdin ? [...shell.args] : [...shell.args, script],
+    command.program,
+    command.script === undefined || onStdin
+      ? command.args
+      : [...command.args, command.script],
     {
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      cwd: command.cwd,
+      env: command.env,
       detached: process.platform !== "win32",
-      stdio: [shell.scriptOnStdin ? "pipe" : "ignore", "pipe", "pipe"],
+      stdio: [onStdin ? "pipe" : "ignore", "pipe", "pipe"],
       windowsHide: true,
     },
   );
-  if (shell.scriptOnStdin) {
+  if (onStdin) {
     child.stdin?.on("error", () => {});
-    child.stdin?.end(script);
+    child.stdin?.end(command.script);
   }
   const { pid } = child;
   const stopWatching = pid === undefined ? undefined : endWithHost(pid);
@@ -419,32 +454,32 @@ export async function runShell(
     if (pid !== undefined) killProcessTree(pid);
   };
 
-  let shellExitedAfterMs: number | undefined;
-  let timedOut: { shellExitedAfterMs: number | undefined } | undefined;
+  let exitedAfterMs: number | undefined;
+  let timedOut: ProcessEnd["timedOut"];
   child.once("exit", () => {
-    shellExitedAfterMs = performance.now() - started;
+    exitedAfterMs = performance.now() - started;
   });
   let reading = true;
-  const take = (chunk: Buffer) => {
-    if (output.append(chunk) || !reading) return;
+  const take = (from: "stdout" | "stderr") => (chunk: Buffer) => {
+    if (options.take(chunk, from) || !reading) return;
     reading = false;
     child.stdout?.pause();
     child.stderr?.pause();
-    void output.drained().then(() => {
+    void options.drained().then(() => {
       reading = true;
       child.stdout?.resume();
       child.stderr?.resume();
     });
   };
-  child.stdout?.on("data", take);
-  child.stderr?.on("data", take);
+  child.stdout?.on("data", take("stdout"));
+  child.stderr?.on("data", take("stderr"));
   const timer =
     timeoutMs === undefined
       ? undefined
       : setTimeout(() => {
-          timedOut = { shellExitedAfterMs };
-          // Also when the shell has exited: the group kill reaches what it
-          // left writing to the pipes.
+          timedOut = { exitedAfterMs };
+          // Also when the process has exited: the group kill reaches what
+          // it left writing to the pipes.
           kill();
         }, timeoutMs);
   signal?.addEventListener("abort", kill, { once: true });
@@ -453,40 +488,101 @@ export async function runShell(
   try {
     code = await ended(child, () => reading);
   } catch (error) {
-    await output.finish();
     throw new ShellError(
       "spawn_failed",
-      `Could not start ${shell.program}: ${(error as Error).message}`,
+      `Could not start ${command.program}: ${(error as Error).message}`,
     );
   } finally {
     stopWatching?.();
     clearTimeout(timer);
     signal?.removeEventListener("abort", kill);
   }
+  return {
+    // A process ended by a signal has no exit code. The shell convention
+    // keeps it from reading as success.
+    exitCode:
+      code ??
+      (child.signalCode
+        ? 128 + (osConstants.signals[child.signalCode] ?? 0)
+        : 1),
+    ...(timedOut ? { timedOut } : {}),
+    wallTimeMs: Math.round(performance.now() - started),
+  };
+}
 
-  const written = await output.finish();
-  if (signal?.aborted)
-    throw new ShellError("aborted", "Command aborted", written);
-  // A shell ended by a signal has no exit code. The shell convention keeps
-  // it from reading as success.
-  const exitCode =
-    code ??
-    (child.signalCode ? 128 + (osConstants.signals[child.signalCode] ?? 0) : 1);
-  if (timedOut) {
-    const seconds = (ms: number) => Math.round(ms / 100) / 10;
-    throw new ShellError(
-      "timed_out",
-      timedOut.shellExitedAfterMs === undefined
-        ? `Command timed out after ${seconds(timeoutMs as number)} seconds`
-        : `Command timed out after ${seconds(timeoutMs as number)} seconds. The shell exited with code ${exitCode} after ${seconds(timedOut.shellExitedAfterMs)} seconds, but background processes it started kept writing output until the timeout.`,
-      written,
-    );
+/** The error of a command that was aborted or outlived its timeout, when it was. */
+export function endedEarly(
+  end: ProcessEnd,
+  options: { timeoutMs?: number; signal?: AbortSignal },
+  written: { text: string; path?: string },
+): ShellError | undefined {
+  if (options.signal?.aborted)
+    return new ShellError("aborted", "Command aborted", written);
+  if (!end.timedOut) return undefined;
+  const seconds = (ms: number) => Math.round(ms / 100) / 10;
+  const after = `Command timed out after ${seconds(options.timeoutMs as number)} seconds`;
+  return new ShellError(
+    "timed_out",
+    end.timedOut.exitedAfterMs === undefined
+      ? after
+      : `${after}. The command exited with code ${end.exitCode} after ${seconds(end.timedOut.exitedAfterMs)} seconds, but background processes it started kept writing output until the timeout.`,
+    written,
+  );
+}
+
+/**
+ * Run a script through a shell program and answer what it wrote and how it
+ * ended. A script that exits with a failure is a result, with its exit
+ * code; one that could not start, outlived `timeoutMs` or was aborted is a
+ * `ShellError`.
+ *
+ * Every call is a new process in a process group of its own. The group is
+ * killed on timeout and abort, so what the script started ends with it.
+ */
+export async function runShell(
+  shell: ShellProgram,
+  script: string,
+  options: RunShellOptions = {},
+): Promise<ShellResult> {
+  const maxOutputBytes = checkedOutputBytes(options);
+  const added = definedEnvironment(options.env ?? {});
+  const command = await shapeSpawn(
+    options.ctx,
+    {
+      program: shell.program,
+      args: [...shell.args],
+      script,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      env: definedEnvironment({ ...process.env, ...options.env }),
+    },
+    added,
+  );
+  const output = new ShellOutput(
+    maxOutputBytes,
+    options.outputFilePrefix ?? "codemode-shell",
+    options.outputDir,
+  );
+  let end: ProcessEnd;
+  try {
+    end = await runProcess(command, {
+      scriptOnStdin: shell.scriptOnStdin,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      take: (chunk) => output.append(chunk),
+      drained: () => output.drained(),
+    });
+  } catch (error) {
+    await output.finish();
+    throw error;
   }
+  const written = await output.finish();
+  const early = endedEarly(end, options, written);
+  if (early) throw early;
   return {
     output: written.text,
-    exitCode,
+    exitCode: end.exitCode,
     truncated: written.truncated,
     ...(written.path === undefined ? {} : { fullOutputPath: written.path }),
-    wallTimeMs: Math.round(performance.now() - started),
+    wallTimeMs: end.wallTimeMs,
   };
 }

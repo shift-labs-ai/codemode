@@ -72,7 +72,7 @@ What a run returns is a separate matter: codemode cuts it to the host's [output 
 
 ## Configure the connection
 
-Add a connection to set where scripts run or which Node.js runs them. Both values are optional:
+Add a connection to set where scripts run or which Node.js runs them. Every value is optional:
 
 ```bash
 codemode connection add node --plugin node --set cwd=/srv/app
@@ -82,10 +82,11 @@ codemode connection add node --plugin node --set cwd=/srv/app
 |---|---|
 | `cwd` | The directory scripts run in. The default is the directory codemode runs in |
 | `shell` | Path of the Node.js to run. The default is `node` on `PATH` |
+| `env` | Variables added to the environment of every script, by name. The command line sets text values only, so set this one in `config.json` or from a host's connection provider |
 
 ## Understand the limits
 
-- A script sees the whole environment of the codemode process.
+- A script sees the whole environment of the codemode process, unless the host's [`spawnHook`](../../docs/sdk.md#shape-how-commands-start) gives it another.
 - The action is labelled `write`, whatever the script does.
 - The script arrives on stdin, so it cannot read stdin itself.
 - A script resolves packages from its working directory, not from codemode.

@@ -1,7 +1,40 @@
-import type { CodemodePluginAPI } from "@shiftlabs/codemode";
-import { commandExists, syncExec } from "@shiftlabs/codemode";
+import type { ActionContext, CodemodePluginAPI } from "@shiftlabs/codemode";
+import { commandExists, runCommand } from "@shiftlabs/codemode";
 
-export default function docker(rl: CodemodePluginAPI) {
+/** The variables the docker CLI is pointed at a daemon with: `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG` and the rest. */
+function dockerEnvironment(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] =>
+        entry[0].startsWith("DOCKER_") && entry[1] !== undefined,
+    ),
+  );
+}
+
+/** What `docker` wrote for these arguments. A failure is an error with what docker said. */
+async function docker(ctx: ActionContext, args: string[]): Promise<string> {
+  const { stdout, stderr, exitCode } = await runCommand(ctx, "docker", args, {
+    env: dockerEnvironment(),
+  });
+  if (exitCode !== 0)
+    throw new Error(
+      `docker ${args[0]} failed (exit ${exitCode}): ${(stderr || stdout).trim()}`,
+    );
+  return stdout;
+}
+
+/** The rows of a `--format '{{json .}}'` listing: one JSON object a line. */
+async function dockerRows(
+  ctx: ActionContext,
+  args: string[],
+): Promise<Record<string, unknown>[]> {
+  return (await docker(ctx, [...args, "--format", "{{json .}}", "--no-trunc"]))
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+}
+
+export default function dockerPlugin(rl: CodemodePluginAPI) {
   rl.setName("docker");
   rl.setVersion("0.1.0");
 
@@ -23,11 +56,9 @@ export default function docker(rl: CodemodePluginAPI) {
         required: false,
       },
     },
-    execute(input) {
+    async execute(input, ctx) {
       const opts = (input as { all?: boolean }) ?? {};
-      const args = ["ps", "--format", "{{json .}}", "--no-trunc"];
-      if (opts.all) args.push("--all");
-      const { rows } = syncExec("docker", args, { parser: "jsonlines" });
+      const rows = await dockerRows(ctx, opts.all ? ["ps", "--all"] : ["ps"]);
       return rows.map((r) => ({
         id: r.ID ?? r.id ?? "",
         name: ((r.Names ?? r.names ?? "") as string).replace(/^\//, ""),
@@ -49,9 +80,9 @@ export default function docker(rl: CodemodePluginAPI) {
         required: true,
       },
     },
-    execute(input) {
+    async execute(input, ctx) {
       const { id } = input as { id: string };
-      syncExec("docker", ["start", id]);
+      await docker(ctx, ["start", id]);
       return { ok: true, id };
     },
   });
@@ -66,9 +97,9 @@ export default function docker(rl: CodemodePluginAPI) {
         required: true,
       },
     },
-    execute(input) {
+    async execute(input, ctx) {
       const { id } = input as { id: string };
-      syncExec("docker", ["stop", id]);
+      await docker(ctx, ["stop", id]);
       return { ok: true, id };
     },
   });
@@ -76,12 +107,8 @@ export default function docker(rl: CodemodePluginAPI) {
   rl.registerAction("images.list", {
     access: "read",
     description: "List Docker images",
-    execute() {
-      const { rows } = syncExec(
-        "docker",
-        ["images", "--format", "{{json .}}", "--no-trunc"],
-        { parser: "jsonlines" },
-      );
+    async execute(_input, ctx) {
+      const rows = await dockerRows(ctx, ["images"]);
       return rows.map((r) => ({
         id: r.ID ?? r.id ?? "",
         repository: r.Repository ?? r.repository ?? "",
@@ -101,9 +128,9 @@ export default function docker(rl: CodemodePluginAPI) {
         required: true,
       },
     },
-    execute(input) {
+    async execute(input, ctx) {
       const { image } = input as { image: string };
-      syncExec("docker", ["pull", image]);
+      await docker(ctx, ["pull", image]);
       return { ok: true, image };
     },
   });
