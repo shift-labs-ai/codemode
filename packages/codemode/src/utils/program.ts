@@ -38,7 +38,7 @@ export interface ProgramResult {
 /** The start of an output file's name for a program: its own name, without what a file's name cannot hold. */
 function filePrefix(program: string): string {
   const name = program.split(/[\\/]/).pop() ?? "";
-  return `codemode-${name.replace(/[^A-Za-z0-9._-]/g, "") || "command"}`;
+  return `codemode-${name.replace(/[^A-Za-z0-9._-]/g, "") || "program"}`;
 }
 
 /**

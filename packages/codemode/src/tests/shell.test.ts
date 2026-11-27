@@ -60,6 +60,8 @@ describe("finding a command", () => {
     assert.equal(commandPath("folder", env), undefined);
     assert.equal(commandPath("notes", { PATH: first }), undefined);
     assert.equal(commandPath("notes", {}), undefined);
+    // Only Windows writes the variable's name in another case.
+    assert.equal(commandPath("notes", { Path: second }), undefined);
     // A name with a directory in it is a path, not a name to look up.
     assert.equal(commandPath("second/notes", { PATH: tmp }), undefined);
     assert.equal(commandPath(join(second, "notes"), env), undefined);

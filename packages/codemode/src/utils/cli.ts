@@ -2,8 +2,8 @@ import { accessSync, constants, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { pathExists } from "./shell-action.js";
 
-/** The value of a variable whose name Windows writes in any case, such as `Path`. */
-function variable(
+/** A variable's value on Windows, which writes its name in any case, such as `Path`. */
+function windowsVariable(
   env: Readonly<Record<string, string | undefined>>,
   name: string,
 ): string | undefined {
@@ -39,12 +39,16 @@ export function commandPath(
 ): string | undefined {
   if (!name || /[\\/]/.test(name)) return undefined;
   const windows = platform === "win32";
-  const directories = (variable(env, "PATH") ?? "")
+  const directories = (
+    (windows ? windowsVariable(env, "PATH") : env.PATH) ?? ""
+  )
     .split(windows ? ";" : ":")
     .filter(Boolean);
   let names = [name];
   if (windows) {
-    const extensions = (variable(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD")
+    const extensions = (
+      windowsVariable(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD"
+    )
       .split(";")
       .filter(Boolean);
     const own = extname(name).toUpperCase();

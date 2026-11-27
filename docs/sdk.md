@@ -294,7 +294,7 @@ The hook applies to every command started through codemode's helpers: the script
 
 To start a command through another program, return that program and put the original one first in `args`. The script stays last.
 
-The hook does not see a process a plugin starts itself with `node:child_process`, a local MCP server, or the commands of the package and binary managers, which take a `runner`. It decides how a command starts, and does not confine the command once it runs.
+The hook does not see a process a plugin starts itself with `node:child_process`, a local MCP server, the `aws` program the AWS credential type runs to read a profile's key, the browser `runOAuth` opens, or the commands of the package and binary managers, which take a `runner`. It decides how a command starts, and does not confine the command once it runs.
 
 ## Manage packages
 
