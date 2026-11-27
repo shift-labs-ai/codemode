@@ -10,7 +10,7 @@ export interface CommandResult {
 export interface CommandOptions {
   cwd?: string;
   signal?: AbortSignal;
-  /** Milliseconds before the command is ended. */
+  /** Milliseconds before the command is ended. One that outlives them never answers code 0. */
   timeoutMs?: number;
   /** The command's whole environment. Default: the host process's. */
   env?: Record<string, string>;
@@ -87,10 +87,14 @@ export const nodeCommandRunner: CommandRunner = {
             windowsHide: true,
           });
       const stopWatching = endWithHost(child);
+      let outlived = false;
       const timer =
         options.timeoutMs === undefined
           ? undefined
-          : setTimeout(() => void endProcessTree(child), options.timeoutMs);
+          : setTimeout(() => {
+              outlived = child.exitCode === null && child.signalCode === null;
+              void endProcessTree(child);
+            }, options.timeoutMs);
       // Rejected once the command and what it started are down.
       const onAbort = () =>
         void endProcessTree(child).then(() =>
@@ -118,8 +122,10 @@ export const nodeCommandRunner: CommandRunner = {
       child.on("close", (code, ended) => {
         // An aborted command settles from `onAbort`.
         if (signal?.aborted) return;
+        // A command asked to end may exit cleanly: it still did not finish.
+        const failed = outlived ? code || 128 : code;
         settle(() =>
-          resolve({ code: code ?? (ended ? 128 : 1), stdout, stderr }),
+          resolve({ code: failed ?? (ended ? 128 : 1), stdout, stderr }),
         );
       });
     });

@@ -445,7 +445,7 @@ export function endedEarly(
  *
  * Every call is a new process in a process group of its own. On timeout
  * and abort the script is asked to end, with what it started, and killed if
- * it has not ended `END_GRACE_MS` later.
+ * it has not ended 5 seconds later.
  */
 export async function runShell(
   shell: ShellProgram,

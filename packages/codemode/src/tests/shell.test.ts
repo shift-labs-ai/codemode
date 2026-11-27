@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -194,7 +195,7 @@ setInterval(() => {}, 60_000);`,
   }
 
   posix(
-    "is killed with what it started when it outlives its timeout",
+    "is ended with what it started when it outlives its timeout",
     async () => {
       const pidFile = join(tmp, "pid");
       const failure = await runShell(
@@ -247,7 +248,7 @@ setInterval(() => {}, 60_000);`,
     },
   );
 
-  posix("is killed with what it started when its caller gives up", async () => {
+  posix("is ended with what it started when its caller gives up", async () => {
     const pidFile = join(tmp, "pid");
     const giveUp = new AbortController();
     const run = runShell(SH, `sleep 30 & echo $! > ${pidFile}; wait`, {
@@ -344,12 +345,21 @@ setInterval(() => {}, 60_000);`,
 });
 
 describe("a command whose host ends first", () => {
-  /** Start a host that runs `sleep` through `runShell`, and answer both pids. */
-  async function host(ending: "exit" | "wait") {
+  /**
+   * Start a host that runs a command through `runShell`, and answer both
+   * pids. The command is `sleep`, or what `script` makes of the file its pid
+   * goes in.
+   */
+  async function host(
+    ending: "exit" | "wait",
+    script?: (pidFile: string) => string,
+  ) {
     const pidFile = join(tmp, "pid");
-    const child = spawn(process.execPath, [HOST, pidFile, ending], {
-      stdio: "ignore",
-    });
+    const child = spawn(
+      process.execPath,
+      [HOST, pidFile, ending, ...(script ? [script(pidFile)] : [])],
+      { stdio: "ignore" },
+    );
     const closed = new Promise<NodeJS.Signals | null>((resolve) =>
       child.once("close", (_code, signal) => resolve(signal)),
     );
@@ -368,6 +378,27 @@ describe("a command whose host ends first", () => {
       const { child, command, closed } = await host("wait");
       child.kill("SIGTERM");
       assert.equal(await closed, "SIGTERM");
+      assert.equal(await ends(command), true);
+    },
+  );
+
+  posix(
+    "is killed at once when the host is interrupted a second time",
+    async () => {
+      const asked = join(tmp, "asked");
+      // A command that says it was asked to end, and stays.
+      const { child, command, closed } = await host(
+        "wait",
+        (pidFile) =>
+          `trap 'echo yes > ${asked}' TERM; echo $$ > ${pidFile}; while true; do sleep 1; done`,
+      );
+      child.kill("SIGTERM");
+      while (!existsSync(asked))
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      child.kill("SIGINT");
+      // The host ends by the second signal, not by the first once the
+      // command's time to end is up.
+      assert.equal(await closed, "SIGINT");
       assert.equal(await ends(command), true);
     },
   );

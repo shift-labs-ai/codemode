@@ -89,7 +89,7 @@ function pgrepChildren(parents: number[]): number[] {
  * parent has ended belongs to no one. Empty where the process table cannot
  * be read, which is everywhere but Linux and macOS.
  */
-export function descendants(pid: number): number[] {
+function descendants(pid: number): number[] {
   const childrenOf =
     process.platform === "linux"
       ? procChildren()
@@ -236,8 +236,12 @@ function killRunning(): void {
   );
 }
 
-/** Let the signal end this process, as it would have with nothing listening. */
+/**
+ * Kill what is still in flight, and let the signal end this process, as it
+ * would have with nothing listening.
+ */
 function passOn(name: NodeJS.Signals): void {
+  killRunning();
   stopWatchingHost();
   // Listening took the signal's default away. With no listener of the
   // host's own left, the signal ends the process as it would have.
@@ -247,12 +251,13 @@ function passOn(name: NodeJS.Signals): void {
 function onEndingSignal(name: NodeJS.Signals): void {
   if (interrupted) {
     // Asked again: nothing is waited for.
-    killRunning();
     passOn(name);
     return;
   }
   interrupted = true;
-  void Promise.all([...running].map(endProcessTree)).then(() => passOn(name));
+  void Promise.all([...running].map(endProcessTree)).then(() => {
+    if (interrupted) passOn(name);
+  });
 }
 
 function stopWatchingHost(): void {
@@ -265,10 +270,11 @@ function stopWatchingHost(): void {
 
 /**
  * End `child` with this process: killed when it exits, and ended as
- * `endProcessTree` does on the signals that end it. A group of its own does
- * not get the terminal's Ctrl-C, so nothing else would. Answers how to
- * stop, once the command has ended. The process is watched only while a
- * command is in flight.
+ * `endProcessTree` does on the signals that end it, or killed at once when
+ * such a signal arrives a second time. A group of its own does not get the
+ * terminal's Ctrl-C, so nothing else would. Answers how to stop, once the
+ * command has ended. The process is watched only while a command is in
+ * flight.
  */
 export function endWithHost(child: ChildProcess): () => void {
   if (!watching) {
