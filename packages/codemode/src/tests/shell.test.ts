@@ -7,7 +7,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -384,17 +383,19 @@ describe("a command whose host ends first", () => {
 
   posix(
     "is killed at once when the host is interrupted a second time",
+    // Longer than the command's time to end, so a host that waits for it
+    // fails by the signal it ends by.
+    { timeout: 30_000 },
     async () => {
       const asked = join(tmp, "asked");
       // A command that says it was asked to end, and stays.
       const { child, command, closed } = await host(
         "wait",
         (pidFile) =>
-          `trap 'echo yes > ${asked}' TERM; echo $$ > ${pidFile}; while true; do sleep 1; done`,
+          `trap 'echo $$ > ${asked}' TERM; echo $$ > ${pidFile}; while true; do sleep 1; done`,
       );
       child.kill("SIGTERM");
-      while (!existsSync(asked))
-        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(await pidIn(asked), command);
       child.kill("SIGINT");
       // The host ends by the second signal, not by the first once the
       // command's time to end is up.
