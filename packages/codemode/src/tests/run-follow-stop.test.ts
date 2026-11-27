@@ -23,7 +23,7 @@ import {
   shellConnectionSchema,
   shellRunAction,
 } from "../utils/cli.js";
-import type { ActionOutput } from "../utils/follow.js";
+import { type ActionOutput, OutputFollower } from "../utils/follow.js";
 import { ends, pidIn } from "./helpers/processes.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "codemode-follow-")));
@@ -31,6 +31,7 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 
 /** The commands here are shell scripts. */
 const skip = process.platform === "win32";
+const posix = skip ? it.skip : it;
 
 /** A plugin with a `run` action, as the shell packages have, one that runs a program, and one that produces output of its own. */
 const demo: PluginFunction = (rl) => {
@@ -53,8 +54,8 @@ const demo: PluginFunction = (rl) => {
   });
   rl.registerAction("count", {
     async execute(input, ctx) {
-      const { to } = input as { to: number };
-      for (let n = 1; n <= to; n++) await ctx.output(`${n}\n`);
+      const { from = 1, to } = input as { from?: number; to: number };
+      for (let n = from; n <= to; n++) await ctx.output(`${n}\n`);
       return to;
     },
   });
@@ -209,6 +210,29 @@ describe("following a run", { skip }, () => {
     }
   });
 
+  it("follows two actions at once independently", async () => {
+    const codemode = host();
+    let sawNine: () => void = () => {};
+    const nine = new Promise<void>((resolve) => {
+      sawNine = resolve;
+    });
+    try {
+      // The first action's piece is held until the second's has arrived.
+      const run = await codemode.execute(
+        "return await Promise.all([demo.count({ to: 1 }), demo.count({ from: 9, to: 9 })])",
+        {
+          onOutput: ({ text }) => {
+            if (text === "9\n") sawNine();
+            else return nine;
+          },
+        },
+      );
+      assert.deepEqual(run.result, [1, 9]);
+    } finally {
+      codemode.dispose();
+    }
+  });
+
   it("is not broken by a listener that throws, and needs no listener", async () => {
     const codemode = host();
     try {
@@ -257,5 +281,60 @@ describe("following a run", { skip }, () => {
     } finally {
       codemode.dispose();
     }
+  });
+});
+
+describe("a process's output on its way to the host", () => {
+  it("arrives as whole characters, each pipe decoded on its own", async () => {
+    const seen: string[] = [];
+    const follower = new OutputFollower((text) => {
+      seen.push(text);
+    });
+    const [first, second] = [Buffer.from([0xc3]), Buffer.from([0xa9])];
+    assert.equal(follower.take(first, "stdout"), true);
+    follower.take(Buffer.from("err"), "stderr");
+    follower.take(second, "stdout");
+    follower.take(first, "stderr");
+    await follower.finish();
+    assert.deepEqual(seen, ["err", "é", "\uFFFD"]);
+  });
+
+  it("is read again once a slow host has taken it, and when a host's own context rejects", async () => {
+    let release: () => void = () => {};
+    const outputs = [
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      () => Promise.reject(new Error("a context of the host's own")),
+    ];
+    for (const output of outputs) {
+      const follower = new OutputFollower(output);
+      assert.equal(follower.take(Buffer.from("one"), "stdout"), false);
+      let drained = false;
+      const waiting = follower.drained().then(() => {
+        drained = true;
+      });
+      await Promise.resolve();
+      release();
+      await waiting;
+      assert.equal(drained, true);
+    }
+  });
+
+  posix("reaches a context that is not the engine's", async () => {
+    const seen: string[] = [];
+    const result = await runProgram(
+      {
+        signal: new AbortController().signal,
+        output: (text: string) => {
+          seen.push(text);
+        },
+      } as Parameters<typeof runProgram>[0],
+      "/bin/sh",
+      ["-c", "echo out; echo err >&2"],
+    );
+    assert.equal(result.stdout, "out\n");
+    assert.deepEqual(seen.sort(), ["err\n", "out\n"]);
   });
 });

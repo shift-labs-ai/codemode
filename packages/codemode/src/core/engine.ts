@@ -472,8 +472,8 @@ export class ExecutionEngine {
         resolve(outputLimit ? boundRun(r, outputLimit, outputDir) : r);
       };
 
-      // The worker cannot be asked to stop either, so an aborted run
-      // retires it, as a timed-out one does.
+      // A worker in the middle of a body cannot be asked to stop, so an
+      // aborted run retires it, as a timed-out one does.
       const onAbort = () => finish(aborted(), true);
 
       // The acquire-time unref must not let the host exit mid-run: hold

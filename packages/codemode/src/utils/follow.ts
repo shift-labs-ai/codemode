@@ -87,9 +87,9 @@ export class OutputFollower {
     return this.send(this.decoders[from].write(chunk));
   }
 
-  /** Resolves when the host has taken what it was handed. */
-  drained(): Promise<void> {
-    return this.behind ?? Promise.resolve();
+  /** Resolves when the host has taken everything it was handed, including what was handed over meanwhile. */
+  async drained(): Promise<void> {
+    while (this.behind) await this.behind;
   }
 
   /** Hand over what is left of an unfinished character, once the process has ended. */
@@ -103,9 +103,12 @@ export class OutputFollower {
     if (!text || !this.output) return true;
     const waiting = this.output(text);
     if (!waiting) return true;
-    const behind = waiting.then(() => {
+    // A context of a host's own making may reject: the process is read
+    // again all the same.
+    const taken = () => {
       if (this.behind === behind) this.behind = undefined;
-    });
+    };
+    const behind: Promise<void> = waiting.then(taken, taken);
     this.behind = behind;
     return false;
   }

@@ -22,9 +22,9 @@ export interface ShellProgram {
 export interface RunShellOptions {
   /**
    * The context of the action call the command runs for. Its host's
-   * `spawnHook` then shapes how the command is started. Absent, the command
-   * is started as it is given. Its `ctx.output` is handed what the command
-   * writes, as it writes it.
+   * `spawnHook` then shapes how the command is started, and its
+   * `ctx.output` is handed what the command writes, as it writes it.
+   * Absent, the command is started as it is given and nothing follows it.
    */
   ctx?: ActionContext;
   /** Working directory. Default: the host process's. */
