@@ -129,10 +129,10 @@ export default function external(api: CodemodePluginAPI) {
     writeFileSync(
       pluginFile,
       `import type { CodemodePluginAPI } from "@shiftlabs/codemode";
-import { runCommand } from "@shiftlabs/codemode/utils/cli";
+import { runProgram } from "@shiftlabs/codemode/utils/cli";
 
 export default function subpaths(api: CodemodePluginAPI) {
-  void runCommand;
+  void runProgram;
   api.setName("subpaths");
   api.registerAction("ping", {
     description: "Ping",

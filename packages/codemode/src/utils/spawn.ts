@@ -1,6 +1,6 @@
 /**
  * How a host shapes the commands actions start. A host sets one `spawnHook`;
- * the engine binds it to each call's context, and `runShell` and `runCommand`
+ * the engine binds it to each call's context, and `runShell` and `runProgram`
  * apply it before they start a process. A plugin does not hold the hook.
  */
 

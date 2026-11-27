@@ -99,7 +99,7 @@ export default function notes(rl: CodemodePluginAPI) {
 
 `packageBinaries(import.meta.url)` reads `codemode.binaries` from the `package.json` one directory above the module and refuses a declaration it cannot use, naming the field.
 
-`runBinary(ctx, name, args, options)` starts an installed binary as [`runCommand`](plugins.md#run-a-program) starts a program: with an argument list and no shell. It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`. A binary that exits with a failure still returns. The call rejects when the binary is not installed, with the command that installs it, when it declares no build for the host's platform, and when it cannot start or outlives `timeoutMs`.
+`runBinary(ctx, name, args, options)` starts an installed binary as [`runProgram`](plugins.md#run-a-program) starts a program: with an argument list and no shell. It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`. A binary that exits with a failure still returns. The call rejects when the binary is not installed, with the command that installs it, when it declares no build for the host's platform, and when it cannot start or outlives `timeoutMs`.
 
 | Option | Purpose |
 |---|---|

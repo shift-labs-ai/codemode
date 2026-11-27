@@ -23,7 +23,7 @@ const FIXTURES = join(here, "credential-fixtures");
 
 /** Plugins that hold no secret, and why. */
 const NO_CREDENTIAL = new Map<string, string>([
-  ["docker", "local docker CLI via runCommand; no network, no secret"],
+  ["docker", "local docker CLI via runProgram; no network, no secret"],
   ["hackernews", "public Algolia and Firebase APIs; empty connection schema"],
   ["openThesaurus", "public API; empty connection schema"],
   ["postbin", "public API; empty connection schema"],

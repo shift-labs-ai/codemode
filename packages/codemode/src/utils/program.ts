@@ -9,7 +9,7 @@ import {
 } from "./shell.js";
 import { shapeSpawn } from "./spawn.js";
 
-export interface RunCommandOptions {
+export interface RunProgramOptions {
   /** Working directory. Default: the host process's. */
   cwd?: string;
   /**
@@ -21,7 +21,7 @@ export interface RunCommandOptions {
   timeoutMs?: number;
 }
 
-export interface CommandOutput {
+export interface ProgramResult {
   /** What the program wrote to stdout, up to `ctx.maxOutputBytes`. Past that: its last lines, then a line that says which lines they are and names the file with all of it. */
   stdout: string;
   /** What it wrote to stderr, within the same bound and cut the same way. */
@@ -38,7 +38,7 @@ export interface CommandOutput {
 /** The start of an output file's name for a program: its own name, without what a file's name cannot hold. */
 function filePrefix(program: string): string {
   const name = program.split(/[\\/]/).pop() ?? "";
-  return `codemode-${name.replace(/[^A-Za-z0-9._-]/g, "") || "command"}`;
+  return `codemode-${name.replace(/[^A-Za-z0-9._-]/g, "") || "program"}`;
 }
 
 /**
@@ -51,12 +51,12 @@ function filePrefix(program: string): string {
  * that could not start, outlived `timeoutMs` or was aborted is a
  * `ShellError`.
  */
-export async function runCommand(
+export async function runProgram(
   ctx: ActionContext,
   program: string,
   args: readonly string[] = [],
-  options: RunCommandOptions = {},
-): Promise<CommandOutput> {
+  options: RunProgramOptions = {},
+): Promise<ProgramResult> {
   const limits = { timeoutMs: options.timeoutMs, signal: ctx.signal };
   const maxOutputBytes = checkedOutputBytes({
     ...limits,
@@ -110,18 +110,18 @@ export async function runCommand(
 }
 
 /**
- * Run a binary the plugin declares, by its name there, as `runCommand` runs
+ * Run a binary the plugin declares, by its name there, as `runProgram` runs
  * a program. A binary that is not installed rejects as `ctx.binary` does.
  */
 export async function runBinary(
   ctx: ActionContext,
   name: string,
   args: readonly string[] = [],
-  options: RunCommandOptions = {},
-): Promise<CommandOutput> {
+  options: RunProgramOptions = {},
+): Promise<ProgramResult> {
   if (!ctx.binary)
     throw new Error(
       "runBinary takes the context of a call the engine dispatched",
     );
-  return runCommand(ctx, await ctx.binary(name), args, options);
+  return runProgram(ctx, await ctx.binary(name), args, options);
 }

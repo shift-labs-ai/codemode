@@ -1,7 +1,7 @@
 /**
  * What a program codemode starts inherits from the host's environment when
- * nothing else is named for it: a local MCP server, a command an action
- * runs with `runCommand`, and a binary's own check. Where things are, how
+ * nothing else is named for it: a local MCP server, a program an action
+ * runs with `runProgram`, and a binary's own check. Where things are, how
  * text is written, and how the network is reached. Nothing that is a secret
  * by convention.
  */

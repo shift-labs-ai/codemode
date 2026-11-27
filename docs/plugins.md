@@ -210,12 +210,12 @@ rl.registerAction(
 
 ## Run a program
 
-A plugin that runs a program with arguments, and no shell, uses `runCommand`:
+A plugin that runs a program with arguments, and no shell, uses `runProgram`:
 
 ```typescript
-import { runCommand } from "@shiftlabs/codemode/utils/cli";
+import { runProgram } from "@shiftlabs/codemode/utils/cli";
 
-const { stdout, stderr, exitCode } = await runCommand(ctx, "git", ["rev-parse", "HEAD"], {
+const { stdout, stderr, exitCode } = await runProgram(ctx, "git", ["rev-parse", "HEAD"], {
   cwd: repo,
   timeoutMs: 30_000,
 });

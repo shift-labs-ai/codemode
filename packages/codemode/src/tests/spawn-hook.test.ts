@@ -4,21 +4,22 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
 import { binaryPlatform } from "../binaries/declaration.js";
 import { BinaryManager } from "../binaries/manager.js";
 import type { PluginFunction } from "../plugin/api.js";
 import { Codemode } from "../sdk.js";
 import {
-  type CommandOutput,
   isShellError,
+  type ProgramResult,
   runBinary,
-  runCommand,
+  runProgram,
   type ShellResult,
   type SpawnCall,
   type SpawnCommand,
@@ -89,7 +90,7 @@ const demo: PluginFunction = (rl) => {
   });
   rl.registerAction("sh", {
     execute: (input, ctx) =>
-      runCommand(ctx, "/bin/sh", ["-c", (input as { line: string }).line]),
+      runProgram(ctx, "/bin/sh", ["-c", (input as { line: string }).line]),
   });
 };
 
@@ -155,7 +156,7 @@ describe("a host's spawnHook", { skip }, () => {
       );
       assert.equal(binary.error, undefined);
       assert.equal(
-        (binary.result as CommandOutput).stdout,
+        (binary.result as ProgramResult).stdout,
         "args=a b\nsecret=none\nnamed=yes\nhost=host\n",
       );
 
@@ -223,7 +224,7 @@ describe("a host's spawnHook", { skip }, () => {
       const run = await codemode.execute(
         'return await demo.sh({ line: "echo $FROM_HOST" })',
       );
-      assert.equal((run.result as CommandOutput).stdout, "later\n");
+      assert.equal((run.result as ProgramResult).stdout, "later\n");
       assert.equal(seen[0].program, "/bin/sh");
       assert.equal(seen[0].script, undefined);
     } finally {
@@ -267,7 +268,7 @@ describe("a host's spawnHook", { skip }, () => {
         "leaked plugin connection\n",
       );
       const binary = await codemode.execute("return await demo.show()");
-      const result = binary.result as CommandOutput;
+      const result = binary.result as ProgramResult;
       assert.equal(result.stdout, "args=\nsecret=none\nnamed=yes\nhost=none\n");
       assert.equal(result.exitCode, 0);
       assert.equal(result.stderr, "");
@@ -283,7 +284,7 @@ describe("a host's spawnHook", { skip }, () => {
   });
 });
 
-describe("a command an action runs", { skip }, () => {
+describe("a program an action runs", { skip }, () => {
   it("answers stdout and stderr apart, and a failure's exit code", async () => {
     const codemode = await host();
     try {
@@ -291,7 +292,7 @@ describe("a command an action runs", { skip }, () => {
         'return await demo.show({ args: ["fail"] })',
       );
       assert.equal(run.error, undefined);
-      const result = run.result as CommandOutput;
+      const result = run.result as ProgramResult;
       assert.equal(result.exitCode, 3);
       assert.equal(result.stderr, "no such note\n");
       assert.match(result.stdout, /^args=fail\n/);
@@ -315,10 +316,46 @@ describe("a command an action runs", { skip }, () => {
     }
   });
 
+  it("holds as much as the host allows, with the whole of stdout in a file", async () => {
+    const codemode = await host();
+    const out = join(dir, "out");
+    try {
+      const run = await codemode.execute(
+        'return await demo.sh({ line: "i=0; while [ $i -lt 200 ]; do echo line-$i; echo problem-$i >&2; i=$((i+1)); done" })',
+        { maxActionOutputBytes: 1_024, outputDir: out },
+      );
+      assert.equal(run.error, undefined);
+      const result = run.result as ProgramResult;
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.truncated, true);
+      assert.ok(result.fullOutputPath);
+      assert.equal(dirname(result.fullOutputPath), out);
+      const whole = readFileSync(result.fullOutputPath, "utf8");
+      assert.equal(whole.split("\n").length, 201);
+      assert.ok(whole.startsWith("line-0\n") && whole.endsWith("line-199\n"));
+      for (const text of [result.stdout, result.stderr])
+        assert.ok(Buffer.byteLength(text) <= 1_024);
+      assert.match(
+        result.stdout,
+        /line-199\n\n\[Showing lines \d+-200 of 200 /,
+      );
+      assert.ok(
+        result.stdout.endsWith(`Full output: ${result.fullOutputPath}]`),
+      );
+      // stderr is cut the same way, and its closing line names its own file.
+      assert.match(
+        result.stderr,
+        /problem-199\n\n\[Showing lines \d+-200 of 200 .*Full output: .*sh-stderr-/,
+      );
+    } finally {
+      codemode.dispose();
+    }
+  });
+
   it("rejects as a ShellError when its program cannot start", async () => {
-    const failure = await runCommand(
+    const failure = await runProgram(
       { signal: new AbortController().signal } as Parameters<
-        typeof runCommand
+        typeof runProgram
       >[0],
       join(dir, "no-such-program"),
     ).catch((error) => error);
