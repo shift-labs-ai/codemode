@@ -110,7 +110,7 @@ export interface EngineHooks {
   binaries?: BinaryManager;
   /**
    * Shapes how every command an action starts through `runShell`,
-   * `runCommand` or `runBinary` is launched. Absent, a command
+   * `runProgram` or `runBinary` is launched. Absent, a command
    * is started as the action asks.
    */
   spawnHook?: SpawnHook;

@@ -139,7 +139,7 @@ This limit guards the process, where the output limit serves the reader. They ar
 | `maxActionOutputBytes` | What one action hands to code | 8 MiB | The action keeps the rest in a file and says so in its result |
 | `outputLimit` | What a run hands back | 2,000 lines and 50 KB | Codemode cuts the result and names a file with all of it |
 
-The least it can be is 1,024 bytes. Pass it to `execute()` to set it for one run. Actions read it as `ctx.maxOutputBytes`; `runShell`, `runCommand`, the shell packages, and the DuckDB package follow it.
+The least it can be is 1,024 bytes. Pass it to `execute()` to set it for one run. Actions read it as `ctx.maxOutputBytes`; `runShell`, `runProgram`, the shell packages, and the DuckDB package follow it.
 
 ## Load plugins
 
@@ -276,7 +276,7 @@ const codemode = Codemode.create({
 });
 ```
 
-The hook applies to every command started through codemode's helpers: the scripts of the shell packages (`bash.run`, `powershell.run`, `node.run`), any action built on `runShell` that passes its `ctx`, the programs `runCommand` starts, such as the bundled `docker` plugin's, and the [binaries](binaries.md) `runBinary` starts. It may return a promise. An error it throws refuses the command, and the action rejects with that error.
+The hook applies to every command started through codemode's helpers: the scripts of the shell packages (`bash.run`, `powershell.run`, `node.run`), any action built on `runShell` that passes its `ctx`, the programs `runProgram` starts, such as the bundled `docker` plugin's, and the [binaries](binaries.md) `runBinary` starts. It may return a promise. An error it throws refuses the command, and the action rejects with that error.
 
 | Command field | Contents |
 |---|---|
@@ -294,7 +294,7 @@ The hook applies to every command started through codemode's helpers: the script
 
 To start a command through another program, return that program and put the original one first in `args`. The script stays last.
 
-The hook does not see a process a plugin starts itself with `node:child_process`, the `PATH` lookup `commandPath` makes, a local MCP server, or the commands of the package and binary managers, which take a `runner`. It decides how a command starts, and does not confine the command once it runs.
+The hook does not see a process a plugin starts itself with `node:child_process`, a local MCP server, or the commands of the package and binary managers, which take a `runner`. It decides how a command starts, and does not confine the command once it runs.
 
 ## Manage packages
 

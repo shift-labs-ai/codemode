@@ -339,8 +339,8 @@ export type {
 export type { CodemodeExecuteOptions, CodemodeOptions } from "./sdk.js";
 export { Codemode } from "./sdk.js";
 export type {
-  CommandOutput,
-  RunCommandOptions,
+  ProgramResult,
+  RunProgramOptions,
   RunShellOptions,
   ShellErrorCode,
   ShellProgram,
@@ -359,7 +359,7 @@ export {
   packageVersion,
   pathExists,
   runBinary,
-  runCommand,
+  runProgram,
   runShell,
   ShellError,
   shellConnectionSchema,

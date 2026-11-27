@@ -1,5 +1,5 @@
 import type { ActionContext, CodemodePluginAPI } from "@shiftlabs/codemode";
-import { commandExists, runCommand } from "@shiftlabs/codemode";
+import { commandExists, runProgram } from "@shiftlabs/codemode";
 
 /** The variables the docker CLI is pointed at a daemon with: `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG` and the rest. */
 function dockerEnvironment(): Record<string, string> {
@@ -13,7 +13,7 @@ function dockerEnvironment(): Record<string, string> {
 
 /** What `docker` wrote for these arguments. A failure is an error with what docker said. */
 async function docker(ctx: ActionContext, args: string[]): Promise<string> {
-  const { stdout, stderr, exitCode } = await runCommand(ctx, "docker", args, {
+  const { stdout, stderr, exitCode } = await runProgram(ctx, "docker", args, {
     env: dockerEnvironment(),
   });
   if (exitCode !== 0)

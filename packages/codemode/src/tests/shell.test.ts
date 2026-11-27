@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -46,6 +47,37 @@ describe("finding a command", () => {
     assert.equal(commandExists("sh"), true);
     assert.equal(commandPath("codemode-no-such-command"), undefined);
     assert.equal(commandExists("codemode-no-such-command"), false);
+  });
+
+  posix("reads PATH in order, and takes only a file that can be run", () => {
+    const [first, second] = [join(tmp, "first"), join(tmp, "second")];
+    for (const directory of [first, second]) mkdirSync(directory);
+    writeFileSync(join(first, "notes"), "", { mode: 0o644 });
+    writeFileSync(join(second, "notes"), "", { mode: 0o755 });
+    mkdirSync(join(first, "folder"));
+    const env = { PATH: `${first}::${second}` };
+    assert.equal(commandPath("notes", env), join(second, "notes"));
+    assert.equal(commandPath("folder", env), undefined);
+    assert.equal(commandPath("notes", { PATH: first }), undefined);
+    assert.equal(commandPath("notes", {}), undefined);
+    // A name with a directory in it is a path, not a name to look up.
+    assert.equal(commandPath("second/notes", { PATH: tmp }), undefined);
+    assert.equal(commandPath(join(second, "notes"), env), undefined);
+  });
+
+  it("tries a name with each of PATHEXT's extensions on Windows", () => {
+    writeFileSync(join(tmp, "pwsh.EXE"), "");
+    writeFileSync(join(tmp, "notes.txt"), "");
+    const env = { Path: `C:\\nowhere;${tmp}`, PATHEXT: ".COM;.EXE" };
+    assert.equal(commandPath("pwsh", env, "win32"), join(tmp, "pwsh.EXE"));
+    assert.equal(commandPath("pwsh.EXE", env, "win32"), join(tmp, "pwsh.EXE"));
+    assert.equal(commandPath("notes", env, "win32"), undefined);
+    // An extension outside PATHEXT is part of the name.
+    assert.equal(commandPath("notes.txt", env, "win32"), undefined);
+    assert.equal(
+      commandPath("pwsh", { PATH: tmp }, "win32"),
+      join(tmp, "pwsh.EXE"),
+    );
   });
 });
 

@@ -104,11 +104,11 @@ A package can declare [binaries](binaries.md): programs that codemode downloads 
 
 ## Control the commands actions start
 
-The shell packages run a script with the permissions and the whole environment of the codemode process. A program an action starts with `runCommand` or `runBinary` gets a short list of the host's variables and what its plugin names.
+The shell packages run a script with the permissions and the whole environment of the codemode process. A program an action starts with `runProgram` or `runBinary` gets a short list of the host's variables and what its plugin names.
 
 A host that embeds codemode sets `spawnHook` to replace a command's environment and working directory, start it through another program, or refuse it. See [Shape how commands start](sdk.md#shape-how-commands-start).
 
-The hook covers the shell packages, `runCommand`, and `runBinary`. A plugin that starts a process itself is not covered, and plugin code can do so, because it runs in the host process. The hook is not a sandbox: a command it lets through can do whatever its user can.
+The hook covers the shell packages, `runProgram`, and `runBinary`. A plugin that starts a process itself is not covered, and plugin code can do so, because it runs in the host process. The hook is not a sandbox: a command it lets through can do whatever its user can.
 
 ## Review MCP servers before adding them
 
