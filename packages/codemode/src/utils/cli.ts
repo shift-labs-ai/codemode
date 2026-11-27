@@ -71,6 +71,7 @@ export function commandExists(name: string): boolean {
 
 export { packageBinaries } from "../binaries/declaration.js";
 export { packageVersion } from "./package-version.js";
+export { killProcessTree } from "./process-tree.js";
 export {
   type ProgramResult,
   type RunProgramOptions,
@@ -79,7 +80,6 @@ export {
 } from "./program.js";
 export {
   isShellError,
-  killProcessTree,
   type RunShellOptions,
   runShell,
   ShellError,

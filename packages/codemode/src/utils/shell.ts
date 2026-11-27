@@ -1,12 +1,12 @@
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { join } from "node:path";
 import type { ActionContext } from "../plugin/types.js";
 import { definedEnvironment } from "./environment.js";
 import { OutputFollower } from "./follow.js";
 import { ACTION_MEMORY_BYTES, OutputFileWriter } from "./output-files.js";
 import { cutText, isOutputBytes, MIN_OUTPUT_LIMIT } from "./output-limit.js";
+import { endProcessTree, endWithHost } from "./process-tree.js";
 import { type SpawnCommand, shapeSpawn } from "./spawn.js";
 import { MAX_TIMEOUT_MS } from "./timers.js";
 
@@ -34,9 +34,9 @@ export interface RunShellOptions {
    * name set to `undefined` is left out of it.
    */
   env?: Readonly<Record<string, string | undefined>>;
-  /** After this long the command's process group is killed and the call rejects. Default: no limit. */
+  /** After this long the command is ended and the call rejects. Default: no limit. */
   timeoutMs?: number;
-  /** Aborting kills the command's process group and rejects the call. */
+  /** Aborting ends the command and rejects the call. */
   signal?: AbortSignal;
   /**
    * How much output is held in memory and returned. Past it the result
@@ -202,102 +202,6 @@ export class ShellOutput {
   }
 }
 
-function taskkill(): string {
-  // The System32 program, so that ending a command does not depend on PATH.
-  return join(
-    process.env.SystemRoot || "C:\\Windows",
-    "System32",
-    "taskkill.exe",
-  );
-}
-
-/** End a process and everything it started. */
-export function killProcessTree(pid: number): void {
-  if (process.platform === "win32") {
-    try {
-      spawn(taskkill(), ["/F", "/T", "/PID", String(pid)], {
-        stdio: "ignore",
-        detached: true,
-        windowsHide: true,
-      }).once("error", () => {});
-    } catch {
-      // Nothing to end, or no taskkill to end it with.
-    }
-    return;
-  }
-  if (process.platform === "darwin") {
-    // macOS signals a group's members one at a time, so a shell can see its
-    // killed child end and start the next command of `a; b` before its own
-    // signal arrives. Stopping the group first narrows that.
-    try {
-      process.kill(-pid, "SIGSTOP");
-    } catch {
-      // The kill is still tried.
-    }
-  }
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
-}
-
-/** Process groups in flight, each led by a command this process started. */
-const running = new Set<number>();
-/** The signals that end a process by default. */
-const ENDING_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
-
-function endRunning(): void {
-  if (!running.size) return;
-  if (process.platform !== "win32") {
-    for (const pid of running) killProcessTree(pid);
-  } else {
-    // Waited for: once this process is gone, taskkill no longer finds what
-    // the commands started.
-    spawnSync(
-      taskkill(),
-      ["/F", "/T", ...[...running].flatMap((pid) => ["/PID", String(pid)])],
-      { stdio: "ignore", timeout: 2000, windowsHide: true },
-    );
-  }
-  running.clear();
-}
-
-function onEndingSignal(signal: NodeJS.Signals): void {
-  endRunning();
-  stopWatchingHost();
-  // Listening took the signal's default away. With no listener of the
-  // host's own left, the signal ends the process as it would have.
-  if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
-}
-
-function stopWatchingHost(): void {
-  process.off("exit", endRunning);
-  for (const signal of ENDING_SIGNALS) process.off(signal, onEndingSignal);
-}
-
-/**
- * End `pid`'s process group with this process: on exit and on the signals
- * that end it. A group of its own does not get the terminal's Ctrl-C, so
- * nothing else would. Answers how to stop, once the command has ended. The
- * process is watched only while a command is in flight.
- */
-export function endWithHost(pid: number): () => void {
-  if (!running.size) {
-    process.on("exit", endRunning);
-    for (const signal of ENDING_SIGNALS) process.on(signal, onEndingSignal);
-  }
-  running.add(pid);
-  return () => {
-    running.delete(pid);
-    if (!running.size) stopWatchingHost();
-  };
-}
-
 /**
  * The exit code of a child, once it has ended and its output has been read.
  * A command may leave a background process holding its output pipes open,
@@ -419,8 +323,9 @@ export interface ProcessEnd {
  * process is started. A command with a `script` gets it as its last
  * argument, or on stdin when `scriptOnStdin`.
  *
- * The process leads a process group of its own. The group is killed on
- * timeout and abort, so what the command started ends with it.
+ * The process leads a process group of its own. On timeout and abort the
+ * command is ended as `endProcessTree` does, with what it started, and the
+ * call settles once that is done.
  */
 export async function runProcess(
   command: SpawnCommand,
@@ -451,10 +356,10 @@ export async function runProcess(
     child.stdin?.on("error", () => {});
     child.stdin?.end(command.script);
   }
-  const { pid } = child;
-  const stopWatching = pid === undefined ? undefined : endWithHost(pid);
-  const kill = () => {
-    if (pid !== undefined) killProcessTree(pid);
+  const stopWatching = endWithHost(child);
+  let ending: Promise<void> | undefined;
+  const end = () => {
+    ending = endProcessTree(child);
   };
 
   let exitedAfterMs: number | undefined;
@@ -481,24 +386,23 @@ export async function runProcess(
       ? undefined
       : setTimeout(() => {
           timedOut = { exitedAfterMs };
-          // Also when the process has exited: the group kill reaches what
-          // it left writing to the pipes.
-          kill();
+          end();
         }, timeoutMs);
-  signal?.addEventListener("abort", kill, { once: true });
+  signal?.addEventListener("abort", end, { once: true });
 
   let code: number | null;
   try {
     code = await ended(child, () => reading);
+    await ending;
   } catch (error) {
     throw new ShellError(
       "spawn_failed",
       `Could not start ${command.program}: ${(error as Error).message}`,
     );
   } finally {
-    stopWatching?.();
+    stopWatching();
     clearTimeout(timer);
-    signal?.removeEventListener("abort", kill);
+    signal?.removeEventListener("abort", end);
   }
   return {
     // A process ended by a signal has no exit code. The shell convention
@@ -539,8 +443,9 @@ export function endedEarly(
  * code; one that could not start, outlived `timeoutMs` or was aborted is a
  * `ShellError`.
  *
- * Every call is a new process in a process group of its own. The group is
- * killed on timeout and abort, so what the script started ends with it.
+ * Every call is a new process in a process group of its own. On timeout
+ * and abort the script is asked to end, with what it started, and killed if
+ * it has not ended 5 seconds later.
  */
 export async function runShell(
   shell: ShellProgram,

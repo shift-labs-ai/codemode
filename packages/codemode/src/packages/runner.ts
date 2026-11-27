@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { endWithHost, killProcessTree } from "../utils/shell.js";
+import { endProcessTree, endWithHost } from "../utils/process-tree.js";
 
 export interface CommandResult {
   code: number;
@@ -10,7 +10,7 @@ export interface CommandResult {
 export interface CommandOptions {
   cwd?: string;
   signal?: AbortSignal;
-  /** Milliseconds before the command is killed. */
+  /** Milliseconds before the command is ended. One that outlives them never answers code 0. */
   timeoutMs?: number;
   /** The command's whole environment. Default: the host process's. */
   env?: Record<string, string>;
@@ -62,8 +62,9 @@ export function quoteForCmd(arg: string): string {
  * can start, so those go through cmd.exe with every argument quoted by
  * `quoteForCmd`. Every other program is started directly.
  *
- * The command leads a process group of its own, which is killed on timeout
- * and abort: npm and git start processes that would otherwise outlive them.
+ * The command leads a process group of its own. On timeout and abort it is
+ * ended as `endProcessTree` does: npm and git start processes that would
+ * otherwise outlive them.
  */
 export const nodeCommandRunner: CommandRunner = {
   run(command, args, options = {}) {
@@ -85,26 +86,27 @@ export const nodeCommandRunner: CommandRunner = {
             detached: process.platform !== "win32",
             windowsHide: true,
           });
-      const { pid } = child;
-      const stopWatching = pid === undefined ? undefined : endWithHost(pid);
-      const kill = () => {
-        if (pid !== undefined) killProcessTree(pid);
-      };
+      const stopWatching = endWithHost(child);
+      let outlived = false;
       const timer =
         options.timeoutMs === undefined
           ? undefined
-          : setTimeout(kill, options.timeoutMs);
-      const onAbort = () => {
-        kill();
-        settle(() => reject(signal?.reason));
-      };
+          : setTimeout(() => {
+              outlived = child.exitCode === null && child.signalCode === null;
+              void endProcessTree(child);
+            }, options.timeoutMs);
+      // Rejected once the command and what it started are down.
+      const onAbort = () =>
+        void endProcessTree(child).then(() =>
+          settle(() => reject(signal?.reason)),
+        );
       let settled = false;
       const settle = (finish: () => void) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
-        stopWatching?.();
+        stopWatching();
         finish();
       };
       signal?.addEventListener("abort", onAbort, { once: true });
@@ -117,11 +119,15 @@ export const nodeCommandRunner: CommandRunner = {
         if (stderr.length < KEPT_OUTPUT_CHARS) stderr += chunk.toString();
       });
       child.on("error", (error) => settle(() => reject(error)));
-      child.on("close", (code, ended) =>
+      child.on("close", (code, ended) => {
+        // An aborted command settles from `onAbort`.
+        if (signal?.aborted) return;
+        // A command asked to end may exit cleanly: it still did not finish.
+        const failed = outlived ? code || 128 : code;
         settle(() =>
-          resolve({ code: code ?? (ended ? 128 : 1), stdout, stderr }),
-        ),
-      );
+          resolve({ code: failed ?? (ended ? 128 : 1), stdout, stderr }),
+        );
+      });
     });
   },
 };

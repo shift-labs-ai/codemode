@@ -914,6 +914,13 @@ ${pluginSource(
       });
       assert.equal(result.code, 128);
       assert.equal(await ends(await pidIn(timedOut)), true);
+      // One that ends cleanly when asked did not finish either.
+      const clean = await nodeCommandRunner.run(
+        "/bin/sh",
+        ["-c", "trap 'exit 0' TERM; sleep 30 & wait"],
+        { timeoutMs: 1_000 },
+      );
+      assert.equal(clean.code, 128);
 
       const aborted = join(tmp, "aborted");
       const giveUp = new AbortController();

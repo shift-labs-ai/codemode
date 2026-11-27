@@ -176,8 +176,25 @@ describe("running a script through a shell", () => {
 });
 
 describe("a script that does not run to its end", () => {
+  /**
+   * A command that starts `script` in a session of its own, outside the
+   * group of the shell that runs it, writes that process's pid to
+   * `pidFile`, and stays.
+   */
+  function leavingTheGroup(pidFile: string, script: string): string {
+    const file = join(tmp, "leave.cjs");
+    writeFileSync(
+      file,
+      `const child = require("node:child_process").spawn(
+  "/bin/sh", ["-c", ${JSON.stringify(script)}], { detached: true, stdio: "ignore" });
+require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
+setInterval(() => {}, 60_000);`,
+    );
+    return `"${process.execPath}" "${file}"`;
+  }
+
   posix(
-    "is killed with what it started when it outlives its timeout",
+    "is ended with what it started when it outlives its timeout",
     async () => {
       const pidFile = join(tmp, "pid");
       const failure = await runShell(
@@ -200,21 +217,37 @@ describe("a script that does not run to its end", () => {
   posix(
     "says so when the shell had exited and only its background output remained",
     async () => {
-      const failure = await runShell(
-        SH,
-        "(while true; do echo tick; sleep 0.02; done) & exit 3",
-        { timeoutMs: 1_000 },
-      ).catch((error) => error);
+      const pidFile = join(tmp, "pid");
+      const signalled: number[] = [];
+      const kill = process.kill;
+      process.kill = (pid, signal) => {
+        signalled.push(pid);
+        return kill.call(process, pid, signal);
+      };
+      let failure: unknown;
+      try {
+        failure = await runShell(
+          SH,
+          `(while true; do echo tick; sleep 0.02; done) & echo $! > ${pidFile}; exit 3`,
+          { timeoutMs: 1_000 },
+        ).catch((error) => error);
+      } finally {
+        process.kill = kill;
+      }
       assert.ok(isShellError(failure));
       assert.equal(failure.code, "timed_out");
       assert.match(
         failure.message,
         /The command exited with code 3 after [\d.]+ seconds, but background processes it started kept writing output until the timeout\./,
       );
+      // The shell had ended, and its group's id with it: nothing is
+      // signalled. What it left in the background stays, as after any command.
+      assert.deepEqual(signalled, []);
+      process.kill(await pidIn(pidFile), "SIGKILL");
     },
   );
 
-  posix("is killed with what it started when its caller gives up", async () => {
+  posix("is ended with what it started when its caller gives up", async () => {
     const pidFile = join(tmp, "pid");
     const giveUp = new AbortController();
     const run = runShell(SH, `sleep 30 & echo $! > ${pidFile}; wait`, {
@@ -232,6 +265,53 @@ describe("a script that does not run to its end", () => {
     }).catch((error) => error);
     assert.equal(before.code, "aborted");
   });
+
+  posix("is asked to end first, so it can clean up", async () => {
+    const [pidFile, cleaned] = [join(tmp, "pid"), join(tmp, "cleaned")];
+    const giveUp = new AbortController();
+    const run = runShell(
+      SH,
+      `trap 'echo yes > ${cleaned}; exit 0' TERM; echo $$ > ${pidFile}; sleep 30 & wait`,
+      { signal: giveUp.signal },
+    ).catch((error) => error);
+    await pidIn(pidFile);
+    giveUp.abort();
+    assert.equal((await run).code, "aborted");
+    assert.equal(readFileSync(cleaned, "utf8"), "yes\n");
+  });
+
+  posix("ends what left its group for a session of its own", async () => {
+    const pidFile = join(tmp, "pid");
+    const giveUp = new AbortController();
+    const run = runShell(SH, leavingTheGroup(pidFile, "sleep 30"), {
+      signal: giveUp.signal,
+    }).catch((error) => error);
+    const left = await pidIn(pidFile);
+    giveUp.abort();
+    assert.equal((await run).code, "aborted");
+    assert.equal(await ends(left), true);
+  });
+
+  posix(
+    "is killed when it does not end, with what left its group",
+    // The command has END_GRACE_MS to end before it is killed.
+    { timeout: 30_000 },
+    async () => {
+      const [shellFile, pidFile] = [join(tmp, "shell"), join(tmp, "pid")];
+      const giveUp = new AbortController();
+      // Ignoring a signal is inherited, so nothing here ends when asked.
+      const run = runShell(
+        SH,
+        `trap '' TERM; echo $$ > ${shellFile}; ${leavingTheGroup(pidFile, "sleep 30")}`,
+        { signal: giveUp.signal },
+      ).catch((error) => error);
+      const [shell, left] = [await pidIn(shellFile), await pidIn(pidFile)];
+      giveUp.abort();
+      assert.equal((await run).code, "aborted");
+      assert.equal(await ends(shell), true);
+      assert.equal(await ends(left), true);
+    },
+  );
 
   it("names the program that could not be started, and a directory that is not there", async () => {
     const missing = await runShell(
@@ -264,15 +344,25 @@ describe("a script that does not run to its end", () => {
 });
 
 describe("a command whose host ends first", () => {
-  /** Start a host that runs `sleep` through `runShell`, and answer both pids. */
-  async function host(ending: "exit" | "wait") {
+  /**
+   * Start a host that runs a command through `runShell`, and answer both
+   * pids once the host says the command is its to end. The command is
+   * `sleep`, or what `script` makes of the file its pid goes in.
+   */
+  async function host(
+    ending: "exit" | "wait",
+    script?: (pidFile: string) => string,
+  ) {
     const pidFile = join(tmp, "pid");
-    const child = spawn(process.execPath, [HOST, pidFile, ending], {
-      stdio: "ignore",
-    });
+    const child = spawn(
+      process.execPath,
+      [HOST, pidFile, ending, ...(script ? [script(pidFile)] : [])],
+      { stdio: "ignore" },
+    );
     const closed = new Promise<NodeJS.Signals | null>((resolve) =>
       child.once("close", (_code, signal) => resolve(signal)),
     );
+    assert.equal(await pidIn(`${pidFile}.ready`), child.pid);
     return { child, command: await pidIn(pidFile), closed };
   }
 
@@ -288,6 +378,29 @@ describe("a command whose host ends first", () => {
       const { child, command, closed } = await host("wait");
       child.kill("SIGTERM");
       assert.equal(await closed, "SIGTERM");
+      assert.equal(await ends(command), true);
+    },
+  );
+
+  posix(
+    "is killed at once when the host is interrupted a second time",
+    // Longer than the command's time to end, so a host that waits for it
+    // fails by the signal it ends by.
+    { timeout: 30_000 },
+    async () => {
+      const asked = join(tmp, "asked");
+      // A command that says it was asked to end, and stays.
+      const { child, command, closed } = await host(
+        "wait",
+        (pidFile) =>
+          `trap 'echo $$ > ${asked}' TERM; echo $$ > ${pidFile}; while true; do sleep 1; done`,
+      );
+      child.kill("SIGTERM");
+      assert.equal(await pidIn(asked), command);
+      child.kill("SIGINT");
+      // The host ends by the second signal, not by the first once the
+      // command's time to end is up.
+      assert.equal(await closed, "SIGINT");
       assert.equal(await ends(command), true);
     },
   );
