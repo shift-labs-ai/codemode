@@ -68,7 +68,7 @@ This registers one plugin, keeps its connection in memory, and runs the code in 
 
 `execute()` does not reject when the code fails. Check `error`.
 
-Pass `timeoutMs` or `memoryLimitBytes` to override the instance defaults for one run. A `timeoutMs` of `0` disables the timeout.
+Pass `timeoutMs` or `memoryLimitBytes` to override the instance defaults for one run. A `timeoutMs` of `0` disables the timeout. Pass `signal` to [stop a run](#stop-a-run) and `onOutput` to [follow it](#follow-a-run).
 
 Pass `context` to deliver a value to every action called during the run:
 
@@ -81,6 +81,51 @@ const outcome = await codemode.execute(code, {
 Actions read it as `ctx.context`. The code being run cannot see or change it, so a host can use it to carry the identity a run acts for.
 
 Concurrent calls to `execute()` run in separate workers. See [Run Code](usage.md) for what the code can use.
+
+## Stop a run
+
+Pass `signal` to end a run before it finishes:
+
+```typescript
+const stop = new AbortController();
+const run = codemode.execute(code, { signal: stop.signal });
+
+stop.abort();
+const { error } = await run; // "Execution aborted"
+```
+
+Aborting settles the run with an error and fires `ctx.signal` for every action it still waits on, which ends their commands and requests. A signal that is already aborted starts nothing. The instance stays usable: the next run gets a new worker.
+
+`dispose()` does not stop a run. It lets the run in progress finish.
+
+## Follow a run
+
+Pass `onOutput` to receive what a run's actions produce while they run:
+
+```typescript
+await codemode.execute(code, {
+  onOutput: ({ path, text }) => {
+    process.stderr.write(`[${path}] ${text}`);
+  },
+});
+```
+
+It is called with a command's output as the command writes it, for the shell packages, `runShell` given a `ctx`, `runProgram`, and `runBinary`, and with what any action hands to `ctx.output`. A run's result is the same with or without it.
+
+| Field | Contents |
+|---|---|
+| `plugin`, `action`, `path` | The action that produced the output |
+| `text` | The output, as text. A character is never split between two calls |
+
+Return a promise to hold output back. Until it settles, that action is handed nothing more and its command is not read, so a command that writes faster than the host takes is slowed and not held in memory:
+
+```typescript
+await codemode.execute(code, {
+  onOutput: ({ text }) => socket.send(text), // resolves when the socket has taken it
+});
+```
+
+Each action's output arrives one piece at a time and in order. Two actions running at once are followed independently. An error the function throws is ignored, and nothing is delivered after the run ends.
 
 ## Limit a run's result
 

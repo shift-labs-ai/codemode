@@ -157,6 +157,14 @@ export interface ActionContext {
    */
   maxOutputBytes?: number;
   /**
+   * Hand the host output as it is produced, for a host that follows a run
+   * while it is in progress. What the action returns is unchanged by it.
+   * It answers a promise while the host is behind: wait for it before
+   * producing more, so that output is held back at its source and not in
+   * memory. Present on every call the engine dispatches.
+   */
+  output?: (text: string) => void | Promise<void>;
+  /**
    * The path of a program the plugin declares, by its name there. Rejects
    * when the host has not installed it, with the command that does: an
    * action never downloads one. Present on every call the engine
@@ -185,7 +193,9 @@ export interface ActionContext {
  * action is called: what the engine supplies on every call is present.
  */
 export type DispatchedContext = ActionContext &
-  Required<Pick<ActionContext, "signal" | "maxOutputBytes" | "binary">>;
+  Required<
+    Pick<ActionContext, "signal" | "maxOutputBytes" | "output" | "binary">
+  >;
 
 /**
  * OAuth2 authorization-code configuration declared by a plugin.

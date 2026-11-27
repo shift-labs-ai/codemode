@@ -155,6 +155,29 @@ describe("bash.run", () => {
     }
   });
 
+  posix(
+    "hands its output to a host that follows the run, and ends when the host stops it",
+    async () => {
+      const stop = new AbortController();
+      const pidFile = join(harness.tmp, "followed-pid");
+      const seen: string[] = [];
+      const run = codemode().execute(
+        `return await bash.run({ command: "sleep 30 & echo $! > ${pidFile}; echo started; wait" })`,
+        {
+          signal: stop.signal,
+          timeoutMs: 0,
+          onOutput: ({ path, text }) => {
+            seen.push(`${path}: ${text}`);
+            stop.abort();
+          },
+        },
+      );
+      assert.equal((await run).error, "Execution aborted");
+      assert.deepEqual(seen, ["bash.run: started\n"]);
+      assert.equal(await ends(await pidIn(pidFile)), true);
+    },
+  );
+
   it("refuses input that is not a command", async () => {
     for (const input of [{}, { command: "" }, { command: "ls", timeout: 5 }]) {
       const { error } = await codemode().execute(

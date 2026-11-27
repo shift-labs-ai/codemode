@@ -1,5 +1,6 @@
 import type { ActionContext } from "../plugin/types.js";
 import { inheritedEnvironment } from "./environment.js";
+import { OutputFollower } from "./follow.js";
 import {
   checkedOutputBytes,
   endedEarly,
@@ -82,19 +83,28 @@ export async function runProgram(
     stdout: await output.stdout.finish(),
     stderr: await output.stderr.finish(),
   });
+  const follower = new OutputFollower(ctx.output);
   let end: ProcessEnd;
   try {
     end = await runProcess(command, {
       ...limits,
-      take: (chunk, from) => output[from].append(chunk),
+      take: (chunk, from) => {
+        const kept = output[from].append(chunk);
+        return follower.take(chunk, from) && kept;
+      },
       drained: async () => {
-        await Promise.all([output.stdout.drained(), output.stderr.drained()]);
+        await Promise.all([
+          output.stdout.drained(),
+          output.stderr.drained(),
+          follower.drained(),
+        ]);
       },
     });
   } catch (error) {
     await finish();
     throw error;
   }
+  await follower.finish();
   const { stdout, stderr } = await finish();
   // What an error quotes is what explains it: stderr, when there is some.
   const early = endedEarly(end, limits, stderr.text.trim() ? stderr : stdout);

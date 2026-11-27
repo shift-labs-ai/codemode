@@ -28,6 +28,7 @@ import type {
   InputSchema,
   PluginDef,
 } from "./plugin/types.js";
+import type { OutputListener } from "./utils/follow.js";
 import type { OutputLimitSetting } from "./utils/output-limit.js";
 import type { SpawnHook } from "./utils/spawn.js";
 
@@ -108,6 +109,17 @@ export interface CodemodeExecuteOptions {
   outputLimit?: OutputLimitSetting;
   /** How much one action may hold in memory during this run, in place of the instance's. */
   maxActionOutputBytes?: number;
+  /**
+   * Aborting ends the run: the commands and requests its actions still
+   * wait on are stopped, and the run settles with an error.
+   */
+  signal?: AbortSignal;
+  /**
+   * Receives what the run's actions produce while they run, such as a
+   * command's output as it is written. A promise it returns holds that
+   * action's output back until it settles. What it throws is ignored.
+   */
+  onOutput?: OutputListener;
 }
 
 export class Codemode {
