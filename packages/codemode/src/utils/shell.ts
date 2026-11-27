@@ -2,7 +2,9 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join } from "node:path";
+import type { ActionContext } from "../plugin/types.js";
 import { definedEnvironment } from "./environment.js";
+import { OutputFollower } from "./follow.js";
 import { ACTION_MEMORY_BYTES, OutputFileWriter } from "./output-files.js";
 import { cutText, isOutputBytes, MIN_OUTPUT_LIMIT } from "./output-limit.js";
 import { type SpawnCommand, shapeSpawn } from "./spawn.js";
@@ -21,9 +23,10 @@ export interface RunShellOptions {
   /**
    * The context of the action call the command runs for. Its host's
    * `spawnHook` then shapes how the command is started. Absent, the command
-   * is started as it is given.
+   * is started as it is given. Its `ctx.output` is handed what the command
+   * writes, as it writes it.
    */
-  ctx?: object;
+  ctx?: ActionContext;
   /** Working directory. Default: the host process's. */
   cwd?: string;
   /**
@@ -562,19 +565,26 @@ export async function runShell(
     options.outputFilePrefix ?? "codemode-shell",
     options.outputDir,
   );
+  const follower = new OutputFollower(options.ctx?.output);
   let end: ProcessEnd;
   try {
     end = await runProcess(command, {
       scriptOnStdin: shell.scriptOnStdin,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
-      take: (chunk) => output.append(chunk),
-      drained: () => output.drained(),
+      take: (chunk, from) => {
+        const kept = output.append(chunk);
+        return follower.take(chunk, from) && kept;
+      },
+      drained: async () => {
+        await Promise.all([output.drained(), follower.drained()]);
+      },
     });
   } catch (error) {
     await output.finish();
     throw error;
   }
+  await follower.finish();
   const written = await output.finish();
   const early = endedEarly(end, options, written);
   if (early) throw early;

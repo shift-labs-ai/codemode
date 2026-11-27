@@ -365,6 +365,7 @@ export {
   shellConnectionSchema,
   shellRunAction,
 } from "./utils/cli.js";
+export type { ActionOutput, OutputListener } from "./utils/follow.js";
 export {
   IMAGE_EXTENSIONS,
   type ImageFacts,

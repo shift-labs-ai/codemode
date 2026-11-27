@@ -30,6 +30,7 @@ import type {
   PluginDef,
   TypedInputSchema,
 } from "../plugin/types.js";
+import { followedOutput, type OutputListener } from "../utils/follow.js";
 import { notifyObserver } from "../utils/observer.js";
 import { ACTION_MEMORY_BYTES } from "../utils/output-files.js";
 import {
@@ -67,6 +68,13 @@ export interface EngineOptions {
   outputLimit?: OutputLimitSetting;
   /** How much one action may hold in memory. Default: the config's `maxActionOutputBytes`. */
   maxActionOutputBytes?: number;
+  /**
+   * Aborting ends the run: `ctx.signal` fires for every action it still
+   * waits on, and the run settles with an error.
+   */
+  signal?: AbortSignal;
+  /** Receives what this run's actions hand to `ctx.output`, as it is produced. */
+  onOutput?: OutputListener;
 }
 
 /**
@@ -380,6 +388,12 @@ export class ExecutionEngine {
         logs,
       };
     }
+    const aborted = (): ExecuteResult => ({
+      result: null,
+      error: "Execution aborted",
+      logs,
+    });
+    if (options?.signal?.aborted) return aborted();
     if (outputDir !== undefined) {
       try {
         mkdirSync(outputDir, { recursive: true });
@@ -448,6 +462,7 @@ export class ExecutionEngine {
         ended.abort();
         clearTimeout(timeoutTimer);
         clearInterval(rssTimer);
+        options?.signal?.removeEventListener("abort", onAbort);
         worker.unref?.();
         worker.off("message", onMessage);
         worker.off("error", onError);
@@ -456,6 +471,10 @@ export class ExecutionEngine {
         // Every way a run ends passes here, so all of them are bounded.
         resolve(outputLimit ? boundRun(r, outputLimit, outputDir) : r);
       };
+
+      // The worker cannot be asked to stop either, so an aborted run
+      // retires it, as a timed-out one does.
+      const onAbort = () => finish(aborted(), true);
 
       // The acquire-time unref must not let the host exit mid-run: hold
       // the loop for the run's duration, whether or not a timer is armed.
@@ -521,7 +540,11 @@ export class ExecutionEngine {
             msg.args,
             ended.signal,
             options?.context,
-            { outputDir, maxOutputBytes: maxActionOutputBytes },
+            {
+              outputDir,
+              maxOutputBytes: maxActionOutputBytes,
+              onOutput: options?.onOutput,
+            },
           ).then(
             (value) => {
               let serialized: unknown;
@@ -600,6 +623,7 @@ export class ExecutionEngine {
       worker.on("message", onMessage);
       worker.on("error", onError);
       worker.on("exit", onExit);
+      options?.signal?.addEventListener("abort", onAbort, { once: true });
 
       reply({ t: "run", runId, body });
     });
@@ -610,7 +634,11 @@ export class ExecutionEngine {
     rawArgs: unknown,
     signal: AbortSignal,
     context: unknown,
-    output: { outputDir: string | undefined; maxOutputBytes: number },
+    output: {
+      outputDir: string | undefined;
+      maxOutputBytes: number;
+      onOutput: OutputListener | undefined;
+    },
   ): Promise<unknown> {
     // A call written with no arguments reaches the action as `{}`, not
     // `undefined`, so plugins can read `input.foo` without guarding.
@@ -651,6 +679,11 @@ export class ExecutionEngine {
         ? {}
         : { outputDir: output.outputDir }),
       maxOutputBytes: output.maxOutputBytes,
+      output: followedOutput(
+        output.onOutput,
+        { plugin: plugin.name, action: action.name, path },
+        signal,
+      ),
       binary: async (name) => {
         if (!this.hooks.binaries)
           throw new Error(`${plugin.name}: this host installs no binaries`);

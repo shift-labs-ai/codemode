@@ -87,6 +87,7 @@ Return a file's path instead of large or binary content. `writeOutputFile(prefix
 | `ctx.signal` | An `AbortSignal` that fires when the run that made the call ends. Pass it to work that should stop with the run |
 | `ctx.outputDir` | Where the host keeps output files, when it names a place. Write large or binary output there with `writeOutputFile()` and return the path |
 | `ctx.maxOutputBytes` | How much the host lets an action hold in memory and hand back, 8 MiB by default. Pass it to `runShell`, or keep what is past it in a file |
+| `ctx.output(text)` | Hands the host output while the action runs, for a host that [follows the run](sdk.md#follow-a-run). It returns a promise while the host is behind: await it before producing more |
 | `ctx.binary(name)` | The path of a [binary](binaries.md) the plugin declares. Rejects when the host has not installed it. Run one with `runBinary(ctx, name, args)` |
 | `ctx.log` | `info`, `warn`, and `error`, prefixed with the plugin name |
 | `ctx.updateConnection(patch)` | Persists a change to the connection's config through the host |
@@ -173,7 +174,7 @@ const result = await runShell(
 // { output: " M README.md\n", exitCode: 0, truncated: false, wallTimeMs: 12 }
 ```
 
-Pass `ctx` so that the host's [`spawnHook`](sdk.md#shape-how-commands-start) shapes how the command starts, `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
+Pass `ctx` so that the host's [`spawnHook`](sdk.md#shape-how-commands-start) shapes how the command starts and a host that [follows the run](sdk.md#follow-a-run) receives the output as it is written, `ctx.signal` so that a command ends with the run that started it, `ctx.maxOutputBytes` so that it holds as much output as the host allows, and `ctx.outputDir` so that the rest is kept where the host keeps its output files.
 
 | Outcome | Result |
 |---|---|
@@ -221,7 +222,7 @@ const { stdout, stderr, exitCode } = await runProgram(ctx, "git", ["rev-parse", 
 });
 ```
 
-It takes the action's `ctx`, so the program ends with the run, holds as much output as the host allows, and starts as the host's [`spawnHook`](sdk.md#shape-how-commands-start) says. It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`, and rejects with a `ShellError` as `runShell` does.
+It takes the action's `ctx`, so the program ends with the run, holds as much output as the host allows, starts as the host's [`spawnHook`](sdk.md#shape-how-commands-start) says, and hands its output to a host that [follows the run](sdk.md#follow-a-run). It answers `stdout`, `stderr`, `exitCode`, `truncated`, and `wallTimeMs`, and rejects with a `ShellError` as `runShell` does.
 
 The program does not inherit the environment of the codemode process. It gets a short list of it, such as `PATH`, `HOME`, and the proxy variables, and the variables passed as `env`. Pass each variable the program needs by name.
 
