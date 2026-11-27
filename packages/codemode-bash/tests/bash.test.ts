@@ -134,9 +134,10 @@ describe("bash.run", () => {
         };
       },
     });
+    process.env.CODEMODE_BASH_TEST_HOST = "from-host";
     try {
       const ran = await host.execute(
-        'return await bash.run({ command: "pwd -P; echo $HOSTED $NAMED $HOME." })',
+        'return await bash.run({ command: "pwd -P; echo $HOSTED $NAMED $CODEMODE_BASH_TEST_HOST." })',
       );
       assert.equal(ran.error, undefined);
       const [cwd, variables] = (ran.result as ShellResult).output
@@ -149,6 +150,7 @@ describe("bash.run", () => {
       );
       assert.match(refused.error ?? "", /Refused by the host/);
     } finally {
+      delete process.env.CODEMODE_BASH_TEST_HOST;
       host.dispose();
     }
   });

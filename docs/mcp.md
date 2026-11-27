@@ -240,7 +240,7 @@ Codemode keeps each server's tool list in the `mcp` folder beside the configurat
 - An edited `command`, `args`, `env`, `cwd`, `url`, or `headers` discards the cached list.
 - A server that announces a changed tool list has its list read again. The next run sees the new tools.
 - A server that sends what is not JSON-RPC, such as a log line on stdout, is reported as a warning on stderr.
-- A local server gets a short list of environment variables, such as `PATH` and `HOME`, and its entry's `env`. It does not inherit the rest of the environment.
+- A local server gets a short list of environment variables, such as `PATH`, `HOME`, and the proxy and certificate variables, and its entry's `env`. It does not inherit the rest of the environment.
 - When a command ends, codemode closes each local server's input and then terminates its process group, so a server started through `npx` or `uvx` ends too.
 
 ## Use resources
