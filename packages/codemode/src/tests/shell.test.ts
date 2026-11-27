@@ -346,8 +346,8 @@ setInterval(() => {}, 60_000);`,
 describe("a command whose host ends first", () => {
   /**
    * Start a host that runs a command through `runShell`, and answer both
-   * pids. The command is `sleep`, or what `script` makes of the file its pid
-   * goes in.
+   * pids once the host says the command is its to end. The command is
+   * `sleep`, or what `script` makes of the file its pid goes in.
    */
   async function host(
     ending: "exit" | "wait",
@@ -362,6 +362,7 @@ describe("a command whose host ends first", () => {
     const closed = new Promise<NodeJS.Signals | null>((resolve) =>
       child.once("close", (_code, signal) => resolve(signal)),
     );
+    assert.equal(await pidIn(`${pidFile}.ready`), child.pid);
     return { child, command: await pidIn(pidFile), closed };
   }
 
