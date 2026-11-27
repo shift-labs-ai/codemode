@@ -186,7 +186,9 @@ Pass `ctx` so that the host's [`spawnHook`](sdk.md#shape-how-commands-start) sha
 
 `output` is stdout and stderr together. They are two pipes, so a line of one may land before an earlier line of the other. Output is returned whole up to `maxOutputBytes`, which guards the process's memory. Past that it is its last lines, closed by a line that says which lines they are, and the whole of it is written to a file named by `fullOutputPath` that only your account can read. The file is in `outputDir`, or in the system's temporary directory.
 
-The command inherits the environment of the codemode process, with `env` added to it. It runs in a process group of its own, and codemode ends that group when its own process exits or is interrupted. Check a failure with `isShellError()`.
+The command inherits the environment of the codemode process, with `env` added to it. Check a failure with `isShellError()`.
+
+The command runs in a process group of its own. On a timeout, on an abort, and when the codemode process is interrupted, codemode sends SIGTERM to the group and to every process the command started, including one that left the group. What is still running 5 seconds later gets SIGKILL, and the call settles after that. A command whose shell has already exited is not signalled: the call stops reading its output, and a process it left in the background keeps running, as it does after a command that returns. A codemode process that exits kills its commands at once. On Windows the command's process tree is always killed at once.
 
 A plugin that is a shell or an interpreter registers `shellRunAction` instead, which gives it the same `run` action as `bash`, `powershell`, and `node`: the inputs `command`, `cwd` and `timeoutMs`, and the result above. The plugin names the program and turns a command into its script:
 

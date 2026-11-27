@@ -18,7 +18,7 @@ export interface RunProgramOptions {
    * (`INHERITED_ENVIRONMENT`). It gets nothing else of the host's.
    */
   env?: Readonly<Record<string, string>>;
-  /** After this long the program's process group is killed and the call rejects. Default: no limit of its own. */
+  /** After this long the program is ended and the call rejects. Default: no limit of its own. */
   timeoutMs?: number;
 }
 
