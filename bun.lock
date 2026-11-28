@@ -12,7 +12,7 @@
     },
     "packages/codemode": {
       "name": "@shiftlabs/codemode",
-      "version": "0.47.0",
+      "version": "0.48.0",
       "bin": {
         "codemode": "./dist/main.js",
       },
@@ -190,7 +190,7 @@
     },
     "packages/runline": {
       "name": "runline",
-      "version": "0.47.0",
+      "version": "0.48.0",
       "bin": {
         "runline": "./cli.js",
       },
