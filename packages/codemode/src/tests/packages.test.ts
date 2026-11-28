@@ -1075,7 +1075,7 @@ export default function (api: RunlinePluginAPI) {
     assert.match(reports.join("\n"), /"runline" in .*package\.json/);
     assert.match(reports.join("\n"), /import from "runline"/);
     for (const report of reports)
-      assert.match(report, /stops working in 0\.48\.0/);
+      assert.match(report, /stops working in 0\.49\.0/);
   });
 
   it("prefers .codemode over a .runline beside it, and keeps the trust given to the old folder", async () => {
