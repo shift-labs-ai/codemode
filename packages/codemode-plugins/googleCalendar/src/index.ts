@@ -318,6 +318,13 @@ function applyEventFields(
 // ─── Plugin ──────────────────────────────────────────────────────
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
+// Meet settings are separate from Calendar access. Include them in user consent
+// so Calendar extensions can configure recording on Calendar-created meetings.
+// Keep Calendar request/service-account scopes unchanged.
+const CONSENT_SCOPES = [
+  ...SCOPES,
+  "https://www.googleapis.com/auth/meetings.space.settings",
+];
 
 const optionalPositiveInteger = t.Optional(PositiveInteger);
 const calendarId = NonEmptyString;
@@ -615,7 +622,7 @@ export default function googleCalendar(rl: CodemodePluginAPI) {
   rl.setVersion("0.1.0");
   rl.setCredential(googleCredential("googleCalendar", SCOPES));
 
-  rl.setOAuth(googleOAuth("googleCalendar", SCOPES, "GOOGLE_CALENDAR"));
+  rl.setOAuth(googleOAuth("googleCalendar", CONSENT_SCOPES, "GOOGLE_CALENDAR"));
 
   rl.setConnectionSchema(t.Object(googleConnection("GOOGLE_CALENDAR")));
 

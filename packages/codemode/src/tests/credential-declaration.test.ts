@@ -97,7 +97,7 @@ describe("registry-backed plugins declare their credential", () => {
     });
   }
 
-  it("Google and Microsoft sign for exactly the scopes their consent asks for", () => {
+  it("Google and Microsoft sign for their required scopes, with Calendar-only service accounts preserved", () => {
     const { privateKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -126,7 +126,11 @@ describe("registry-backed plugins declare their credential", () => {
       assert.equal(auth?.kind, "oauth2");
       assert.deepEqual(
         auth?.kind === "oauth2" ? auth.scopes : undefined,
-        def.oauth?.scopes,
+        // Calendar user consent additionally authorizes Meet extensions. Existing
+        // service-account Calendar calls must not require new admin delegation.
+        def.name === "googleCalendar"
+          ? ["https://www.googleapis.com/auth/calendar"]
+          : def.oauth?.scopes,
         def.name,
       );
       assert.equal(selection?.jwtIdentity?.issuer, "robot@example.com");
