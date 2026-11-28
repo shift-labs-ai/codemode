@@ -2,7 +2,7 @@
 
 Codemode is runline under a new name. The package, the command, the folders, and the exported names changed in 0.46.0. Nothing about how plugins, connections, or runs work changed with them.
 
-The runline names keep working until 0.48.0. Codemode reports each one it meets, once per process, with the name that replaces it. Migrate before upgrading to 0.48.0.
+The runline names keep working until 0.49.0. Codemode reports each one it meets, once per process, with the name that replaces it. Migrate before upgrading to 0.49.0.
 
 ## Rename everything
 
@@ -59,7 +59,7 @@ const codemode = Codemode.create({ plugins });
 
 A host that passes folders itself, through `userDir` or `PackageManager` roots, keeps the folders it passes. Only the default locations changed.
 
-## Understand what keeps working until 0.48.0
+## Understand what keeps working until 0.49.0
 
 - The `runline` package on npm forwards to `@shiftlabs/codemode` and exports the runline names. Its `runline` command prints a notice and runs `codemode`.
 - A `.runline` folder is used where no `.codemode` folder sits beside it.

@@ -6,7 +6,7 @@
  * the `runline-plugin` npm keyword. Each is reported once per process when
  * it is used, with the name that replaces it.
  */
-export const LEGACY_NAMES_REMOVED_IN = "0.48.0";
+export const LEGACY_NAMES_REMOVED_IN = "0.49.0";
 
 const reported = new Set<string>();
 
